@@ -14,128 +14,160 @@
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
-<header class="top">
-  <div class="brand">
-    <svg class="mark" viewBox="0 0 100 100" width="30" height="30" aria-hidden="true"><circle cx="50" cy="50" r="41" fill="none" stroke="#B8F28A" stroke-width="7"/><path d="M19 50H81" stroke="#3A4452" stroke-width="2.4"/><circle cx="27" cy="64" r="4.3" fill="#B8F28A"/><circle cx="27" cy="49.5" r="4.3" fill="#9FD8FF"/><circle cx="38.5" cy="59.4" r="4.3" fill="#B8F28A"/><circle cx="38.5" cy="44.9" r="4.3" fill="#9FD8FF"/><circle cx="50" cy="54.8" r="4.3" fill="#B8F28A"/><circle cx="50" cy="40.3" r="4.3" fill="#9FD8FF"/><circle cx="61.5" cy="50.2" r="4.3" fill="#B8F28A"/><circle cx="61.5" cy="35.7" r="4.3" fill="#9FD8FF"/><circle cx="73" cy="45.6" r="4.3" fill="#B8F28A"/><circle cx="73" cy="31.1" r="4.3" fill="#9FD8FF"/></svg>
-    <span>Tickwerk</span>
-  </div>
-  <div class="actions">
-    <button type="button" class="btn-ghost small" id="updateBtn" hidden>Neue Version: neu laden</button>
-    <button type="button" class="btn-ghost small" id="installBtn" hidden>Installieren</button>
-  </div>
-</header>
+<main id="app">
 
-<main>
   <!-- ======================= MESSEN ======================= -->
-  <section class="screen" id="screen-measure" aria-labelledby="tab-measure">
-    <div class="card">
-      <div class="row2">
-        <div class="field">
-          <label for="watch">Uhr</label>
-          <select id="watch"></select>
-        </div>
-        <div class="field">
-          <label for="position">Lage</label>
-          <select id="position">
-            <option value="ZO">Zifferblatt oben</option>
-            <option value="ZU">Zifferblatt unten</option>
-            <option value="KU">Krone unten</option>
-            <option value="KO">Krone oben</option>
-            <option value="KL">Krone links</option>
-            <option value="KR">Krone rechts</option>
-          </select>
-        </div>
+  <section class="screen" id="scr-measure" aria-label="Messen">
+    <div class="mhead">
+      <div class="mhead-txt">
+        <span class="eyebrow" id="mState">Bereit</span>
+        <span class="mwatch-name" id="mWatchName">Unbekannte Uhr</span>
+        <span class="mono-sub" id="mWatchSub">Werk unbekannt</span>
       </div>
-      <p class="hint" id="watchHint"></p>
-    </div>
-
-    <div class="card measure">
-      <button type="button" class="start" id="startBtn" aria-live="polite">
-        <svg class="ring" viewBox="0 0 120 120" aria-hidden="true">
-          <circle cx="60" cy="60" r="54" class="ring-bg"></circle>
-          <circle cx="60" cy="60" r="54" class="ring-fg" id="ringFg"></circle>
-        </svg>
-        <span class="start-label" id="startLabel">Messen</span>
-        <span class="start-sub" id="startSub">30 Sekunden</span>
+      <button type="button" class="round" id="mWatchPick" aria-label="Uhr wechseln" aria-haspopup="dialog">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
       </button>
-      <div class="seg" role="radiogroup" aria-label="Messdauer">
-        <button type="button" role="radio" data-dur="20">20 s</button>
-        <button type="button" role="radio" data-dur="30">30 s</button>
-        <button type="button" role="radio" data-dur="60">60 s</button>
-      </div>
-      <div class="live">
-        <div class="level" aria-hidden="true"><div class="level-fill" id="levelFill"></div></div>
-        <p class="status" id="status" data-kind="">Unterkante des Handys an die Krone halten, dann «Messen» tippen.</p>
-        <button type="button" class="btn-ghost small share" id="shareBtn" hidden>Aufnahme teilen (WAV)</button>
-      </div>
-      <canvas class="plot" id="liveTape" height="110" aria-label="Papierstreifen live" hidden></canvas>
+    </div>
+    <div class="chips">
+      <label class="chip"><span class="sr">Lage</span>
+        <select id="mPos">
+          <option value="ZO">Zifferblatt oben</option>
+          <option value="ZU">Zifferblatt unten</option>
+          <option value="KU">Krone unten</option>
+          <option value="KO">Krone oben</option>
+          <option value="KL">Krone links</option>
+          <option value="KR">Krone rechts</option>
+        </select>
+      </label>
+      <label class="chip"><span class="sr">Messdauer</span>
+        <select id="mDur"><option value="20">20 s</option><option value="30">30 s</option><option value="60">60 s</option></select>
+      </label>
+      <button type="button" class="chip chip-btn" id="mLagen">Lagen-Test<span class="pro-tag">Pro</span></button>
     </div>
 
-    <div class="card" id="result" hidden>
-      <h3>Gangabweichung</h3>
-      <div class="readout">
-        <span class="big" id="rate">–</span><span class="big-unit">s/Tag</span>
+    <div class="readout">
+      <span class="eyebrow">Gangabweichung</span>
+      <div class="big-row"><span class="big" id="mRate">–</span><span class="big-unit">s/Tag</span></div>
+      <span class="sigma" id="mSigma"></span>
+    </div>
+    <div class="scale" aria-hidden="true">
+      <div class="scale-track">
+        <div class="scale-band"></div>
+        <div class="scale-ticks"></div>
+        <div class="scale-marker" id="mMarker" hidden><span></span></div>
       </div>
-      <span class="sigma" id="sigma"></span>
-      <div class="gauge" aria-hidden="true">
-        <div class="band"></div><div class="ticks"></div><div class="marker" id="marker"></div>
-        <div class="labels"><span class="l0">−20</span><span class="l50">0</span><span class="l100">+20</span></div>
-      </div>
-      <p class="verdict" id="verdict"></p>
-      <div class="notice" id="bphWarn" hidden>
-        <p id="bphWarnText"></p>
-        <button type="button" class="btn-ghost small" id="bphFix"></button>
-      </div>
-      <dl class="metrics">
-        <div class="metric"><dt>Abfallfehler</dt><dd id="be">–</dd><small id="beNote"></small></div>
-        <div class="metric"><dt>Amplitude</dt><dd id="amp">–</dd><small id="ampNote"></small></div>
-        <div class="metric"><dt>Schlagzahl</dt><dd id="bphOut">–</dd><small id="bphNote">A/h</small></div>
-        <div class="metric"><dt>Signal</dt><dd id="quality">–</dd><small id="qualityNote"></small></div>
-      </dl>
-      <h3>Papierstreifen</h3>
-      <canvas class="plot" id="tape" height="200" aria-label="Papierstreifen"></canvas>
-      <p class="legend"><span>Tick</span><span class="tock">Tack</span><span class="note">Steigend: Uhr geht vor. Abstand der Linien: Abfallfehler.</span></p>
-      <h3>Ein Schlag im Detail</h3>
-      <canvas class="plot" id="beat" height="160" aria-label="Gemittelter Schlag"></canvas>
-      <div class="actions">
-        <button type="button" class="btn-ghost" id="againBtn">Nochmals messen</button>
-      </div>
+      <div class="scale-labels"><span>−20</span><span>−10</span><span>0</span><span>+10</span><span>+20</span></div>
+    </div>
+    <p class="verdict-line" id="mVerdict" hidden><span class="dot"></span><span id="mVerdictText"></span></p>
+    <p class="status center-status" id="status" data-kind="">Unterkante des Handys an die Krone halten, dann «Messen» tippen.</p>
+
+    <div class="notice" id="bphWarn" hidden>
+      <p id="bphWarnText"></p>
+      <button type="button" class="btn-ghost small" id="bphFix"></button>
     </div>
 
-    <details class="card tips">
-      <summary>So misst du richtig</summary>
-      <ol>
-        <li>Uhr voll aufziehen und mit dem Zifferblatt nach oben auf ein gefaltetes Tuch legen.</li>
-        <li>Ruhiger Raum: kein Radio, nicht reden, Handy auf «Nicht stören».</li>
-        <li>Die Unterkante des Handys (dort ist das Mikrofon) leicht an die Krone halten.</li>
-        <li>«Messen» tippen und nichts mehr bewegen, bis die Zeit abgelaufen ist.</li>
-        <li>Für einen Lagen-Test die Messung in mehreren Lagen wiederholen.</li>
-      </ol>
-      <p class="hint">Die Aufnahme bleibt auf deinem Handy. Tickwerk schickt nichts ins Internet.</p>
-    </details>
-  </section>
+    <div class="mlist">
+      <div class="mrow">
+        <span class="mlabel">Abfallfehler<span class="pro-tag" id="mBeTag" hidden>Pro</span></span>
+        <span class="mval-wrap"><span class="mono-sub" id="mBeNote"></span><span class="mval" id="mBe">–</span></span>
+      </div>
+      <div class="mrow">
+        <span class="mlabel">Amplitude<span class="pro-tag" id="mAmpTag" hidden>Pro</span></span>
+        <span class="mval-wrap"><span class="mono-sub" id="mLift"></span><span class="mval" id="mAmp">–</span></span>
+      </div>
+      <div class="mrow">
+        <span class="mlabel">Schlagzahl</span>
+        <span class="mval-wrap"><span class="mono-sub" id="mBphNote">erkannt</span><span class="mval" id="mBph">–</span></span>
+      </div>
+    </div>
+    <p class="hint center" id="mFree" hidden></p>
 
-  <!-- ======================= VERLAUF ======================= -->
-  <section class="screen" id="screen-history" aria-labelledby="tab-history" hidden>
-    <div class="card">
+    <div class="card tape-card">
       <div class="row-between">
-        <h2>Verlauf</h2>
-        <select id="historyFilter" aria-label="Uhr auswählen"></select>
+        <span class="eyebrow">Papierstreifen · Tick und Tack</span>
+        <span class="signal" id="mSignal" data-level="0">
+          <svg viewBox="0 0 16 14" aria-hidden="true"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="4.3" y="6" width="3" height="8" rx="1"/><rect x="8.6" y="3" width="3" height="11" rx="1"/><rect x="12.9" y="0" width="3" height="14" rx="1"/></svg>
+          <span id="mSignalText">kein Signal</span>
+        </span>
       </div>
-      <canvas class="plot" id="historyChart" height="150" aria-label="Gang über die Zeit"></canvas>
-      <ul class="list" id="historyList"></ul>
-      <p class="hint" id="historyEmpty">Noch keine Messungen.</p>
+      <canvas class="plot" id="mTape" height="84" aria-label="Papierstreifen"></canvas>
+      <div class="level" aria-hidden="true"><div class="level-fill" id="levelFill"></div></div>
+    </div>
+    <details class="card details" id="mDetails">
+      <summary>Ein Schlag im Detail</summary>
+      <canvas class="plot" id="mBeat" height="150" aria-label="Gemittelter Schlag"></canvas>
+      <p class="hint" id="mDetailHint">Grün: Tick, blau: Tack. Gestrichelt: Auslösung und Fall.</p>
+    </details>
+
+    <button type="button" class="btn-primary btn-big" id="mStart"><span class="prog" id="mProg"></span><span class="btn-label" id="mStartLabel">Messen</span></button>
+    <div class="actions center">
+      <button type="button" class="btn-ghost small" id="shareBtn" hidden>Aufnahme teilen (WAV)<span class="pro-tag">Pro</span></button>
+      <button type="button" class="btn-link" id="mGuide">So legst du das Handy an</button>
     </div>
   </section>
 
-  <!-- ======================= UHREN ======================= -->
-  <section class="screen" id="screen-watches" aria-labelledby="tab-watches" hidden>
-    <div class="card">
-      <h2>Meine Uhren</h2>
-      <ul class="list" id="watchList"></ul>
+  <!-- ======================= MEINE UHREN ======================= -->
+  <section class="screen" id="scr-watches" aria-label="Meine Uhren" hidden>
+    <div class="phead">
+      <div class="title-block">
+        <h1>Meine Uhren</h1>
+        <span class="mono-sub" id="wCount">0 Uhren</span>
+      </div>
+      <button type="button" class="round accent" id="wAdd" aria-label="Uhr hinzufügen">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+      </button>
     </div>
-    <form class="card" id="watchForm" autocomplete="off">
-      <h2 id="watchFormTitle">Uhr hinzufügen</h2>
+    <div class="cards" id="watchCards"></div>
+    <div class="empty" id="watchEmpty" hidden>
+      <p>Noch keine Uhr gespeichert. Mit einer eigenen Uhr stimmen Hebewinkel und Schlagzahl, und du siehst den Verlauf.</p>
+      <button type="button" class="btn-primary" id="wAddFirst">Uhr hinzufügen</button>
+    </div>
+  </section>
+
+  <!-- ======================= UHR MIT VERLAUF ======================= -->
+  <section class="screen" id="scr-watch" aria-label="Uhr mit Verlauf" hidden>
+    <div class="bar">
+      <button type="button" class="back" data-back><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span>Meine Uhren</span></button>
+      <button type="button" class="round" id="dShare" aria-label="Messprotokoll als PDF teilen">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>
+      </button>
+    </div>
+    <div class="title-block">
+      <h1 class="h1-sm" id="dName"></h1>
+      <span class="mono-sub" id="dCal"></span>
+    </div>
+    <div class="tiles3">
+      <div class="tile"><span class="eyebrow">Schlagzahl</span><span class="tile-v" id="dBph">–</span></div>
+      <div class="tile"><span class="eyebrow">Hebewinkel</span><span class="tile-v" id="dLift">–</span></div>
+      <div class="tile"><span class="eyebrow">Messungen</span><span class="tile-v" id="dCount">0</span></div>
+    </div>
+    <div class="card">
+      <div class="row-between"><span class="card-title">Gangabweichung</span><span class="mono-sub" id="dRange"></span></div>
+      <div class="bars" id="dBars"></div>
+      <div class="bar-labels" id="dBarLabels" aria-hidden="true"></div>
+    </div>
+    <div class="insight" id="dInsight" hidden></div>
+    <div class="section">
+      <span class="eyebrow">Letzte Messungen</span>
+      <ul class="rows" id="dList"></ul>
+      <p class="hint" id="dMore" hidden></p>
+    </div>
+    <span class="pdfbar" id="dPdfBar" hidden></span>
+    <div class="actions">
+      <button type="button" class="btn-ghost small" id="dPdf">Messprotokoll (PDF)<span class="pro-tag">Pro</span></button>
+      <button type="button" class="btn-ghost small" id="dMeasure">Jetzt messen</button>
+      <button type="button" class="btn-ghost small" id="dEdit">Bearbeiten</button>
+    </div>
+    <button type="button" class="btn-primary btn-big" id="dLagen">Lagen-Test starten</button>
+  </section>
+
+  <!-- ======================= UHR HINZUFÜGEN / BEARBEITEN ======================= -->
+  <section class="screen" id="scr-edit" aria-label="Uhr bearbeiten" hidden>
+    <div class="bar">
+      <button type="button" class="back" data-back><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span>Zurück</span></button>
+    </div>
+    <h1 id="watchFormTitle">Uhr hinzufügen</h1>
+    <form class="form" id="watchForm" autocomplete="off">
       <div class="field find">
         <label for="wFind">Modell oder Werk suchen</label>
         <input type="search" id="wFind" placeholder="z. B. Submariner, PRX, Speedmaster, 2824" enterkeyhint="search"
@@ -168,47 +200,232 @@
         </div>
       </div>
       <p class="hint">Der Hebewinkel wirkt nur auf die Amplitude. Unbekannt: 52 Grad lassen. Die Schlagzahl erkennt Tickwerk selbst und meldet sich, wenn sie nicht zur Angabe passt.</p>
-      <div class="actions">
-        <button type="submit" class="btn-primary" id="wSave">Speichern</button>
-        <button type="button" class="btn-ghost" id="wCancel" hidden>Abbrechen</button>
-      </div>
+      <button type="submit" class="btn-primary btn-big" id="wSave">Speichern</button>
+      <button type="button" class="btn-ghost btn-big danger" id="wDelete" hidden>Uhr löschen</button>
     </form>
-    <details class="card">
-      <summary>Erweitert</summary>
+  </section>
+
+  <!-- ======================= LAGEN-TEST ======================= -->
+  <section class="screen" id="scr-lagen" aria-label="Lagen-Test" hidden>
+    <div class="bar">
+      <button type="button" class="back" id="lBack"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span id="lBackLabel">Zurück</span></button>
+      <span class="mono-sub" id="lStep"></span>
+    </div>
+    <div class="title-block">
+      <h1>Lagen-Test</h1>
+      <p class="lead" id="lLead"></p>
+    </div>
+    <div class="seg" role="radiogroup" aria-label="Anzahl Lagen" id="lSet">
+      <button type="button" role="radio" data-set="4">4 Lagen</button>
+      <button type="button" role="radio" data-set="6">6 Lagen</button>
+    </div>
+    <div class="progress" id="lProgress" aria-hidden="true"></div>
+    <div class="card now" id="lNow">
+      <svg class="pos-icon" id="lIcon" viewBox="0 0 110 110" width="110" height="110" role="img" aria-label=""></svg>
+      <div class="now-txt">
+        <span class="eyebrow" id="lNowLabel">Jetzt</span>
+        <span class="now-name" id="lNowName"></span>
+        <span class="now-hint" id="lNowHint"></span>
+        <span class="now-time" id="lNowTime"></span>
+      </div>
+    </div>
+    <div class="card lresult" id="lResult" hidden>
+      <span class="eyebrow">Ergebnis · Mittel der Lagen</span>
+      <div class="big-row"><span class="big big-md" id="lgMean">–</span><span class="big-unit">s/Tag</span></div>
+      <dl class="metrics">
+        <div class="metric"><dt>Lagendifferenz</dt><dd id="lgSpread">–</dd><small>s/Tag</small></div>
+        <div class="metric"><dt>Senkrecht − waagrecht</dt><dd id="lgHV">–</dd><small>s/Tag</small></div>
+        <div class="metric"><dt>Abfallfehler</dt><dd id="lgBe">–</dd><small>ms, Mittel</small></div>
+        <div class="metric"><dt>Amplitude</dt><dd id="lgAmp">–</dd><small id="lgAmpNote">waagrecht / senkrecht</small></div>
+      </dl>
+      <canvas class="plot" id="lagenChart" height="190" aria-label="Gang je Lage"></canvas>
+      <p class="verdict" id="lgVerdict"></p>
+      <button type="button" class="btn-primary" id="lgPdf">Protokoll dieses Tests (PDF)</button>
+      <span class="pdfbar" id="lgPdfBar" hidden></span>
+    </div>
+    <div class="tiles2" id="lTiles"></div>
+    <div class="card diff-card">
+      <div class="diff-txt"><span class="card-title">Grösste Lagendifferenz bisher</span><span class="mono-sub" id="lDiffSub">noch zu wenige Lagen</span></div>
+      <span class="diff-v" id="lDiff">–</span>
+    </div>
+    <p class="status" id="lStatus" data-kind=""></p>
+    <button type="button" class="btn-primary btn-big" id="lStart"><span class="prog" id="lProg"></span><span class="btn-label" id="lStartLabel">Messen</span></button>
+    <button type="button" class="btn-ghost btn-big" id="lCancel">Abbrechen</button>
+  </section>
+
+  <!-- ======================= MIKROFON ANLEGEN ======================= -->
+  <section class="screen" id="scr-guide" aria-label="Mikrofon anlegen" hidden>
+    <div class="bar">
+      <button type="button" class="round" data-back aria-label="Schliessen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg></button>
+      <span class="eyebrow">Vor der ersten Messung</span>
+    </div>
+    <div class="title-block">
+      <h1>Mikrofon anlegen</h1>
+      <p class="lead">So hört die App das Ticken deiner Uhr am besten.</p>
+    </div>
+    <figure class="guide-fig">
+      <svg viewBox="0 0 310 170" role="img" aria-label="Die Unterkante des Handys mit dem Mikrofon berührt die Krone der Uhr">
+        <rect x="82" y="8" width="46" height="26" rx="6" class="g-strap"/>
+        <rect x="82" y="136" width="46" height="26" rx="6" class="g-strap"/>
+        <circle cx="105" cy="85" r="60" class="g-case"/>
+        <circle cx="105" cy="85" r="49" class="g-ring"/>
+        <path d="M105 41v6M105 123v6M61 85h6M143 85h6" class="g-idx"/>
+        <path d="M105 85L105 55" class="g-hand"/>
+        <path d="M105 85L127 98" class="g-hand"/>
+        <circle cx="105" cy="85" r="3.5" class="g-pin"/>
+        <rect x="164" y="76" width="16" height="18" rx="3" class="g-crown"/>
+        <rect x="182" y="34" width="118" height="102" rx="16" class="g-phone"/>
+        <rect x="196" y="48" width="90" height="74" rx="6" class="g-screen"/>
+        <circle cx="189" cy="85" r="3" class="g-mic"/>
+        <circle cx="182" cy="85" r="13" class="g-wave"/>
+        <path d="M214 92h8l5-14 8 26 6-18 4 6h10" class="g-pulse"/>
+      </svg>
+    </figure>
+    <ol class="steps">
+      <li><span class="num">1</span><div><span class="step-t">Ruhiger Raum</span><span class="step-s">Musik und Fernseher aus. Jedes Geräusch stört die Messung.</span></div></li>
+      <li><span class="num">2</span><div><span class="step-t">Mikrofon an die Krone</span><span class="step-s">Die Unterkante des Handys leicht an die Krone drücken. Mit einem Kabel-Headset klappt es noch besser.</span></div></li>
+      <li><span class="num">3</span><div><span class="step-t">Uhr ruhig liegen lassen</span><span class="step-s">Nicht bewegen, sonst klappert der Rotor. Einen laufenden Chronographen stoppen. Die Uhr vorher voll aufziehen.</span></div></li>
+    </ol>
+    <div class="card signal-card">
+      <div class="signal-txt"><span class="eyebrow">Signal</span><span>Nach etwa 6 Sekunden zeigt Tickwerk, ob das Ticken gut hörbar ist.</span></div>
+      <svg viewBox="0 0 36 24" aria-hidden="true" class="bars-icon"><rect x="0" y="16" width="4" height="8" rx="1"/><rect x="8" y="12" width="4" height="12" rx="1"/><rect x="16" y="8" width="4" height="16" rx="1"/><rect x="24" y="4" width="4" height="20" rx="1" class="off"/><rect x="32" y="0" width="4" height="24" rx="1" class="off"/></svg>
+    </div>
+    <button type="button" class="btn-primary btn-big" id="gStart">Messung starten</button>
+  </section>
+
+  <!-- ======================= MEHR ======================= -->
+  <section class="screen" id="scr-more" aria-label="Mehr" hidden>
+    <div class="title-block"><h1>Mehr</h1><span class="mono-sub" id="moreVersion"></span></div>
+    <ul class="menu">
+      <li><button type="button" data-go="pro"><span class="menu-t">Tickwerk Pro</span><span class="menu-s" id="moreProState"></span></button></li>
+      <li><button type="button" data-go="guide"><span class="menu-t">Mikrofon anlegen</span><span class="menu-s">So misst du richtig</span></button></li>
+      <li><button type="button" data-go="history"><span class="menu-t">Alle Messungen</span><span class="menu-s" id="moreHistory"></span></button></li>
+      <li><button type="button" data-go="settings"><span class="menu-t">Einstellungen</span><span class="menu-s">Handy-Uhr, Quarzuhr, Datei auswerten, Daten sichern</span></button></li>
+      <li><a href="datenschutz.html"><span class="menu-t">Datenschutz</span><span class="menu-s">Was mit deinen Daten passiert</span></a></li>
+    </ul>
+    <div class="actions">
+      <button type="button" class="btn-ghost small" id="installBtn" hidden>App installieren</button>
+      <button type="button" class="btn-ghost small" id="updateBtn" hidden>Neue Version: neu laden</button>
+    </div>
+    <p class="hint" id="versionInfo"></p>
+    <p class="hint">Tickwerk misst mit dem Smartphone-Mikrofon. Die Werte sind eine Selbstmessung, keine amtliche Prüfung. Schriften: Inter, Space Grotesk, IBM Plex Mono (SIL Open Font License).</p>
+  </section>
+
+  <!-- ======================= TICKWERK PRO ======================= -->
+  <section class="screen" id="scr-pro" aria-label="Tickwerk Pro" hidden>
+    <div class="bar"><button type="button" class="back" data-back><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span>Mehr</span></button></div>
+    <div class="title-block"><h1>Tickwerk Pro</h1><p class="lead" id="proLead">Einmal kaufen, für immer behalten. Kein Abo.</p></div>
+    <ul class="checks">
+      <li>Abfallfehler und Amplitude bei jeder Messung</li>
+      <li>Lagen-Test: bis zu sechs Lagen wie beim Uhrmacher</li>
+      <li>Messprotokoll als PDF zum Drucken und Teilen</li>
+      <li>Ganzer Verlauf und beliebig viele Uhren</li>
+      <li>Aufnahmen als WAV teilen</li>
+    </ul>
+    <p class="hint" id="proFree"></p>
+    <div class="card pro-card" id="proState"></div>
+    <button type="button" class="btn-primary btn-big" id="proBuy">Pro kaufen</button>
+    <button type="button" class="btn-ghost btn-big" id="proRestore">Käufe wiederherstellen</button>
+    <div class="card test-card" id="proTest" hidden>
+      <label class="switch"><input type="checkbox" id="proTestToggle"><span>Testversion: Pro freigeschaltet</span></label>
+      <p class="hint">Nur in der Testversion. Ausschalten, um die Gratis-Version zu prüfen (3 Messungen pro Woche mit allen Werten).</p>
+      <button type="button" class="btn-ghost small" id="proTestReset">Gratis-Messungen dieser Woche zurücksetzen</button>
+    </div>
+    <p class="hint">Der Kauf läuft über Google Play. Tickwerk erfährt dabei weder deinen Namen noch deine Zahlungsdaten.</p>
+  </section>
+
+  <!-- ======================= ALLE MESSUNGEN ======================= -->
+  <section class="screen" id="scr-history" aria-label="Alle Messungen" hidden>
+    <div class="bar"><button type="button" class="back" data-back><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span>Mehr</span></button></div>
+    <div class="title-block">
+      <h1>Alle Messungen</h1>
+      <select id="historyFilter" class="select-sm" aria-label="Uhr auswählen"></select>
+    </div>
+    <canvas class="plot" id="historyChart" height="150" aria-label="Gang über die Zeit"></canvas>
+    <ul class="rows" id="historyList"></ul>
+    <p class="hint" id="historyEmpty">Noch keine Messungen.</p>
+    <p class="hint" id="historyPro" hidden></p>
+  </section>
+
+  <!-- ======================= EINSTELLUNGEN ======================= -->
+  <section class="screen" id="scr-settings" aria-label="Einstellungen" hidden>
+    <div class="bar"><button type="button" class="back" data-back><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span>Mehr</span></button></div>
+    <h1>Einstellungen</h1>
+    <div class="card">
       <div class="field">
         <label for="ppm">Korrektur Handy-Uhr</label>
         <div class="inline"><input type="number" id="ppm" value="0" step="0.1" inputmode="decimal"><span class="unit">ppm</span></div>
-        <p class="hint">Die Uhr im Handy geht selbst nicht ganz genau (meist weniger als 2 s/Tag). Mit einer Quarzuhr-Aufnahme lässt sich der Fehler bestimmen.</p>
+        <p class="hint">Die Uhr im Handy geht selbst nicht ganz genau. Mit einer Quarzuhr-Aufnahme lässt sich der Fehler bestimmen; 1 ppm sind 0,086 s/Tag.</p>
       </div>
       <div class="field">
-        <label for="quartzFile">Quarzuhr-Aufnahme (1 bis 2 Minuten)</label>
-        <input type="file" id="quartzFile" accept="audio/*,.wav">
+        <span class="field-t">Quarzuhr-Aufnahme auswerten</span>
+        <p class="hint">1 bis 2 Minuten lang, mit diesem Handy aufgenommen.</p>
+        <div class="actions"><label class="btn-ghost small file-btn">Aufnahme wählen<input type="file" id="quartzFile" accept="audio/*,.wav"></label></div>
         <p class="hint" id="quartzOut"></p>
       </div>
+    </div>
+    <div class="card">
       <div class="field">
-        <label for="fileIn">Aufnahme aus einer Datei auswerten</label>
-        <input type="file" id="fileIn" accept="audio/*,.wav,.m4a,.mp3">
+        <span class="field-t">Aufnahme aus einer Datei auswerten</span>
+        <p class="hint">Gezählt wird sie für die Uhr und die Lage, die unter «Messen» gewählt sind. WAV ist am genauesten.</p>
+        <div class="actions"><label class="btn-ghost small file-btn">Datei wählen<input type="file" id="fileIn" accept="audio/*,.wav,.m4a,.mp3"></label></div>
       </div>
-      <p class="hint" id="versionInfo"></p>
-    </details>
+    </div>
+    <div class="card">
+      <span class="card-title">Daten sichern</span>
+      <p class="hint">Deine Uhren und Messungen bleiben nur auf diesem Handy. Eine Sicherung kannst du auf ein neues Handy übertragen.</p>
+      <div class="actions">
+        <button type="button" class="btn-ghost small" id="exportBtn">Sicherung speichern</button>
+        <label class="btn-ghost small file-btn">Sicherung laden<input type="file" id="importIn" accept=".json,application/json"></label>
+      </div>
+      <p class="hint" id="backupOut"></p>
+      <button type="button" class="btn-ghost small danger" id="wipeBtn">Alle Daten löschen</button>
+    </div>
   </section>
+
+  <!-- ======================= Auswahl der Uhr ======================= -->
+  <div class="sheet" id="watchSheet" hidden>
+    <div class="sheet-panel" role="dialog" aria-modal="true" aria-labelledby="wsTitle">
+      <div class="row-between">
+        <h2 id="wsTitle">Uhr wählen</h2>
+        <button type="button" class="round" id="wsClose" aria-label="Schliessen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg></button>
+      </div>
+      <ul class="pick-list" id="wsList"></ul>
+      <button type="button" class="btn-ghost" id="wsAdd">+ Uhr hinzufügen</button>
+    </div>
+  </div>
+
+  <!-- ======================= Hinweis Pro ======================= -->
+  <div class="sheet" id="proSheet" hidden>
+    <div class="sheet-panel" role="dialog" aria-modal="true" aria-labelledby="psTitle">
+      <h2 id="psTitle">Tickwerk Pro</h2>
+      <p id="psText"></p>
+      <div class="actions">
+        <button type="button" class="btn-primary" id="psMore">Pro ansehen</button>
+        <button type="button" class="btn-ghost" id="psClose">Später</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 </main>
 
-<nav class="tabbar" role="tablist" aria-label="Bereiche">
-  <button type="button" role="tab" id="tab-measure" data-screen="screen-measure" aria-selected="true">
-    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>
+<nav class="tabbar" aria-label="Hauptnavigation">
+  <button type="button" data-tab="measure" aria-current="page">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h3l2-6 4 12 3-9 2 3h4"/></svg>
     <span>Messen</span>
   </button>
-  <button type="button" role="tab" id="tab-history" data-screen="screen-history" aria-selected="false">
-    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18l5-6 4 3 7-9"/><path d="M4 21h16"/></svg>
-    <span>Verlauf</span>
+  <button type="button" data-tab="watches">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6"/><path d="M9 6.5l1-3.5h4l1 3.5"/><path d="M9 17.5l1 3.5h4l1-3.5"/><path d="M12 9.5V12l1.5 1.5"/></svg>
+    <span>Meine Uhren</span>
   </button>
-  <button type="button" role="tab" id="tab-watches" data-screen="screen-watches" aria-selected="false">
-    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="5.5"/><path d="M9 6.5L9.8 3h4.4l.8 3.5M9 17.5l.8 3.5h4.4l.8-3.5"/></svg>
-    <span>Uhren</span>
+  <button type="button" data-tab="more">
+    <svg viewBox="0 0 24 24" aria-hidden="true" class="fill"><circle cx="6" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="18" cy="12" r="1.6"/></svg>
+    <span>Mehr</span>
   </button>
 </nav>
 
+<script src="config.js"></script>
 <script src="kaliber.js"></script>
 <script src="logo.js"></script>
 <script src="report.js"></script>

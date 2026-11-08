@@ -1,42 +1,36 @@
-# Tickwerk – Web-App 0.3
+# Tickwerk – Web-App 0.4 (Testversion)
 
 Misst mit dem Handy-Mikrofon, wie genau eine mechanische Uhr geht: Gangabweichung, Abfallfehler, Amplitude, Schlagzahl. Die Aufnahme bleibt auf dem Handy; die App schickt nichts ins Internet.
 
-## Auf GitHub Pages veröffentlichen
+Das ist die **Testversion** für GitHub: Pro lässt sich unter Mehr → Tickwerk Pro mit einem Schalter ein- und ausschalten, oben steht «TEST». Die Store-Version für Google Play wird getrennt gebaut (Kauf über Google Play, eigene Daten).
 
-1. Auf github.com ein neues Repository anlegen: Name `tickwerk`, **Public**, sonst nichts ankreuzen.
-2. Im leeren Repository auf **uploading an existing file** klicken.
-3. Den Inhalt dieses Ordners (alle Dateien und die Ordner `engine`, `fonts`, `icons`) ins Browserfenster ziehen, dann **Commit changes**.
-4. Im Repository **Settings → Pages**: bei «Build and deployment» Source **Deploy from a branch**, Branch **main** und **/(root)**, **Save**.
-5. Nach 1–2 Minuten ist die App erreichbar unter `https://<benutzername>.github.io/tickwerk/`.
+## Aktualisieren (bestehender Ordner `tickwerk-app-0.1`)
 
-## Auf dem Handy
+1. Im Repository den Ordner `tickwerk-app-0.1` öffnen.
+2. **Add file → Upload files**, den ganzen Inhalt dieses Pakets hineinziehen (Dateien und die Ordner `engine`, `fonts`, `icons`), **Commit changes**. Gleichnamige Dateien werden ersetzt; deine Uhren und Messungen bleiben auf dem Handy erhalten.
+3. App auf dem Handy öffnen. Nach ein paar Sekunden erscheint «Neue Version ist bereit»; unter Mehr auf **Neue Version: neu laden** tippen.
 
-Adresse in Chrome öffnen, Mikrofon erlauben. Über das Menü (⋮) **App installieren** bzw. **Zum Startbildschirm hinzufügen**. Danach funktioniert Tickwerk auch ohne Internet.
+## Neu in 0.4
 
-## Neu in 0.3
-
-- Messprotokoll als PDF pro Uhr (Pro): Uhr und Werk, Ergebnis mit Vergleich zur Chronometer-Norm, Ergebnisse je Lage, alle Einzelmessungen, Papierstreifen, Messbedingungen, Hinweise zur Genauigkeit und Unterschriftsfeld. Erzeugt im Handy, ohne Internet.
-- Neue Messungen speichern zusätzlich Papierstreifen, Abtastrate und Korrektur der Handy-Uhr fürs Protokoll.
-
-## Neu in 0.2
-
-- Modellsuche beim Hinzufügen einer Uhr: 129 Modelle von 20 Marken und 69 Werke. Ein Tipp füllt Name, Werk, Hebewinkel und Schlagzahl aus.
-- Unbestätigte und angenommene Hebewinkel sind gekennzeichnet, Co-Axial-Werke (Amplitude nur Richtwert) und Spring Drive (nicht messbar) ebenfalls.
-- Die Schlagzahl wird immer erkannt. Passt sie nicht zur gespeicherten, erscheint ein Hinweis mit «übernehmen».
-- Genauere Hilfe, wenn das Mikrofon blockiert oder belegt ist.
-
-## Aktualisieren
-
-Geänderte Dateien im Repository-Ordner ersetzen: **Add file → Upload files**, Dateien hineinziehen, **Commit changes**. Ordner (`engine`, `fonts`, `icons`) nur hochladen, wenn sich darin etwas geändert hat.
+- Neues Aussehen nach dem ursprünglichen Entwurf: Tableiste Messen, Meine Uhren, Mehr; grosse Anzeige mit Skala, Papierstreifen
+- **Lagen-Test**: 4 oder 6 Lagen nacheinander, je mit Bild der Lage, 5 Sekunden Ruhe vor jeder Messung, Ergebnis mit Lagendifferenz, senkrecht gegenüber waagrecht, Diagramm und eigenem PDF-Protokoll
+- **Meine Uhren**: Karten mit letztem Gang, Zustand (Chronometer-Bereich, In Ordnung, Service prüfen) und Verlauf; Seite pro Uhr mit Balken, Hinweis und letzten Messungen
+- **Gratis und Pro**: gratis Gang, Schlagzahl und Papierstreifen für eine Uhr und 3 Messungen pro Woche mit allen Werten; Pro für alles andere
+- Anleitung «Mikrofon anlegen» beim ersten Start
+- Android-Zurück-Taste schliesst Fenster und geht einen Bildschirm zurück
+- Daten sichern und auf ein anderes Handy übertragen; alle Daten löschen
+- Datenschutzerklärung (`datenschutz.html`)
+- Mess-Engine 0.2.1: kurze Aussetzer der Aufnahme (fehlende oder doppelte Audiopuffer, z. B. bei hoher Last) werden erkannt und herausgerechnet, statt die Messung zu verwerfen
 
 ## Dateien
 
 - `index.html`, `app.css`, `app.js` – Oberfläche und Ablauf
+- `config.js` – Einstellungen dieser Ausgabe (Testversion)
 - `recorder-worklet.js` – nimmt das Mikrofon unverändert auf (ohne Rauschunterdrückung)
 - `worker.js` + `engine/tickwerk-engine.js` – Auswertung im Hintergrund
-- `kaliber.js` – Werke (Schlagzahl, Hebewinkel, Quelle) und Modellkatalog für die Suche
-- `report.js` + `logo.js` – Messprotokoll als PDF (eigener kleiner PDF-Schreiber, Logo als Vektor)
+- `kaliber.js` – Werke und Modellkatalog für die Suche
+- `report.js` + `logo.js` – Messprotokoll als PDF
+- `datenschutz.html` – Datenschutzerklärung
 - `sw.js`, `manifest.webmanifest`, `icons/` – Installation und Offline-Betrieb
 - `fonts/` – Schriften (SIL Open Font License, siehe OFL-Dateien)
 

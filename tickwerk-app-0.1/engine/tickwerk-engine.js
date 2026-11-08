@@ -572,8 +572,9 @@
     return [[cols[0][0], cols[1][0], cols[2][0]], [cols[0][1], cols[1][1], cols[2][1]], [cols[0][2], cols[1][2], cols[2][2]]];
   }
 
-  function fitBeats(points) {
+  function fitBeats(points, stepKs) {
     // points: [{k, t, parity}] ; Zentrierung von k fuer numerische Stabilitaet
+    if (stepKs && stepKs.length) return fitBeatsSteps(points, stepKs);
     var use = points.slice();
     var result = null;
     for (var iter = 0; iter < 3; iter++) {
@@ -618,6 +619,117 @@
       use = next;
     }
     return result;
+  }
+
+  /* Lineares Gleichungssystem (Gauss mit Pivotsuche) und Inverse, für die Gerade mit Sprüngen */
+  function solveN(A, b) {
+    var n = b.length, M = A.map(function (r, i) { return r.slice().concat([b[i]]); }), scale = 0, r, c;
+    for (r = 0; r < n; r++) scale = Math.max(scale, Math.abs(A[r][r]));
+    for (c = 0; c < n; c++) {
+      var piv = c;
+      for (r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[piv][c])) piv = r;
+      if (!(Math.abs(M[piv][c]) > 1e-13 * scale)) return null;
+      var tmp = M[c]; M[c] = M[piv]; M[piv] = tmp;
+      for (r = c + 1; r < n; r++) {
+        var f = M[r][c] / M[c][c];
+        if (f) for (var j = c; j <= n; j++) M[r][j] -= f * M[c][j];
+      }
+    }
+    var x = new Array(n);
+    for (r = n - 1; r >= 0; r--) {
+      var s = M[r][n];
+      for (c = r + 1; c < n; c++) s -= M[r][c] * x[c];
+      x[r] = s / M[r][r];
+    }
+    return x;
+  }
+  function invertN(A) {
+    var n = A.length, cols = [];
+    for (var i = 0; i < n; i++) {
+      var e = []; for (var j = 0; j < n; j++) e.push(i === j ? 1 : 0);
+      var c = solveN(A, e); if (!c) return null; cols.push(c);
+    }
+    return cols.map(function (_, i) { return cols.map(function (c) { return c[i]; }); });
+  }
+  /* Wie fitBeats, aber mit je einem freien Versatz ab jedem Aussetzer (stepKs: Schlagnummer, ab der versetzt ist).
+     Der Versatz wird aus allen Schlägen mitgeschätzt; seine Unsicherheit steckt in sigmaT. */
+  function fitBeatsSteps(points, stepKs) {
+    var use = points.slice(), result = null;
+    for (var iter = 0; iter < 3; iter++) {
+      var ks = stepKs.filter(function (s) {
+        var nb = 0, na = 0;
+        use.forEach(function (p) { if (p.k < s) nb++; else na++; });
+        return nb >= 4 && na >= 4;
+      });
+      var P = 3 + ks.length;
+      if (use.length < P + 6) return result;
+      var kMean = 0, tMean = 0;
+      use.forEach(function (p) { kMean += p.k; tMean += p.t; });
+      kMean /= use.length; tMean /= use.length;
+      var A = [], b = [], i, j;
+      for (i = 0; i < P; i++) { A.push(new Array(P).fill(0)); b.push(0); }
+      var rowOf = function (p) { var row = [1, p.k - kMean, p.parity]; ks.forEach(function (s) { row.push(p.k >= s ? 1 : 0); }); return row; };
+      use.forEach(function (p) {
+        var row = rowOf(p), y = p.t - tMean;
+        for (i = 0; i < P; i++) { b[i] += row[i] * y; for (j = 0; j < P; j++) A[i][j] += row[i] * row[j]; }
+      });
+      var x = solveN(A, b);
+      if (!x) return result;
+      var res = use.map(function (p) { var row = rowOf(p), m = 0; for (var q = 0; q < P; q++) m += row[q] * x[q]; return (p.t - tMean) - m; });
+      var ss = 0;
+      res.forEach(function (r) { ss += r * r; });
+      var s2 = ss / Math.max(1, use.length - P);
+      var inv = invertN(A);
+      result = {
+        c: x[0] + tMean - x[1] * kMean, T: x[1], d: x[2],
+        sigmaT: inv ? Math.sqrt(Math.max(0, inv[1][1] * s2)) : NaN,
+        sigmaD: inv ? Math.sqrt(Math.max(0, inv[2][2] * s2)) : NaN,
+        residualS: Math.sqrt(s2), used: use.length,
+        steps: ks.map(function (s, q) { return { k: s, dt: x[3 + q] }; })
+      };
+      var medR = median(res);
+      var mad = median(res.map(function (r) { return Math.abs(r - medR); }));
+      var lim = Math.max(4 * 1.4826 * mad, 0.0001);
+      var next = use.filter(function (p, idx) { return Math.abs(res[idx] - medR) <= lim; });
+      if (next.length === use.length) break;
+      use = next;
+    }
+    return result;
+  }
+  function stepModel(f, p) {
+    var m = f.c + f.T * p.k + f.d * p.parity;
+    if (f.steps) f.steps.forEach(function (s) { if (p.k >= s.k) m += s.dt; });
+    return m;
+  }
+  /* Aussetzer der Aufnahme finden: Fällt im Handy ein Audiopuffer weg oder kommt einer doppelt (z. B. bei hoher
+     Last), springen alle folgenden Schläge um einige Millisekunden. Eine echte Uhr kann das nicht. Ein Sprung
+     zeigt sich als Unterschied der Mediane vor und nach einer Stelle; Drift oder einzelne gestörte Schläge nicht. */
+  function findGaps(points) {
+    var W = 8, pts = points.slice().sort(function (a, b) { return a.k - b.k; }), ks = [];
+    if (pts.length < 4 * W) return ks;
+    for (var iter = 0; iter < 6; iter++) {
+      var f = fitBeats(pts, ks);
+      if (!f || !(f.T > 0)) break;
+      var res = pts.map(function (p) { return p.t - stepModel(f, p); }), dif = [], i;
+      for (i = 1; i < res.length; i++) dif.push(Math.abs(res[i] - res[i - 1]));
+      var sig = 1.4826 * median(dif) / Math.SQRT2;
+      var stepAt = function (j) { return median(res.slice(j, Math.min(res.length, j + W))) - median(res.slice(Math.max(0, j - W), j)); };
+      var best = null;
+      for (var j = W; j <= res.length - W; j++) {
+        var st = stepAt(j);
+        if (!best || Math.abs(st) > Math.abs(best.st)) best = { j: j, st: st };
+      }
+      if (!best || Math.abs(best.st) < Math.max(0.0005, 6 * sig)) break;
+      var jj = best.j, mx = 0;
+      for (var q = Math.max(1, best.j - W); q < Math.min(res.length, best.j + W); q++) {
+        var dq = res[q] - res[q - 1];
+        if (dq * best.st > 0 && Math.abs(dq) > mx) { mx = Math.abs(dq); jj = q; }
+      }
+      if (ks.indexOf(pts[jj].k) >= 0) break;
+      ks.push(pts[jj].k);
+      ks.sort(function (a, b) { return a - b; });
+    }
+    return ks;
   }
 
   /* ---------- Hauptfunktion ---------- */
@@ -884,9 +996,17 @@
       var t = (b.pos - pre + mainOff[b.parity]) / fs;
       points.push({ k: b.k, t: t, parity: b.parity, v: b.v });
     });
-    var fit = fitBeats(points);
+    var fit = fitBeats(points, findGaps(points));
     if (!fit || !isFinite(fit.T) || fit.T <= 0) {
       return { ok: false, reason: 'Auswertung nicht stabil. Bitte nochmals aufnehmen.', bph: bph };
+    }
+    var gaps = (fit.steps || []).map(function (s) { return { k: s.k, ms: +(s.dt * 1000).toFixed(2) }; });
+    if (gaps.length) {   // Zeitpunkte um die Aussetzer bereinigen: Hälften und Papierstreifen sehen eine durchgehende Aufnahme
+      points = points.map(function (p) {
+        var t = p.t;
+        fit.steps.forEach(function (s) { if (p.k >= s.k) t -= s.dt; });
+        return { k: p.k, t: t, parity: p.parity, v: p.v };
+      });
     }
 
     // 5) Werte
@@ -999,6 +1119,7 @@
       quality: { label: label, snrDb: snrDb, detectedFraction: detectedFraction, residualMs: residualMs, similarity: rhoMed },
       beatsUsed: fit.used,
       beatsTotal: beats.length,
+      gaps: gaps,
       duration: duration,
       soundsPerBeat: peakCounts,
       band: [band.lo, band.hi],
@@ -1089,7 +1210,7 @@
   }
 
   var api = {
-    version: '0.2.0',
+    version: '0.2.1',
     analyze: analyze,
     analyzeQuartz: analyzeQuartz,
     detectBph: detectBph,

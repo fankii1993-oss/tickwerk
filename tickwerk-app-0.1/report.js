@@ -364,7 +364,7 @@
     var top = 40;
     drawLogo(top, 0.4);
     pdf.text('Messprotokoll', ML + CW, top + 19, { font: 'B', size: 21, align: 'right', color: C.ink });
-    pdf.text('Gangmessung einer mechanischen Armbanduhr', ML + CW, top + 32, { size: 8.5, align: 'right', color: C.muted });
+    pdf.text(d.subtitle || 'Gangmessung einer mechanischen Armbanduhr', ML + CW, top + 32, { size: 8.5, align: 'right', color: C.muted });
     pdf.text('Nr. ' + nr + '  ·  erstellt am ' + dLong(now), ML + CW, top + 44, { size: 8, align: 'right', color: C.muted });
     guilloche(top + 56, 20);
     y = top + 84;
@@ -638,8 +638,8 @@
     }
 
     var safe = d.watch.name.replace(/[^\wäöüÄÖÜéèàç-]+/g, '-').replace(/^-+|-+$/g, '') || 'Uhr';
-    var filename = 'Tickwerk-Messprotokoll_' + safe + '_' + now.getFullYear() + '-' + p2(now.getMonth() + 1) + '-' + p2(now.getDate()) + '.pdf';
-    var bytes = pdf.output({ title: 'Messprotokoll ' + d.watch.name + ' (' + nr + ')', subject: 'Gangmessung mit Tickwerk', version: d.appVersion, date: now });
+    var filename = (d.kind === 'lagen' ? 'Tickwerk-Lagentest_' : 'Tickwerk-Messprotokoll_') + safe + '_' + now.getFullYear() + '-' + p2(now.getMonth() + 1) + '-' + p2(now.getDate()) + '.pdf';
+    var bytes = pdf.output({ title: 'Messprotokoll ' + d.watch.name + ' (' + nr + ')', subject: d.kind === 'lagen' ? 'Lagen-Test mit Tickwerk' : 'Gangmessung mit Tickwerk', version: d.appVersion, date: now });
     return { bytes: bytes, filename: filename, pages: total, number: nr };
   }
 
