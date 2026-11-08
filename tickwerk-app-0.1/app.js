@@ -4,6 +4,8 @@
 
   var $ = function (id) { return document.getElementById(id); };
   var KAL = window.TICKWERK_KALIBER || [];
+  var UHREN = window.TICKWERK_UHREN || [];
+  var APP_VERSION = '0.3';
   var KEYS = { watches: 'tickwerk.v1.watches', meas: 'tickwerk.v1.measurements', settings: 'tickwerk.v1.settings' };
   var POS = { ZO: 'Zifferblatt oben', ZU: 'Zifferblatt unten', KU: 'Krone unten', KO: 'Krone oben', KL: 'Krone links', KR: 'Krone rechts' };
   var C = { lume: '#B8F28A', tock: '#9FD8FF', faint: '#8A95A3', line: '#27303B', muted: '#AEB7C2', warn: '#F59B5E', text: '#EEF1F4' };
@@ -44,12 +46,23 @@
   /* ---------- Uhren ---------- */
   function findWatch(id) { for (var i = 0; i < watches.length; i++) if (watches[i].id === id) return watches[i]; return null; }
   function currentWatch() { return findWatch(settings.watchId); }
+  /* Die Schlagzahl wird immer erkannt; die gespeicherte gilt nur als Erwartung (Hinweis bei Abweichung). */
   function watchOpts() {
     var w = currentWatch();
-    return { liftAngle: w && w.liftAngle ? w.liftAngle : 52, bph: w && w.bph ? w.bph : null, clockPpm: settings.ppm || 0 };
+    return { liftAngle: w && w.liftAngle ? w.liftAngle : 52, bph: null, clockPpm: settings.ppm || 0 };
   }
   function watchLabel(w) { return w ? w.name : 'Unbekannte Uhr'; }
-  function calName(id) { for (var i = 0; i < KAL.length; i++) if (KAL[i].id === id) return KAL[i].name; return ''; }
+  function kalById(id) { for (var i = 0; i < KAL.length; i++) if (KAL[i].id === id) return KAL[i]; return null; }
+  function calName(id) { var k = kalById(id); return k ? k.name : ''; }
+  function deg(v) { return fmt(v, v % 1 ? 1 : 0) + '°'; }
+  /* Woher der Hebewinkel stammt: '' (bestätigt oder eigene Angabe), 'unbestätigt' oder 'angenommen' */
+  function liftState(w) {
+    var lift = w && w.liftAngle ? w.liftAngle : 52;
+    var k = w ? kalById(w.kaliberId) : null;
+    if (k && k.hebewinkel != null && Math.abs(k.hebewinkel - lift) < 0.01) return k.sicher ? '' : 'unbestätigt';
+    if (Math.abs(lift - 52) < 0.01 && !(k && k.hebewinkel != null)) return 'angenommen';
+    return '';
+  }
 
   function renderWatchSelect() {
     var sel = $('watch');
@@ -59,35 +72,165 @@
     var oa = document.createElement('option'); oa.value = '__add'; oa.textContent = '+ Uhr hinzufügen …'; sel.appendChild(oa);
     if (!findWatch(settings.watchId)) settings.watchId = watches.length ? watches[0].id : '';
     sel.value = settings.watchId;
-    var op = watchOpts();
-    $('watchHint').textContent = 'Hebewinkel ' + fmt(op.liftAngle, op.liftAngle % 1 ? 1 : 0) + '° · Schlagzahl ' +
-      (op.bph ? thousands(op.bph) + ' A/h' : 'automatisch') + (op.clockPpm ? ' · Handy-Uhr ' + signed(op.clockPpm, 1) + ' ppm' : '');
+    var op = watchOpts(), w = currentWatch(), k = w ? kalById(w.kaliberId) : null, st = liftState(w);
+    var hint = 'Hebewinkel ' + deg(op.liftAngle) + (st ? ' (' + st + ')' : '') + ' · ' +
+      (w && w.bph ? thousands(w.bph) + ' A/h erwartet' : 'Schlagzahl automatisch') +
+      (op.clockPpm ? ' · Handy-Uhr ' + signed(op.clockPpm, 1) + ' ppm' : '');
+    if (k && k.coaxial) hint += ' · Co-Axial: Amplitude nur als Richtwert';
+    if (k && k.messbar === false) hint = (k.notiz || 'Dieses Werk lässt sich nicht messen.');
+    $('watchHint').textContent = hint;
+    $('watchHint').setAttribute('data-kind', k && k.messbar === false ? 'warn' : '');
     renderHistoryFilter();
   }
 
   $('watch').addEventListener('change', function () {
-    if (this.value === '__add') { this.value = settings.watchId; showScreen('screen-watches'); $('wName').focus(); return; }
+    if (this.value === '__add') { this.value = settings.watchId; showScreen('screen-watches'); $('wFind').focus(); return; }
     settings.watchId = this.value; saveSettings(); renderWatchSelect();
   });
   $('position').value = POS[settings.pos] ? settings.pos : 'ZO';
   $('position').addEventListener('change', function () { settings.pos = this.value; saveSettings(); });
 
   /* Formular */
-  var editingId = null;
+  var editingId = null, nameAuto = false;
+  function byName(a, b) { return a.localeCompare(b, 'de', { numeric: true, sensitivity: 'base' }); }
   (function fillCalSelect() {
     var sel = $('wCal');
     var o = document.createElement('option'); o.value = ''; o.textContent = 'Unbekannt oder eigene Angaben'; sel.appendChild(o);
-    KAL.forEach(function (k) { var x = document.createElement('option'); x.value = k.id; x.textContent = k.name; sel.appendChild(x); });
+    var groups = {};
+    KAL.forEach(function (k) { var g = k.hersteller || k.name.split(' ')[0]; (groups[g] = groups[g] || []).push(k); });
+    Object.keys(groups).sort(byName).forEach(function (g) {
+      var og = document.createElement('optgroup'); og.label = g;
+      groups[g].sort(function (a, b) { return byName(a.name, b.name); }).forEach(function (k) {
+        var x = document.createElement('option'); x.value = k.id; x.textContent = k.name; og.appendChild(x);
+      });
+      sel.appendChild(og);
+    });
   })();
-  $('wCal').addEventListener('change', function () {
-    var k = null; KAL.forEach(function (x) { if (x.id === $('wCal').value) k = x; });
-    if (!k) { $('wCalNote').textContent = ''; return; }
-    $('wLift').value = k.hebewinkel || 52;
+  function calInfo(k) {
+    if (!k) return '';
+    if (k.messbar === false) return k.notiz || 'Dieses Werk lässt sich nicht messen.';
+    var s = (k.hebewinkel != null ? 'Hebewinkel ' + deg(k.hebewinkel) + (k.sicher ? '' : ' (unbestätigt)') : 'Hebewinkel unbekannt, 52° angenommen') +
+      ' · ' + (k.bph ? thousands(k.bph) + ' A/h' : 'Schlagzahl wird erkannt');
+    return s + (k.notiz ? '. ' + k.notiz : '');
+  }
+  function applyCal(k, keepValues) {
+    $('wCalNote').textContent = calInfo(k);
+    $('wCalNote').setAttribute('data-kind', k && k.messbar === false ? 'warn' : '');
+    if (!k || keepValues) return;
+    $('wLift').value = k.hebewinkel != null ? k.hebewinkel : 52;
     $('wBph').value = k.bph ? String(k.bph) : '';
-    $('wCalNote').textContent = (k.hebewinkel ? 'Hebewinkel ' + k.hebewinkel + '°' : 'Hebewinkel unbekannt, 52° angenommen') + (k.bph ? ', ' + thousands(k.bph) + ' A/h' : '') + (k.notiz ? '. ' + k.notiz : '');
+  }
+  $('wCal').addEventListener('change', function () { applyCal(kalById(this.value)); });
+  $('wName').addEventListener('input', function () { nameAuto = false; });
+
+  /* Modellsuche: Marke, Modell, Spitzname oder Werk */
+  function norm(s) {
+    return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .replace(/[’'´`«»"()\/.,:+]/g, ' ').replace(/[-–_]/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+  /* Modellname ohne doppelte Marke («Seiko 5 Sports», nicht «Seiko Seiko 5 Sports») */
+  function fullName(u) { return (' ' + norm(u.modell) + ' ').indexOf(' ' + norm(u.marke) + ' ') >= 0 ? u.modell : u.marke + ' ' + u.modell; }
+  /* Suchtext: p = eigener Name (zählt mehr), s = verbautes Werk (zählt weniger) */
+  var INDEX = [];
+  UHREN.forEach(function (u) {
+    var k = kalById(u.kaliber);
+    INDEX.push({ kind: 'uhr', u: u, k: k, p: ' ' + norm(u.marke + ' ' + u.modell + ' ' + (u.such || '')), s: ' ' + norm(k ? k.name : ''),
+      m: ' ' + norm(u.marke + ' ' + u.modell.split('(')[0]) + ' ' });
   });
+  KAL.forEach(function (k) {
+    INDEX.push({ kind: 'werk', k: k, p: ' ' + norm(k.name + ' ' + (k.auch || []).join(' ')), s: ' werk kaliber', m: ' ' + norm(k.name.split('(')[0]) + ' ' });
+  });
+  INDEX.forEach(function (e, i) { e.order = i; e.pc = e.p.replace(/ /g, ''); });
+  function search(q) {
+    var toks = norm(q).split(' ').filter(Boolean);
+    if (!toks.length || (toks.length === 1 && toks[0].length < 2)) return [];
+    var hits = [];
+    INDEX.forEach(function (e) {
+      var score = 0;
+      for (var i = 0; i < toks.length; i++) {
+        var t = toks[i];
+        if (e.p.indexOf(' ' + t) >= 0) score += 3;                         /* Wortanfang im Namen */
+        else if (e.p.indexOf(t) >= 0 || e.pc.indexOf(t) >= 0) score += 2;  /* auch «blackbay» */
+        else if (e.s.indexOf(' ' + t) >= 0) score += 1;                    /* nur im Werk */
+        else if (e.s.indexOf(t) >= 0) score += 0.5;
+        else return;
+        if (e.m.indexOf(' ' + t) >= 0) score += 1;                         /* im Hauptnamen, nicht in Klammern */
+        if (e.m.indexOf(' ' + t + ' ') >= 0) score += 0.5;                 /* ganzes Wort */
+      }
+      if (e.kind === 'uhr' && norm(e.u.marke).indexOf(toks[0]) === 0) score += 1;
+      hits.push({ e: e, score: score });
+    });
+    hits.sort(function (a, b) { return b.score - a.score || (a.e.kind === b.e.kind ? 0 : a.e.kind === 'uhr' ? -1 : 1) || a.e.order - b.e.order; });
+    return hits.slice(0, 8).map(function (h) { return h.e; });
+  }
+  function calShort(k) {
+    if (!k) return 'Werk unbekannt';
+    if (k.messbar === false) return 'nicht messbar';
+    return (k.bph ? thousands(k.bph) + ' A/h' : 'Schlagzahl wird erkannt') + ' · ' +
+      (k.hebewinkel != null ? deg(k.hebewinkel) + (k.sicher ? '' : ' (unbestätigt)') : 'Hebewinkel unbekannt');
+  }
+  var found = [], foundSel = -1;
+  function hideSuggest() { $('wFindList').hidden = true; $('wFind').setAttribute('aria-expanded', 'false'); found = []; foundSel = -1; }
+  function showSuggest(list) {
+    var ul = $('wFindList'); ul.innerHTML = ''; found = list; foundSel = -1;
+    if (!list.length) {
+      ul.innerHTML = '<li class="none">Nichts gefunden. Name und Werk unten selbst eintragen.</li>';
+    }
+    list.forEach(function (e, i) {
+      var li = document.createElement('li'); li.setAttribute('role', 'option'); li.id = 'wFind-' + i;
+      li.innerHTML = e.kind === 'uhr'
+        ? '<span class="t">' + esc(fullName(e.u)) + '</span><span class="s">' + esc((e.k ? e.k.name : '') + ' · ' + calShort(e.k)) + '</span>'
+        : '<span class="t"><span class="tag">Werk</span>' + esc(e.k.name) + '</span><span class="s">' + esc(calShort(e.k)) + '</span>';
+      li.addEventListener('pointerdown', function (ev) { ev.preventDefault(); });
+      li.addEventListener('click', function () { pick(e); });
+      ul.appendChild(li);
+    });
+    ul.hidden = false; $('wFind').setAttribute('aria-expanded', 'true');
+  }
+  function markSel(i) {
+    foundSel = i;
+    Array.prototype.forEach.call($('wFindList').children, function (li, j) { li.setAttribute('aria-selected', String(j === i)); });
+    if (i >= 0) { $('wFind').setAttribute('aria-activedescendant', 'wFind-' + i); $('wFind-' + i).scrollIntoView({ block: 'nearest' }); }
+    else $('wFind').removeAttribute('aria-activedescendant');
+  }
+  function modelName(u) { return fullName(u).replace(/\s*\([^)]*\)\s*$/, '').trim().slice(0, 60); }
+  function pick(e) {
+    $('wCal').value = e.k ? e.k.id : '';
+    applyCal(e.k);
+    if (e.kind === 'uhr') {
+      if (!$('wName').value.trim() || nameAuto) { $('wName').value = modelName(e.u); nameAuto = true; }
+      $('wFindNote').textContent = 'Übernommen: ' + fullName(e.u) + '.' + (e.u.notiz ? ' ' + e.u.notiz : '') + ' Alles lässt sich unten noch ändern.';
+    } else {
+      $('wFindNote').textContent = 'Werk übernommen: ' + e.k.name + '.' + ($('wName').value.trim() ? '' : ' Jetzt noch einen Namen eingeben.');
+      if (!$('wName').value.trim()) $('wName').focus();
+    }
+    $('wFind').value = '';
+    hideSuggest();
+  }
+  function defaultFindNote() {
+    $('wFindNote').textContent = UHREN.length + ' beliebte Modelle und ' + KAL.length + ' Werke. Nicht dabei? Die Felder unten selbst ausfüllen.';
+  }
+  var hideTimer = 0;
+  $('wFind').addEventListener('input', function () {
+    clearTimeout(hideTimer);
+    var q = this.value;
+    if (norm(q).length < 2) { hideSuggest(); return; }
+    showSuggest(search(q));
+  });
+  $('wFind').addEventListener('keydown', function (ev) {
+    if ($('wFindList').hidden) return;
+    if (ev.key === 'ArrowDown') { ev.preventDefault(); markSel(Math.min(found.length - 1, foundSel + 1)); }
+    else if (ev.key === 'ArrowUp') { ev.preventDefault(); markSel(Math.max(-1, foundSel - 1)); }
+    else if (ev.key === 'Enter') { ev.preventDefault(); if (found.length) pick(found[Math.max(0, foundSel)]); }
+    else if (ev.key === 'Escape') { hideSuggest(); }
+  });
+  $('wFind').addEventListener('blur', function () { clearTimeout(hideTimer); hideTimer = setTimeout(hideSuggest, 150); });
+  $('wFind').addEventListener('focus', function () { clearTimeout(hideTimer); });
+  defaultFindNote();
+
   function resetForm() {
-    editingId = null; $('watchForm').reset(); $('wLift').value = 52; $('wCalNote').textContent = '';
+    editingId = null; nameAuto = false; $('watchForm').reset(); $('wLift').value = 52; applyCal(null);
+    $('wFind').value = ''; hideSuggest(); defaultFindNote();
     $('watchFormTitle').textContent = 'Uhr hinzufügen'; $('wSave').textContent = 'Speichern'; $('wCancel').hidden = true;
   }
   $('wCancel').addEventListener('click', resetForm);
@@ -111,11 +254,15 @@
       var n = meas.filter(function (m) { return m.watchId === w.id; }).length;
       var li = document.createElement('li'); li.className = 'item';
       li.innerHTML = '<span class="t">' + esc(w.name) + '</span>' +
-        '<span class="s">' + esc((calName(w.kaliberId) || 'Werk unbekannt') + ' · ' + fmt(w.liftAngle, w.liftAngle % 1 ? 1 : 0) + '° · ' + (w.bph ? thousands(w.bph) + ' A/h' : 'Schlagzahl automatisch')) + '</span>' +
+        '<span class="s">' + esc((calName(w.kaliberId) || 'Werk unbekannt') + ' · ' + deg(w.liftAngle) + (liftState(w) ? ' (' + liftState(w) + ')' : '') + ' · ' + (w.bph ? thousands(w.bph) + ' A/h' : 'Schlagzahl automatisch')) + '</span>' +
         '<span class="v">' + n + '<small>Messungen</small></span>' +
-        '<span class="acts"><button type="button" data-act="edit">Bearbeiten</button><button type="button" data-act="del">Löschen</button></span>';
+        '<span class="acts"><button type="button" data-act="pdf"' + (n ? '' : ' disabled') + '>Messprotokoll (PDF)<span class="pro">Pro</span></button>' +
+        '<button type="button" data-act="edit">Bearbeiten</button><button type="button" data-act="del">Löschen</button></span>' +
+        '<span class="pdfbar" hidden></span>';
+      li.querySelector('[data-act="pdf"]').addEventListener('click', function () { makeReport(w, li.querySelector('.pdfbar')); });
       li.querySelector('[data-act="edit"]').addEventListener('click', function () {
-        editingId = w.id; $('wName').value = w.name; $('wCal').value = w.kaliberId || ''; $('wLift').value = w.liftAngle; $('wBph').value = w.bph ? String(w.bph) : '';
+        editingId = w.id; nameAuto = false; $('wName').value = w.name; $('wCal').value = w.kaliberId || ''; $('wLift').value = w.liftAngle; $('wBph').value = w.bph ? String(w.bph) : '';
+        applyCal(kalById(w.kaliberId), true); $('wFind').value = ''; hideSuggest(); defaultFindNote();
         $('watchFormTitle').textContent = 'Uhr bearbeiten'; $('wSave').textContent = 'Änderungen speichern'; $('wCancel').hidden = false;
         $('watchForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
       });
@@ -126,6 +273,43 @@
         renderWatches(); renderWatchSelect();
       });
       ul.appendChild(li);
+    });
+  }
+
+  /* ---------- Messprotokoll (PDF, Pro) ---------- */
+  function isPro() { return true; /* Bis Google Play Billing angebunden ist, steht das Protokoll allen offen. */ }
+  var lastReportUrl = null;
+  function makeReport(w, bar) {
+    if (!isPro()) { bar.hidden = false; bar.textContent = 'Das Messprotokoll gehört zu Tickwerk Pro.'; return; }
+    var list = meas.filter(function (m) { return m.watchId === w.id; });
+    if (!list.length || !window.TickwerkReport) return;
+    var out;
+    try {
+      out = window.TickwerkReport.build({
+        watch: w, kal: kalById(w.kaliberId), liftState: liftState(w), meas: list, appVersion: APP_VERSION,
+        engineVersion: engineVersion, logo: window.TICKWERK_LOGO || null, now: new Date()
+      });
+    } catch (e) {
+      bar.hidden = false; bar.textContent = 'Das Protokoll konnte nicht erstellt werden (' + (e && e.message || e) + ').'; return;
+    }
+    var blob = new Blob([out.bytes], { type: 'application/pdf' });
+    var file = null;
+    try { file = new File([blob], out.filename, { type: 'application/pdf' }); } catch (e) { /* alte Browser */ }
+    if (lastReportUrl) URL.revokeObjectURL(lastReportUrl);
+    lastReportUrl = URL.createObjectURL(blob);
+    var canShare = !!(file && navigator.canShare && navigator.canShare({ files: [file] }));
+    bar.hidden = false;
+    bar.innerHTML = '<span class="pdfinfo">Protokoll ' + esc(out.number) + ' · ' + out.pages + (out.pages === 1 ? ' Seite' : ' Seiten') + ' · ' +
+      Math.max(1, Math.round(out.bytes.length / 1024)) + ' KB</span>' +
+      (canShare ? '<button type="button" data-p="share">Teilen oder speichern</button>' : '') +
+      '<button type="button" data-p="open">Öffnen und drucken</button><button type="button" data-p="dl">Herunterladen</button>';
+    if (canShare) bar.querySelector('[data-p="share"]').addEventListener('click', function () {
+      navigator.share({ files: [file], title: 'Tickwerk Messprotokoll ' + w.name }).catch(function () { /* abgebrochen */ });
+    });
+    bar.querySelector('[data-p="open"]').addEventListener('click', function () { window.open(lastReportUrl, '_blank'); });
+    bar.querySelector('[data-p="dl"]').addEventListener('click', function () {
+      var a = document.createElement('a'); a.href = lastReportUrl; a.download = out.filename;
+      document.body.appendChild(a); a.click(); a.remove();
     });
   }
 
@@ -142,6 +326,19 @@
   /* ---------- Aufnahme ---------- */
   var rec = null, lastRec = null, lastResult = null, wakeLock = null;
   var RING = 339.3;
+
+  function micError(e) {
+    var n = e && e.name;
+    if (n === 'NotAllowedError' || n === 'SecurityError') {
+      return 'Mikrofon blockiert. In Chrome: Menü ⋮ → Einstellungen → Website-Einstellungen → Mikrofon → ' + (location.host || 'diese Seite') +
+        ' auf «Zulassen» stellen, dann die Seite neu laden. Hilft das nicht: Android-Einstellungen → Apps → Chrome → Berechtigungen → Mikrofon.';
+    }
+    if (n === 'NotFoundError' || n === 'OverconstrainedError') return 'Kein Mikrofon gefunden.';
+    if (n === 'NotReadableError' || n === 'AbortError') {
+      return 'Das Mikrofon ist gerade belegt, zum Beispiel durch einen Anruf oder eine Aufnahme-App. Diese beenden und nochmals tippen.';
+    }
+    return 'Mikrofon konnte nicht geöffnet werden' + (n ? ' (' + n + ')' : '') + '.';
+  }
 
   function setRing(frac) { $('ringFg').style.strokeDashoffset = String(RING * (1 - Math.max(0, Math.min(1, frac)))); }
 
@@ -160,9 +357,7 @@
       });
     } catch (e) {
       $('startBtn').disabled = false;
-      setStatus(e && e.name === 'NotAllowedError'
-        ? 'Mikrofon nicht erlaubt. In Chrome beim Schloss-Symbol neben der Adresse das Mikrofon zulassen.'
-        : 'Mikrofon konnte nicht geöffnet werden.', 'err');
+      setStatus(micError(e), 'err');
       return;
     }
     var AC = window.AudioContext || window.webkitAudioContext;
@@ -294,7 +489,7 @@
     runJob({ samples: samples, fs: fs, opts: opts }).then(function (res) {
       $('startBtn').disabled = false;
       render(res);
-      if (res && res.ok) saveMeasurement(res, source);
+      if (res && res.ok) saveMeasurement(res, source, fs);
     });
   }
 
@@ -321,9 +516,24 @@
     $('verdict').textContent = verdict;
     $('be').textContent = fmt(r.beatErrorMs, 2) + ' ms';
     $('beNote').textContent = r.beatErrorReliable === false ? 'unsicher' : (r.beatErrorMs <= 0.5 ? 'sehr gut' : (r.beatErrorMs <= 1 ? 'in Ordnung' : 'hoch'));
+    var w = currentWatch(), k = w ? kalById(w.kaliberId) : null, st = liftState(w);
     $('amp').textContent = r.amplitude ? Math.round(r.amplitude) + '°' : '–';
-    $('ampNote').textContent = r.amplitude ? (r.amplitudeReliable ? 'bei Hebewinkel ' + fmt(r.liftAngle, r.liftAngle % 1 ? 1 : 0) + '°' : 'unsicher') : '';
+    $('ampNote').textContent = !r.amplitude ? '' : !r.amplitudeReliable ? 'unsicher' :
+      (k && k.coaxial ? 'Richtwert (Co-Axial)' : 'bei ' + deg(r.liftAngle) + (st ? ' (' + st + ')' : ''));
     $('bphOut').textContent = thousands(r.bph);
+    var expBph = w && w.bph ? w.bph : 0, mismatch = !!expBph && expBph !== r.bph;
+    $('bphNote').textContent = mismatch ? 'erwartet ' + thousands(expBph) : 'A/h';
+    $('bphWarn').hidden = !mismatch;
+    if (mismatch) {
+      $('bphWarnText').textContent = 'Tickwerk hat ' + thousands(r.bph) + ' A/h erkannt, für «' + w.name + '» sind ' + thousands(expBph) +
+        ' A/h hinterlegt. Möglicherweise steckt eine andere Version des Werks in der Uhr.';
+      $('bphFix').textContent = thousands(r.bph) + ' A/h übernehmen';
+      $('bphFix').onclick = function () {
+        w.bph = r.bph; store(KEYS.watches, watches);
+        $('bphWarn').hidden = true; $('bphNote').textContent = 'A/h';
+        renderWatches(); renderWatchSelect();
+      };
+    }
     var q = r.quality;
     $('quality').textContent = { stark: 'Stark', mittel: 'Mittel', schwach: 'Schwach' }[q.label] || q.label;
     $('qualityNote').textContent = Math.round(q.detectedFraction * 100) + ' % der Schläge';
@@ -333,16 +543,27 @@
     setTimeout(function () { $('result').scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 50);
   }
 
-  function saveMeasurement(r, source) {
+  /* Papierstreifen platzsparend: höchstens 300 Punkte, nur für die letzten Messungen (fürs Protokoll) */
+  var TRACE_KEEP = 40;
+  function compactTrace(trace) {
+    if (!trace || !trace.length) return null;
+    var step = Math.max(1, Math.ceil(trace.length / 300)), t = [], d = [], p = '';
+    for (var i = 0; i < trace.length; i += step) { t.push(+trace[i].t.toFixed(2)); d.push(+trace[i].devMs.toFixed(3)); p += trace[i].parity ? '1' : '0'; }
+    return { t: t, d: d, p: p };
+  }
+  function saveMeasurement(r, source, fs) {
     var w = currentWatch();
     meas.push({
       id: Date.now(), watchId: w ? w.id : '', watchName: watchLabel(w), pos: settings.pos, date: new Date().toISOString(), source: source,
       rate: +r.rate.toFixed(2), sigma: +r.rateSigma.toFixed(2), stable: r.rateStable !== false,
       be: +r.beatErrorMs.toFixed(2), beOk: r.beatErrorReliable !== false,
       amp: r.amplitude ? Math.round(r.amplitude) : null, ampOk: !!r.amplitudeReliable, lift: r.liftAngle,
-      bph: r.bph, q: r.quality.label, dur: +r.duration.toFixed(1)
+      bph: r.bph, q: r.quality.label, dur: +r.duration.toFixed(1),
+      ppm: r.clockPpm || 0, fs: fs || null, eng: engineVersion || '', app: APP_VERSION, tr: compactTrace(r.trace)
     });
     if (meas.length > 1000) meas = meas.slice(meas.length - 1000);
+    var kept = 0;
+    for (var i = meas.length - 1; i >= 0; i--) { if (meas[i].tr && ++kept > TRACE_KEEP) delete meas[i].tr; }
     store(KEYS.meas, meas);
     renderHistory(); renderWatches();
   }
@@ -601,6 +822,10 @@
   window.addEventListener('appinstalled', function () { $('installBtn').hidden = true; });
 
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+    /* Neue Version im Hintergrund geladen: Knopf zum Neuladen anbieten (nie mitten in einer Messung neu laden) */
+    var hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', function () { if (hadController) $('updateBtn').hidden = false; });
+    $('updateBtn').addEventListener('click', function () { if (!rec) location.reload(); });
     navigator.serviceWorker.register('sw.js').catch(function () { /* ohne Offline-Modus weiter */ });
   }
 
@@ -609,6 +834,6 @@
   renderWatchSelect();
   renderWatches();
   runJob({ samples: new Float32Array(48000 * 5), fs: 48000, opts: {} }).then(function () {
-    $('versionInfo').textContent = 'Tickwerk Web-App 0.1 · Mess-Engine ' + (engineVersion || '?');
+    $('versionInfo').textContent = 'Tickwerk Web-App ' + APP_VERSION + ' · Mess-Engine ' + (engineVersion || '?');
   });
 })();

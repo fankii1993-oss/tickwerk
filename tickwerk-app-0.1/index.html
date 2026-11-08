@@ -17,7 +17,10 @@
     <img src="icons/icon-192.png" alt="" width="28" height="28">
     <span>Tickwerk</span>
   </div>
-  <button type="button" class="btn-ghost small" id="installBtn" hidden>Installieren</button>
+  <div class="actions">
+    <button type="button" class="btn-ghost small" id="updateBtn" hidden>Neue Version: neu laden</button>
+    <button type="button" class="btn-ghost small" id="installBtn" hidden>Installieren</button>
+  </div>
 </header>
 
 <main>
@@ -77,10 +80,14 @@
         <div class="labels"><span style="left:0">−20</span><span style="left:50%">0</span><span style="left:100%">+20</span></div>
       </div>
       <p class="verdict" id="verdict"></p>
+      <div class="notice" id="bphWarn" hidden>
+        <p id="bphWarnText"></p>
+        <button type="button" class="btn-ghost small" id="bphFix"></button>
+      </div>
       <dl class="metrics">
         <div class="metric"><dt>Abfallfehler</dt><dd id="be">–</dd><small id="beNote"></small></div>
         <div class="metric"><dt>Amplitude</dt><dd id="amp">–</dd><small id="ampNote"></small></div>
-        <div class="metric"><dt>Schlagzahl</dt><dd id="bphOut">–</dd><small>A/h</small></div>
+        <div class="metric"><dt>Schlagzahl</dt><dd id="bphOut">–</dd><small id="bphNote">A/h</small></div>
         <div class="metric"><dt>Signal</dt><dd id="quality">–</dd><small id="qualityNote"></small></div>
       </dl>
       <h3>Papierstreifen</h3>
@@ -127,6 +134,13 @@
     </div>
     <form class="card" id="watchForm" autocomplete="off">
       <h2 id="watchFormTitle">Uhr hinzufügen</h2>
+      <div class="field find">
+        <label for="wFind">Modell oder Werk suchen</label>
+        <input type="search" id="wFind" placeholder="z. B. Submariner, PRX, Speedmaster, 2824" enterkeyhint="search"
+               role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="wFindList" spellcheck="false">
+        <ul class="suggest" id="wFindList" role="listbox" aria-label="Vorschläge" hidden></ul>
+        <p class="hint" id="wFindNote"></p>
+      </div>
       <div class="field">
         <label for="wName">Name</label>
         <input type="text" id="wName" placeholder="z. B. Omega Seamaster" required maxlength="60">
@@ -142,16 +156,16 @@
           <div class="inline"><input type="number" id="wLift" value="52" min="30" max="70" step="0.5" inputmode="decimal"><span class="unit">Grad</span></div>
         </div>
         <div class="field">
-          <label for="wBph">Schlagzahl</label>
+          <label for="wBph">Schlagzahl (erwartet)</label>
           <select id="wBph">
-            <option value="">automatisch</option>
-            <option>12000</option><option>14400</option><option>17280</option><option>18000</option>
-            <option>19800</option><option>21600</option><option>25200</option><option>28800</option>
-            <option>36000</option><option>43200</option>
+            <option value="">unbekannt</option>
+            <option value="12000">12’000</option><option value="14400">14’400</option><option value="17280">17’280</option><option value="18000">18’000</option>
+            <option value="19800">19’800</option><option value="21600">21’600</option><option value="25200">25’200</option><option value="28800">28’800</option>
+            <option value="36000">36’000</option><option value="43200">43’200</option>
           </select>
         </div>
       </div>
-      <p class="hint">Der Hebewinkel wirkt nur auf die Amplitude. Unbekannt: 52 Grad lassen.</p>
+      <p class="hint">Der Hebewinkel wirkt nur auf die Amplitude. Unbekannt: 52 Grad lassen. Die Schlagzahl erkennt Tickwerk selbst und meldet sich, wenn sie nicht zur Angabe passt.</p>
       <div class="actions">
         <button type="submit" class="btn-primary" id="wSave">Speichern</button>
         <button type="button" class="btn-ghost" id="wCancel" hidden>Abbrechen</button>
@@ -194,6 +208,8 @@
 </nav>
 
 <script src="kaliber.js"></script>
+<script src="logo.js"></script>
+<script src="report.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -1,4 +1,4 @@
-# Tickwerk – Web-App 0.1
+# Tickwerk – Web-App 0.3
 
 Misst mit dem Handy-Mikrofon, wie genau eine mechanische Uhr geht: Gangabweichung, Abfallfehler, Amplitude, Schlagzahl. Die Aufnahme bleibt auf dem Handy; die App schickt nichts ins Internet.
 
@@ -14,12 +14,29 @@ Misst mit dem Handy-Mikrofon, wie genau eine mechanische Uhr geht: Gangabweichun
 
 Adresse in Chrome öffnen, Mikrofon erlauben. Über das Menü (⋮) **App installieren** bzw. **Zum Startbildschirm hinzufügen**. Danach funktioniert Tickwerk auch ohne Internet.
 
+## Neu in 0.3
+
+- Messprotokoll als PDF pro Uhr (Pro): Uhr und Werk, Ergebnis mit Vergleich zur Chronometer-Norm, Ergebnisse je Lage, alle Einzelmessungen, Papierstreifen, Messbedingungen, Hinweise zur Genauigkeit und Unterschriftsfeld. Erzeugt im Handy, ohne Internet.
+- Neue Messungen speichern zusätzlich Papierstreifen, Abtastrate und Korrektur der Handy-Uhr fürs Protokoll.
+
+## Neu in 0.2
+
+- Modellsuche beim Hinzufügen einer Uhr: 129 Modelle von 20 Marken und 69 Werke. Ein Tipp füllt Name, Werk, Hebewinkel und Schlagzahl aus.
+- Unbestätigte und angenommene Hebewinkel sind gekennzeichnet, Co-Axial-Werke (Amplitude nur Richtwert) und Spring Drive (nicht messbar) ebenfalls.
+- Die Schlagzahl wird immer erkannt. Passt sie nicht zur gespeicherten, erscheint ein Hinweis mit «übernehmen».
+- Genauere Hilfe, wenn das Mikrofon blockiert oder belegt ist.
+
+## Aktualisieren
+
+Geänderte Dateien im Repository-Ordner ersetzen: **Add file → Upload files**, Dateien hineinziehen, **Commit changes**. Ordner (`engine`, `fonts`, `icons`) nur hochladen, wenn sich darin etwas geändert hat.
+
 ## Dateien
 
 - `index.html`, `app.css`, `app.js` – Oberfläche und Ablauf
 - `recorder-worklet.js` – nimmt das Mikrofon unverändert auf (ohne Rauschunterdrückung)
 - `worker.js` + `engine/tickwerk-engine.js` – Auswertung im Hintergrund
-- `kaliber.js` – Kaliberliste (Schlagzahl, Hebewinkel)
+- `kaliber.js` – Werke (Schlagzahl, Hebewinkel, Quelle) und Modellkatalog für die Suche
+- `report.js` + `logo.js` – Messprotokoll als PDF (eigener kleiner PDF-Schreiber, Logo als Vektor)
 - `sw.js`, `manifest.webmanifest`, `icons/` – Installation und Offline-Betrieb
 - `fonts/` – Schriften (SIL Open Font License, siehe OFL-Dateien)
 
