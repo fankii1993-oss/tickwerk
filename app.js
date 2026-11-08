@@ -1,0 +1,2451 @@
+/* Tickwerk Web-App 0.5: Messen, Lagen-Test, Uhren, Verlauf, Gang im Alltag, Werk-Detektiv, Pro, Deutsch und Englisch. */
+(function () {
+  'use strict';
+
+  /* ---------- Sprache: Deutsch ist die Quelle, Englisch kommt aus dem Wörterbuch en.js (Schlüssel = deutscher Text).
+     «Automatisch» folgt der Sprache des Handys: Deutsch bei de-*, sonst Englisch. ---------- */
+  var EN = window.TICKWERK_EN || {};
+  var LANG = (function () {
+    var cfg = window.TICKWERK_CONFIG || {}, v = 'auto';
+    var pre = typeof cfg.storage === 'string' && /^[a-z][a-z0-9.]{2,30}$/.test(cfg.storage) ? cfg.storage : 'tickwerk.v1';
+    try { var s0 = JSON.parse(localStorage.getItem(pre + '.settings') || '{}'); if (s0 && (s0.lang === 'de' || s0.lang === 'en')) v = s0.lang; } catch (e) { /* egal */ }
+    if (v === 'auto') v = /^de(\b|-|_|$)/i.test(navigator.language || '') ? 'de' : 'en';
+    return v;
+  })();
+  var LOC = LANG === 'en' ? 'en-GB' : 'de-CH';
+  function hasKey(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
+  /* T('Text') übersetzt; T('Noch {n} Messungen', { n: 3 }) setzt Werte ein */
+  function T(s, v) {
+    var out = LANG === 'en' && typeof s === 'string' && hasKey(EN, s) ? EN[s] : s;
+    if (v) out = String(out).replace(/\{(\w+)\}/g, function (m, k) { return hasKey(v, k) ? String(v[k]) : m; });
+    return out;
+  }
+  /* Feste Texte der Seite (Textknoten und Beschriftungen) einmal beim Start übersetzen */
+  function translateStatic(root) {
+    if (LANG !== 'en') return;
+    var w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null), n, nodes = [];
+    while ((n = w.nextNode())) nodes.push(n);
+    nodes.forEach(function (node) {
+      var p = node.parentNode && node.parentNode.nodeName;
+      if (p === 'SCRIPT' || p === 'STYLE') return;
+      var raw = node.nodeValue, key = raw.replace(/\s+/g, ' ').trim();
+      if (key && hasKey(EN, key)) node.nodeValue = raw.match(/^\s*/)[0] + EN[key] + raw.match(/\s*$/)[0];
+      else if (/^[\d’]+$/.test(key) && key.indexOf('’') > 0) node.nodeValue = raw.replace(/’/g, ',');   /* Zahlen wie 28’800 -> 28,800 */
+    });
+    Array.prototype.forEach.call(root.querySelectorAll('[placeholder],[aria-label],[title],[alt]'), function (el) {
+      ['placeholder', 'aria-label', 'title', 'alt'].forEach(function (a) {
+        var v = el.getAttribute(a);
+        if (v && hasKey(EN, v.trim())) el.setAttribute(a, EN[v.trim()]);
+      });
+    });
+  }
+  document.documentElement.lang = LANG === 'en' ? 'en' : 'de-CH';
+  if (LANG === 'en') {
+    document.title = T(document.title); translateStatic(document.body);
+    Array.prototype.forEach.call(document.querySelectorAll('a[href="datenschutz.html"]'), function (a) { a.setAttribute('href', 'privacy.html'); });
+  }
+
+  /* Nicht eingebettet in fremden Seiten laufen (Schutz vor untergeschobenen Klicks) */
+  if (window.top !== window.self) {
+    document.documentElement.className += ' framed';
+    var fm = document.createElement('p'), fa = document.createElement('a');
+    fm.className = 'framed-msg'; fa.href = location.href; fa.target = '_blank'; fa.rel = 'noopener';
+    fa.textContent = T('Tickwerk in einem eigenen Fenster öffnen');
+    fm.appendChild(fa); document.body.appendChild(fm);
+    return;
+  }
+
+  var $ = function (id) { return document.getElementById(id); };
+  var KAL = window.TICKWERK_KALIBER || [];
+  var UHREN = window.TICKWERK_UHREN || [];
+  var CFG = window.TICKWERK_CONFIG || {};
+  var FLAVOR = CFG.flavor === 'store' ? 'store' : 'test';
+  var APP_VERSION = '0.5.1';
+  var PREFIX = typeof CFG.storage === 'string' && /^[a-z][a-z0-9.]{2,30}$/.test(CFG.storage) ? CFG.storage : 'tickwerk.v1';
+  var KEYS = { watches: PREFIX + '.watches', meas: PREFIX + '.measurements', settings: PREFIX + '.settings', session: PREFIX + '.session', pro: PREFIX + '.pro' };
+  var PRO_SKU = typeof CFG.proSku === 'string' && /^[a-z0-9._]{1,40}$/.test(CFG.proSku) ? CFG.proSku : 'tickwerk_pro';
+  var BACKEND = typeof CFG.billingBackend === 'string' && /^https:\/\/[A-Za-z0-9.\-]+(:\d+)?(\/[A-Za-z0-9._\-\/]*)?$/.test(CFG.billingBackend) ? CFG.billingBackend : '';
+  var PRICE = typeof CFG.price === 'string' ? CFG.price.slice(0, 20) : 'CHF 9.–';
+  var FREE_PER_WEEK = 3, FREE_HISTORY = 5, FREE_DETAIL = 3, MAX_MEAS = 3000, MAX_WATCHES = 200, TRACE_KEEP = 40;
+  var POS = { ZO: T('Zifferblatt oben'), ZU: T('Zifferblatt unten'), KU: T('Krone unten'), KO: T('Krone oben'), KL: T('Krone links'), KR: T('Krone rechts') };
+  var POS_HINT = {
+    ZO: T('Uhr flach hinlegen, Zifferblatt nach oben. Die Unterkante des Handys an die Krone.'),
+    ZU: T('Uhr umdrehen, Zifferblatt nach unten, am besten auf ein weiches Tuch.'),
+    KU: T('Uhr aufstellen, die Krone zeigt nach unten. Zum Beispiel zwischen zwei Bücher klemmen.'),
+    KO: T('Uhr aufstellen, die Krone zeigt nach oben. Das Handy mit der Unterkante von oben an die Krone halten, nur leicht andrücken und den Arm aufstützen.'),
+    KL: T('Uhr aufstellen, die Krone zeigt nach links. Die 6 steht oben.'),
+    KR: T('Uhr aufstellen, die Krone zeigt nach rechts. Die 12 steht oben.')
+  };
+  var HORIZ = { ZO: true, ZU: true };
+  var POS_ORDER = ['ZO', 'ZU', 'KU', 'KO', 'KL', 'KR'];
+  var SETS = { 4: ['ZO', 'ZU', 'KU', 'KL'], 6: ['ZO', 'ZU', 'KU', 'KO', 'KL', 'KR'] };
+  var C = { lume: '#B8F28A', tock: '#9FD8FF', faint: '#8A95A3', line: '#27303B', line2: '#3A4452', muted: '#AEB7C2', warn: '#F59B5E', text: '#EEF1F4', band: 'rgba(184, 242, 138, 0.10)' };
+  var LIVE_FIRST = 6, LIVE_EVERY = 3, LIVE_WINDOW = 10, SETTLE = 5;
+  /* Automatischer Start: zuhören, bis das Ticken in zwei kurzen Fenstern nacheinander klar ist */
+  var SEARCH_WINDOW = 4.5, SEARCH_EVERY = 1.25, SEARCH_NEED = 2, SEARCH_KEEP = 6, SEARCH_MAX = 120;
+  /* Countdown vor jeder Messung (statt Vibration): so lange hört Tickwerk schon zu, verwendet die Takte aber noch nicht */
+  var COUNTDOWN = 3;
+  /* Gezählt wird bis ±1,5 s/Tag; über ±0,5 s/Tag (oder wenn der Gang während der Messung schwankt) mit Vermerk */
+  var SIGMA_COUNT = 1.5, SIGMA_SURE = 0.5;
+
+  /* ---------- Speicher ---------- */
+  function load(key, def) { try { var v = localStorage.getItem(key); return v ? JSON.parse(v) : def; } catch (e) { return def; } }
+  function store(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); return true; } catch (e) { return false; } }
+  function unstore(key) { try { localStorage.removeItem(key); } catch (e) { /* gesperrt */ } }
+  function own(o, k) { return typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k); }
+  function finite(v, d) { v = typeof v === 'number' ? v : NaN; return isFinite(v) ? v : d; }
+  function str(v, max) { return typeof v === 'string' ? v.slice(0, max || 200) : ''; }
+  function cleanWatch(w) {
+    if (!w || typeof w !== 'object' || !str(w.id) || !str(w.name)) return null;
+    var lift = finite(w.liftAngle, 52), bph = finite(w.bph, 0);
+    var out = { id: str(w.id, 40), name: str(w.name, 60), kaliberId: str(w.kaliberId, 60),
+      liftAngle: lift >= 30 && lift <= 70 ? lift : 52, bph: bph >= 3600 && bph <= 72000 ? Math.round(bph) : null };
+    /* Zeitvergleiche (Gang im Alltag): Zeitpunkt und Abweichung der Uhr in Sekunden */
+    var tv = (Array.isArray(w.tv) ? w.tv : []).slice(-100).map(function (x) {
+      var d = new Date(str(x && x.t, 40)), o = finite(x && x.o, NaN);
+      return !isNaN(d.getTime()) && isFinite(o) && Math.abs(o) < 86400 ? { t: d.toISOString(), o: Math.round(o * 100) / 100 } : null;
+    }).filter(Boolean).sort(function (a, b) { return new Date(a.t) - new Date(b.t); });
+    if (tv.length) out.tv = tv;
+    return out;
+  }
+  function cleanTrace(tr) {
+    if (!tr || !Array.isArray(tr.t) || !Array.isArray(tr.d) || typeof tr.p !== 'string') return undefined;
+    var n = Math.min(tr.t.length, tr.d.length, tr.p.length, 2000), t = [], d = [], p = '';
+    for (var i = 0; i < n; i++) {
+      if (typeof tr.t[i] !== 'number' || typeof tr.d[i] !== 'number' || !isFinite(tr.t[i]) || !isFinite(tr.d[i])) return undefined;
+      t.push(tr.t[i]); d.push(tr.d[i]); p += tr.p.charAt(i) === '1' ? '1' : '0';
+    }
+    return n ? { t: t, d: d, p: p } : undefined;
+  }
+  function cleanMeas(m) {
+    if (!m || typeof m !== 'object') return null;
+    var rate = finite(m.rate, NaN), sigma = finite(m.sigma, NaN), date = new Date(str(m.date, 40));
+    if (!isFinite(rate) || !isFinite(sigma) || isNaN(date.getTime())) return null;
+    var amp = finite(m.amp, 0), out = {
+      id: finite(m.id, 0) || date.getTime(), watchId: str(m.watchId, 40), watchName: str(m.watchName, 60), pos: own(POS, m.pos) ? m.pos : 'ZO',
+      date: date.toISOString(), source: m.source === 'Datei' ? 'Datei' : 'Mikrofon', rate: rate, sigma: Math.abs(sigma), stable: m.stable !== false,
+      be: Math.abs(finite(m.be, 0)), beOk: m.beOk === true, amp: amp > 0 && amp < 400 ? amp : null, ampOk: m.ampOk === true,
+      lift: finite(m.lift, 52), bph: Math.round(finite(m.bph, 0)), q: ['stark', 'mittel', 'schwach'].indexOf(m.q) >= 0 ? m.q : 'schwach', dur: finite(m.dur, 0)
+    };
+    if (typeof m.ppm === 'number' && isFinite(m.ppm)) out.ppm = m.ppm;
+    if (finite(m.fs, 0) > 0) out.fs = m.fs;
+    if (str(m.eng, 20)) out.eng = str(m.eng, 20);
+    if (str(m.app, 20)) out.app = str(m.app, 20);
+    if (m.fp === true) out.fp = true;
+    if (str(m.sess, 40)) out.sess = str(m.sess, 40);
+    if (m.lset === 4 || m.lset === 6) out.lset = m.lset;
+    var tr = cleanTrace(m.tr); if (tr) out.tr = tr;
+    return out;
+  }
+  function list(v, fn) { return (Array.isArray(v) ? v : []).map(fn).filter(Boolean); }
+  function cleanFree(f) {
+    if (!f || typeof f !== 'object' || typeof f.week !== 'string') return { week: '', used: 0 };
+    return { week: str(f.week, 10), used: Math.max(0, Math.min(FREE_PER_WEEK, Math.round(finite(f.used, 0)))) };
+  }
+  function cleanSession(s) {
+    if (!s || typeof s !== 'object' || !str(s.id)) return null;
+    var set = s.set === 4 ? 4 : 6;
+    return { id: str(s.id, 40), watchId: str(s.watchId, 40), set: set, started: str(s.started, 40), cur: SETS[set].indexOf(s.cur) >= 0 ? s.cur : SETS[set][0] };
+  }
+  function cleanPro(p) {
+    if (!p || typeof p !== 'object' || p.active !== true) return null;
+    return { active: true, since: str(p.since, 40), via: p.via === 'backend' ? 'backend' : 'play' };
+  }
+
+  var watches = list(load(KEYS.watches, []), cleanWatch).slice(0, MAX_WATCHES);
+  var meas = list(load(KEYS.meas, []), cleanMeas).slice(-MAX_MEAS);
+  var S = load(KEYS.settings, {});
+  if (!S || typeof S !== 'object') S = {};
+  var settings = {
+    dur: [20, 30, 60].indexOf(S.dur) >= 0 ? S.dur : 30,
+    watchId: str(S.watchId, 40),
+    pos: own(POS, S.pos) ? S.pos : 'ZO',
+    ppm: Math.abs(finite(S.ppm, 0)) < 500 ? finite(S.ppm, 0) : 0,
+    lagenSet: S.lagenSet === 4 ? 4 : 6,
+    guideSeen: S.guideSeen === true || meas.length > 0,
+    autoStart: S.autoStart !== false,
+    lang: S.lang === 'de' || S.lang === 'en' ? S.lang : 'auto',
+    quartzRate: Math.abs(finite(S.quartzRate, 0)) <= 10 ? finite(S.quartzRate, 0) : 0,
+    quartzRaw: Math.abs(finite(S.quartzRaw, NaN)) < 500 ? S.quartzRaw : null,
+    testPro: S.testPro !== false,
+    free: cleanFree(S.free)
+  };
+  var session = cleanSession(load(KEYS.session, null));
+  var proState = cleanPro(load(KEYS.pro, null));
+  var lastId = meas.reduce(function (a, m) { return Math.max(a, m.id); }, 0);
+  function nextId() { var t = Date.now(); lastId = t > lastId ? t : lastId + 1; return lastId; }
+  function saveSettings() { store(KEYS.settings, settings); }
+  function saveWatches() { store(KEYS.watches, watches); }
+  function saveSession() { if (session) store(KEYS.session, session); else unstore(KEYS.session); }
+  function saveMeas() {
+    if (store(KEYS.meas, meas)) return;
+    var kept = 0;   /* Speicher voll: zuerst die Papierstreifen älterer Messungen weglassen */
+    for (var i = meas.length - 1; i >= 0; i--) { if (meas[i].tr && ++kept > 5) delete meas[i].tr; }
+    if (!store(KEYS.meas, meas)) toast(T('Der Speicher ist voll. Alte Messungen löschen oder unter Einstellungen eine Sicherung speichern.'));
+  }
+
+  /* ---------- Format ---------- */
+  function fmt(v, d) { var s = v.toFixed(d); return LANG === 'en' ? s : s.replace('.', ','); }
+  function signed(v, d) { var s = fmt(Math.abs(v), d); return (v < 0 && s.replace(/[0,.]/g, '') !== '' ? '−' : '+') + s; }
+  function thousands(n) { var sep = LANG === 'en' ? ',' : '’', s = String(Math.round(Math.abs(n))), o = ''; while (s.length > 3) { o = sep + s.slice(-3) + o; s = s.slice(0, -3); } return (n < 0 ? '−' : '') + s + o; }
+  function dateStr(iso) {
+    var d = new Date(iso);
+    return d.toLocaleDateString(LOC, { day: 'numeric', month: 'short' }) + ' ' + d.toLocaleTimeString(LOC, { hour: '2-digit', minute: '2-digit' });
+  }
+  function timeStr(d) { return d.toLocaleTimeString(LOC, { hour: '2-digit', minute: '2-digit' }); }
+  function dayShort(iso) { var d = new Date(iso); return LANG === 'en' ? d.getDate() + '/' + (d.getMonth() + 1) : d.getDate() + '.' + (d.getMonth() + 1) + '.'; }
+  function ago(iso) {
+    var d = new Date(iso), now = new Date();
+    var days = Math.round((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - new Date(d.getFullYear(), d.getMonth(), d.getDate())) / 86400000);
+    if (days <= 0) return T('heute {t}', { t: timeStr(d) });
+    if (days === 1) return T('gestern');
+    if (days < 30) return T('vor {n} Tagen', { n: days });
+    return T('am {d}', { d: d.toLocaleDateString(LOC, { day: 'numeric', month: 'short', year: 'numeric' }) });
+  }
+  function dLong(d) { return d.toLocaleDateString(LOC, { day: 'numeric', month: 'long', year: 'numeric' }); }
+  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function deg(v) { return fmt(v, v % 1 ? 1 : 0) + '°'; }
+  function plural(n, one, many) { return n + ' ' + T(n === 1 ? one : many); }
+  function avg(a) { return a.length ? a.reduce(function (s, v) { return s + v; }, 0) / a.length : null; }
+  /* Fortschritt und Pegel als Verschiebung statt Breite: kein neues Layout, entlastet das Handy während der Aufnahme */
+  function bar(el, frac) { el.style.transform = 'scaleX(' + Math.max(0, Math.min(1, frac)).toFixed(3) + ')'; }
+  function setStatus(id, text, kind) { var el = $(id); el.textContent = text; el.setAttribute('data-kind', kind || ''); }
+  var toastTimer = 0;
+  function toast(msg) {
+    var t = $('toast'); t.textContent = msg; t.hidden = false;
+    clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.hidden = true; }, 4200);
+  }
+
+  /* ---------- Rechnen im Hintergrund ---------- */
+  var worker = new Worker('worker.js');
+  var jobs = {}, jobSeq = 0, engineVersion = '';
+  worker.onmessage = function (e) {
+    engineVersion = e.data.version || engineVersion;
+    var cb = jobs[e.data.id]; delete jobs[e.data.id];
+    if (cb) cb(e.data.r);
+  };
+  worker.onerror = function () { setStatus('status', T('Die Auswertung konnte nicht starten. Seite neu laden.'), 'err'); };
+  function runJob(payload) {
+    return new Promise(function (resolve) { var id = ++jobSeq; jobs[id] = resolve; payload.id = id; worker.postMessage(payload); });
+  }
+
+  /* ---------- Uhren und Werke ---------- */
+  function findWatch(id) { for (var i = 0; i < watches.length; i++) if (watches[i].id === id) return watches[i]; return null; }
+  function currentWatch() { return findWatch(settings.watchId); }
+  var UNKNOWN = { id: '', name: T('Unbekannte Uhr'), kaliberId: '', liftAngle: 52, bph: null };
+  /* Die Schlagzahl wird immer erkannt; die gespeicherte gilt nur als Erwartung (Hinweis bei Abweichung). */
+  function watchOpts(w) { return { liftAngle: w && w.liftAngle ? w.liftAngle : 52, bph: null, clockPpm: settings.ppm || 0 }; }
+  function kalById(id) { for (var i = 0; i < KAL.length; i++) if (KAL[i].id === id) return KAL[i]; return null; }
+  function calName(id) { var k = kalById(id); return k ? kName(k) : ''; }
+  /* Werknamen und Notizen auf Englisch: Namen sind meist Eigennamen, nur einige Wörter werden ersetzt */
+  var KAL_WORDS = [['Basis ', 'based on '], ['Nachbau ', 'clone of '], ['(auch ', '(also '], ['(Handaufzug, 80 h)', '(manual winding, 80 h)'], ['(Handaufzug)', '(manual winding)'],
+    ['Handaufzug', 'manual winding'], ['mechanisch, z. B. ', 'mechanical, e.g. '], ['-Familie', ' family'], ['(aktuell, 72 h)', '(current, 72 h)'], ['(5 Tage)', '(5 days)'],
+    ['Manufakturwerk', 'in-house movement'], ['Manufaktur, 5 Tage', 'in-house, 5 days'], ['Pellaton-Aufzug', 'Pellaton winding'], ['z. B. ', 'e.g. '],
+    ['Chronograph', 'chronograph'], ['(3 Zeiger, ab ca. ', '(3 hands, from about '], ['ab ca. ', 'from about '], ['bis ca. ', 'until about '], ['ohne Datum', 'no date'], [' mit Datum', ' with date'],
+    ['(ab ', '(from '], [', ab ', ', from '], [', bis ', ', until '], ['(aktuell)', '(current)'], ['ältere Ausführung', 'older version'], ['Kaliber ', 'caliber '],
+    ['«', '“'], ['»', '”']];
+  function enName(s) { if (LANG !== 'en' || !s) return s; KAL_WORDS.forEach(function (p) { s = s.split(p[0]).join(p[1]); }); return s; }
+  function kName(k) { return k ? enName(k.name) : ''; }
+  /* Quellenangaben der Werke (nur im Messprotokoll): Fachbegriffe ersetzen, Namen bleiben */
+  var SRC_WORDS = [['ETA Technische Mitteilung', 'ETA technical communication'], ['watchguy.co.uk Hebewinkel-Liste', 'watchguy.co.uk lift angle list'],
+    ['Watchguy-Hebewinkelliste', 'Watchguy lift angle list'], ['(als unbestätigt markiert)', '(marked as unconfirmed)'],
+    ['(laut Forum mit ETA-Dokument)', '(per forum post with ETA document)'], ['Miyota-Datenblatt', 'Miyota data sheet'], ['Omega-Forum', 'Omega forum'],
+    ['Rolex-Forum; Familie 32xx', 'Rolex forum; 32xx family'], [' bei Watchguy', ' at Watchguy'], ['Schlagzahl: ', 'Beat rate: '], ['(Schlagzahl)', '(beat rate)'],
+    ['(Hebewinkel)', '(lift angle)'], ['vom Basiswerk', 'from the base movement'], ['vom verwandten', 'from the related'],
+    ['von Omega 8800 / 2500 übernommen', 'taken from Omega 8800 / 2500'], ['Händlerangaben', 'dealer information'], ['Gangreserve', 'power reserve'],
+    ['Messung Tickwerk', 'Tickwerk measurement'], ["25'200 A/h", '25,200 bph'], ['Basis ', 'based on '], [' bis ', ' to ']];
+  function enSource(s) { if (LANG !== 'en' || !s) return s; SRC_WORDS.forEach(function (p) { s = s.split(p[0]).join(p[1]); }); return s; }
+  /* Woher der Hebewinkel stammt: '' (bestätigt oder eigene Angabe), 'unbestätigt' oder 'angenommen' */
+  function liftState(w) {
+    var lift = w && w.liftAngle ? w.liftAngle : 52;
+    var k = w ? kalById(w.kaliberId) : null;
+    if (k && k.hebewinkel != null && Math.abs(k.hebewinkel - lift) < 0.01) return k.sicher ? '' : 'unbestätigt';
+    if (Math.abs(lift - 52) < 0.01 && !(k && k.hebewinkel != null)) return 'angenommen';
+    return '';
+  }
+  function watchSub(w) {
+    if (!w) return T('Hebewinkel 52° angenommen · Schlagzahl automatisch');
+    var k = kalById(w.kaliberId);
+    if (k && k.messbar === false) return kName(k) + ' · ' + T('nicht messbar');
+    return (k ? kName(k) : T('Werk unbekannt')) + ' · ' + (w.bph ? thousands(w.bph) + ' ' + T('A/h') : T('Schlagzahl automatisch')) + ' · ' + deg(w.liftAngle);
+  }
+  function measOf(w) { var id = w ? w.id : ''; return meas.filter(function (m) { return m.watchId === id; }); }
+  /* Gewertet wird wie im Messprotokoll: gutes Signal, stabiler Gang, kleine Unsicherheit */
+  function counted(m) { return m.q !== 'schwach' && m.sigma <= SIGMA_COUNT; }
+  /* Gezählt, aber ungenauer: der Gang schwankte während der Messung oder das ± liegt über 0,5 s/Tag */
+  function shaky(m) { return counted(m) && (m.stable === false || m.sigma > SIGMA_SURE); }
+  function shakyText(m) { return T(m.stable === false ? 'Gang schwankt' : 'ungenau'); }
+  /* Warum eine Messung nicht zählt */
+  function whyNot(m) { return m.q === 'schwach' ? T('Signal schwach') : T(m.stable === false ? 'Gang schwankt zu stark' : 'zu unsicher'); }
+
+  /* ---------- Pro ---------- */
+  function isPro() { return FLAVOR === 'test' ? settings.testPro : !!proState; }
+  function weekKey(d) {
+    var t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())), day = t.getUTCDay() || 7;
+    t.setUTCDate(t.getUTCDate() + 4 - day);
+    var y0 = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+    return t.getUTCFullYear() + '-W' + Math.ceil(((t - y0) / 86400000 + 1) / 7);
+  }
+  function freeLeft() { return settings.free.week !== weekKey(new Date()) ? FREE_PER_WEEK : Math.max(0, FREE_PER_WEEK - settings.free.used); }
+  function useFree() {
+    var wk = weekKey(new Date());
+    if (settings.free.week !== wk) settings.free = { week: wk, used: 0 };
+    if (settings.free.used >= FREE_PER_WEEK) return false;
+    settings.free.used++; saveSettings(); return true;
+  }
+  function showsPro(m) { return isPro() || !!(m && m.fp); }
+  var PRO_WHY = {
+    lagen: T('Der Lagen-Test misst die Uhr in bis zu sechs Lagen nacheinander, wie beim Uhrmacher, und zeigt die Lagendifferenz.'),
+    pdf: T('Das Messprotokoll fasst alle Messungen einer Uhr als PDF zusammen, zum Drucken, Sammeln oder für den Uhrmacher.'),
+    watches: T('In der Gratis-Version lässt sich eine Uhr speichern. Mit Pro beliebig viele.'),
+    wav: T('Mit Pro lassen sich Aufnahmen als WAV-Datei teilen, zum Beispiel mit einem Uhrmacher.'),
+    values: T('Abfallfehler und Amplitude zeigt Tickwerk gratis bei {n} Messungen pro Woche. Mit Pro bei jeder Messung.', { n: FREE_PER_WEEK }),
+    history: T('Gratis siehst du die letzten Messungen. Mit Pro den ganzen Verlauf.')
+  };
+  function requirePro(feature) {
+    if (isPro()) return true;
+    $('psText').textContent = (PRO_WHY[feature] || '') + ' ' + T('Einmal {p}, kein Abo.', { p: priceText() });
+    openSheet('proSheet');
+    return false;
+  }
+
+  /* ---------- Kauf über Google Play (nur Store-Version) ---------- */
+  var BILLING_URL = 'https://play.google.com/billing';
+  var billing = { ready: null, svc: null, price: '' };
+  function priceText() { return billing.price || PRICE; }
+  function formatPrice(p) {
+    var v = parseFloat(p && p.value);
+    if (!isFinite(v)) return '';
+    if (p.currency === 'CHF') return 'CHF ' + (v % 1 === 0 ? v + '.–' : v.toFixed(2));
+    try { return new Intl.NumberFormat(LOC, { style: 'currency', currency: p.currency }).format(v); } catch (e) { return String(p.currency) + ' ' + v.toFixed(2); }
+  }
+  function billingInit() {
+    if (FLAVOR !== 'store') return Promise.resolve(null);
+    if (billing.ready) return billing.ready;
+    billing.ready = (typeof window.getDigitalGoodsService !== 'function' ? Promise.resolve(null) :
+      window.getDigitalGoodsService(BILLING_URL).then(function (s) { return s || null; }, function () { return null; })
+    ).then(function (s) {
+      billing.svc = s;
+      if (!s) return null;
+      return s.getDetails([PRO_SKU]).then(function (items) {
+        var it = (items || []).filter(function (x) { return x.itemId === PRO_SKU; })[0];
+        if (it && it.price) billing.price = formatPrice(it.price);
+        return s;
+      }, function () { return s; });
+    });
+    return billing.ready;
+  }
+  /* Ein Kauf muss innert 3 Tagen bestätigt werden, sonst erstattet Google ihn zurück.
+     Mit eigenem Server (billingBackend) prüft und bestätigt dieser den Kauf; ohne Server wird er verbraucht (consume). */
+  function settlePurchase(token) {
+    if (!token || typeof token !== 'string') return Promise.resolve(false);
+    if (BACKEND) {
+      return fetch(BACKEND, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: token, sku: PRO_SKU }),
+        credentials: 'omit', cache: 'no-store', referrerPolicy: 'no-referrer' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) { return !!(j && j.ok === true); }, function () { return false; });
+    }
+    if (!billing.svc) return Promise.resolve(false);
+    return billing.svc.consume(token).then(function () { return true; }, function () { return false; });
+  }
+  function grantPro() {
+    proState = { active: true, since: new Date().toISOString(), via: BACKEND ? 'backend' : 'play' };
+    store(KEYS.pro, proState);
+  }
+  function restorePurchases() {
+    return billingInit().then(function (s) {
+      if (!s) return 'unavailable';
+      return s.listPurchases().then(function (purchases) {
+        var p = (purchases || []).filter(function (x) { return x.itemId === PRO_SKU; })[0];
+        if (p) return settlePurchase(p.purchaseToken).then(function (ok) { if (ok) grantPro(); return ok ? 'restored' : 'pending'; });
+        if (typeof s.listPurchaseHistory !== 'function') return 'none';
+        return s.listPurchaseHistory().then(function (h) {
+          var q = (h || []).filter(function (x) { return x.itemId === PRO_SKU; })[0];
+          if (q) { grantPro(); return 'restored'; }
+          return 'none';
+        }, function () { return 'none'; });
+      });
+    }).catch(function () { return 'error'; });
+  }
+  function buyPro() {
+    if (FLAVOR === 'test') {
+      settings.testPro = true; saveSettings();
+      toast(T('Testversion: Pro ist zum Ausprobieren freigeschaltet. Es wurde nichts gekauft.'));
+      afterProChange(); return;
+    }
+    billingInit().then(function (s) {
+      if (!s || typeof window.PaymentRequest !== 'function') { toast(T('Kaufen geht nur in der Tickwerk-App aus dem Google Play Store.')); return; }
+      var req;
+      try {
+        req = new PaymentRequest([{ supportedMethods: BILLING_URL, data: { sku: PRO_SKU } }], { total: { label: 'Tickwerk Pro', amount: { currency: 'CHF', value: '0' } } });
+      } catch (e) { toast(T('Der Kauf konnte nicht starten.')); return; }
+      $('proBuy').disabled = true;
+      return req.show().then(function (resp) {
+        var token = resp.details && resp.details.purchaseToken;
+        return settlePurchase(token).then(function (ok) {
+          return Promise.resolve(resp.complete(ok ? 'success' : 'fail')).catch(function () { /* egal */ }).then(function () { return ok; });
+        });
+      }).then(function (ok) {
+        if (ok) { grantPro(); toast(T('Danke! Tickwerk Pro ist freigeschaltet.')); }
+        else toast(T('Der Kauf ist noch nicht bestätigt. Tickwerk prüft beim nächsten Start nochmals; sonst «Käufe wiederherstellen» tippen.'));
+      }, function (e) {
+        toast(e && e.name === 'AbortError' ? T('Kauf abgebrochen. Schon gekauft? Dann «Käufe wiederherstellen» tippen.') : T('Kauf nicht möglich') + (e && e.message ? ': ' + e.message : '.'));
+      }).then(function () { $('proBuy').disabled = false; afterProChange(); });
+    });
+  }
+  function afterProChange() {
+    render();
+    if (lastShown) showResult(lastShown.r, lastShown.m);
+  }
+
+  /* ---------- Navigation: Bildschirme als Stapel, Android-Zurück schliesst den obersten ---------- */
+  var SCREENS = ['measure', 'watches', 'watch', 'edit', 'lagen', 'lpos', 'zeit', 'detektiv', 'guide', 'more', 'pro', 'history', 'settings'];
+  var NO_TABS = { edit: true, lagen: true, lpos: true, zeit: true, detektiv: true, guide: true };
+  var stack = [{ s: 'measure', p: {} }];
+  var sheetOpen = null, afterPop = null, shownScreen = '';
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('.tabbar button'));
+  function top() { return stack[stack.length - 1]; }
+  function topScreen() { return top().s; }
+  function render(restoreScroll) {
+    var t = top();
+    if (rec && rec.owner !== t.s) recStop(true);
+    if (t.s !== 'lpos') lpStop();
+    if (t.s !== 'zeit') zStop();
+    SCREENS.forEach(function (s) { $('scr-' + s).hidden = s !== t.s; });
+    document.body.classList.toggle('no-tabs', !!NO_TABS[t.s]);
+    document.body.classList.toggle('is-pro', isPro());
+    tabs.forEach(function (b) { if (b.dataset.tab === stack[0].s) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
+    RENDER[t.s](t.p);
+    if (shownScreen !== t.s || restoreScroll) window.scrollTo(0, restoreScroll ? (t.y || 0) : 0);
+    shownScreen = t.s;
+  }
+  function go(s, p) {
+    if (sheetOpen) { closeSheet(function () { go(s, p); }); return; }
+    top().y = window.scrollY;
+    stack.push({ s: s, p: p || {} });
+    history.pushState({ tw: stack.length - 1 }, '');
+    render();
+  }
+  function back() {
+    if (sheetOpen) { closeSheet(); return; }
+    if (stack.length <= 1) return;
+    stack.pop(); render(true);
+    history.back();
+  }
+  function popTo(s) {
+    var i = stack.length - 1;
+    while (i > 0 && stack[i].s !== s) i--;
+    var k = stack.length - 1 - i;
+    if (k <= 0) { render(); return; }
+    stack = stack.slice(0, i + 1); render(true);
+    history.go(-k);
+  }
+  function switchTab(t) {
+    if (sheetOpen) { closeSheet(function () { switchTab(t); }); return; }
+    var depth = stack.length - 1;
+    if (!depth && stack[0].s === t) { window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
+    stack = [{ s: t, p: {} }]; render();
+    if (depth) history.go(-depth);
+  }
+  function openSheet(id) {
+    if (sheetOpen) { $(sheetOpen).hidden = true; sheetOpen = null; history.replaceState({ tw: stack.length - 1, sheet: id }, ''); }
+    else history.pushState({ tw: stack.length - 1, sheet: id }, '');
+    $(id).hidden = false; sheetOpen = id;
+    var f = $(id).querySelector('button'); if (f) f.focus({ preventScroll: true });
+  }
+  function closeSheet(then) {
+    if (!sheetOpen) { if (then) then(); return; }
+    $(sheetOpen).hidden = true; sheetOpen = null;
+    afterPop = then || null;
+    history.back();
+  }
+  window.addEventListener('popstate', function (e) {
+    var st = e.state || {}, d = typeof st.tw === 'number' ? st.tw : 0;
+    if (sheetOpen && st.sheet !== sheetOpen) { $(sheetOpen).hidden = true; sheetOpen = null; }
+    if (d < stack.length - 1) { stack = stack.slice(0, d + 1); render(true); }
+    var fn = afterPop; afterPop = null;
+    if (fn) fn();
+  });
+  history.replaceState({ tw: 0 }, '');
+  tabs.forEach(function (b) { b.addEventListener('click', function () { switchTab(b.dataset.tab); }); });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-back]'), function (b) { b.addEventListener('click', back); });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-go]'), function (b) { b.addEventListener('click', function () { go(b.dataset.go); }); });
+  ['watchSheet', 'proSheet', 'infoSheet'].forEach(function (id) {
+    $(id).addEventListener('click', function (e) { if (e.target === $(id)) closeSheet(); });
+  });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && sheetOpen) closeSheet(); });
+  $('psClose').addEventListener('click', function () { closeSheet(); });
+  $('psMore').addEventListener('click', function () { closeSheet(function () { go('pro'); }); });
+  $('wsClose').addEventListener('click', function () { closeSheet(); });
+  $('wsAdd').addEventListener('click', function () { closeSheet(addWatch); });
+
+  /* ---------- Erklärungen: (i) neben einem Wert öffnet ein kurzes Blatt mit Richtwerten ---------- */
+  var INFO = {
+    rate: { t: 'Gangabweichung', s: 'So viele Sekunden geht die Uhr pro Tag vor (+) oder nach (−), hochgerechnet aus der Messung. Der Wert gilt für die gemessene Lage und den jetzigen Aufzug. Im Alltag wechseln beide; darum lohnt sich der Lagen-Test.',
+      r: [['good', '−4 bis +6 s/Tag', 'Chronometer-Bereich (Norm der COSC)'], ['okay', 'bis ±30 s/Tag', 'in Ordnung; viele Werke sind ab Werk nur auf etwa ±10 bis ±40 s/Tag eingestellt'], ['warn', 'über ±30 s/Tag', 'regulieren lassen; bei sehr grossen Werten auf Magnetismus prüfen lassen']],
+      n: 'Das ± hinter dem Wert zeigt, wie genau die Messung selbst ist. Längere Messungen sind genauer.' },
+    be: { t: 'Abfallfehler', s: 'Der Unterschied zwischen Tick und Tack in Millisekunden. Bei einer gut eingestellten Uhr schwingt die Unruh nach beiden Seiten gleich weit aus der Ruhelage; dann sind Tick und Tack gleich lang.',
+      r: [['good', 'bis 0,5 ms', 'sehr gut'], ['okay', '0,5 bis 1,0 ms', 'in Ordnung'], ['warn', 'über 1,0 ms', 'hoch: beim nächsten Service einstellen lassen']],
+      n: 'Ein kleiner Abfallfehler stört den Gang kaum. Ein grosser kann die Uhr in manchen Lagen ungleich laufen lassen, und sie bleibt leichter stehen, wenn die Feder fast abgelaufen ist.' },
+    amp: { t: 'Amplitude', s: 'Wie weit die Unruh ausschwingt, in Grad von der Ruhelage aus. Sie zeigt, wie viel Kraft von der Feder bei der Unruh ankommt: Aufzug, Öl und Zustand des Werks.',
+      r: [['good', 'über 270°', 'sehr gut (waagrecht, voll aufgezogen)'], ['okay', '220° bis 270°', 'gut'], ['okay', '200° bis 220°', 'knapp: Uhr voll aufziehen und später nochmals messen'], ['warn', 'unter 200°', 'Service prüfen lassen']],
+      n: 'Senkrecht ist die Amplitude meist 20 bis 40° kleiner. Tickwerk rechnet sie aus dem Hebewinkel des Werks; ist er nur angenommen, ist der Wert ein Richtwert.' },
+    bph: { t: 'Schlagzahl', s: 'Halbschwingungen der Unruh pro Stunde (A/h). 28’800 A/h sind 8 Schläge pro Sekunde (4 Hz). Je höher die Schlagzahl, desto feiner läuft der Sekundenzeiger und desto weniger stören Erschütterungen.',
+      r: [['', '18’000 A/h', 'ältere Werke, z. B. Unitas 6497'], ['', '21’600 A/h', 'z. B. Seiko NH35, Miyota 8215, Powermatic 80'], ['', '25’200 A/h', 'z. B. Longines L888, Omega Co-Axial 8800'], ['', '28’800 A/h', 'die meisten heutigen Schweizer Werke'], ['', '36’000 A/h', 'Schnellschwinger, z. B. Zenith El Primero']],
+      n: 'Tickwerk erkennt die Schlagzahl selbst. Passt sie nicht zum eingetragenen Werk, erscheint ein Hinweis.' },
+    lift: { t: 'Hebewinkel', s: 'Der Winkel, um den sich die Unruh weiterdreht, während der Anker sie antreibt. Er ist eine Angabe des Herstellers. Tickwerk misst, wie lange dieser Antrieb dauert, und rechnet daraus die Amplitude.',
+      r: [['', '50° bis 53°', 'viele Schweizer Werke (ETA, Sellita) und Seiko NH35'], ['', 'unbekannt', '52° lassen; die Amplitude ist dann ein Richtwert']],
+      n: 'Ein falscher Hebewinkel verschiebt nur die Amplitude, nicht den Gang und nicht den Abfallfehler.' },
+    spread: { t: 'Lagendifferenz', s: 'Der Unterschied zwischen der schnellsten und der langsamsten Lage. Er zeigt, wie gleichmässig die Uhr in allen Lagen läuft.',
+      r: [['good', 'bis 10 s/Tag', 'sehr gleichmässig (Chronometer-Norm)'], ['okay', '10 bis 20 s/Tag', 'üblich für eine Uhr ohne Zertifikat'], ['warn', 'über 20 s/Tag', 'ein Uhrmacher kann prüfen, ob ein Service nötig ist']] },
+    hv: { t: 'Senkrecht − waagrecht', s: 'Der mittlere Gang der senkrechten Lagen minus das Mittel der waagrechten. So siehst du, wie sich die Uhr am Arm (eher senkrecht) gegenüber flach auf dem Tisch verhält.',
+      r: [['good', '−6 bis +8 s/Tag', 'erlaubt nach der Chronometer-Norm'], ['warn', 'ausserhalb', 'die Uhr hängt stark von der Lage ab']],
+      n: 'Tipp: Geht die Uhr am Tag vor, kann sie nachts in der Lage liegen, in der sie nachgeht, und umgekehrt.' },
+    tape: { t: 'Papierstreifen', s: 'Jeder Punkt ist ein Schlag: grün der Tick, blau der Tack. Waagrecht läuft die Zeit, senkrecht steht die Abweichung vom genauen Takt. So zeichnet auch eine Zeitwaage beim Uhrmacher.',
+      r: [['', 'Spur steigt', 'die Uhr geht vor'], ['', 'Spur fällt', 'die Uhr geht nach'], ['', 'zwei Spuren mit Abstand', 'Abfallfehler: Tick und Tack sind ungleich lang'], ['', 'Punkte streuen stark', 'unruhiges Signal oder unruhiger Gang'], ['', 'Spur wellig', 'der Gang schwankt während der Messung: wegen der Uhr oder weil das Handy nicht ruhig an der Krone liegt']] },
+    daily: { t: 'Gang im Alltag', s: 'So viel geht die Uhr pro Tag vor oder nach, während du sie trägst: mit allen Lagen, Temperaturen und dem Aufzug durchs Tragen. Dazu vergleichst du die Uhr mit der genauen Zeit des Handys, heute und nach ein paar Tagen.',
+      r: [['', 'nach 1 Tag', 'auf etwa ± 0,2 s/Tag genau'], ['', 'nach 7 Tagen', 'auf etwa ± 0,03 s/Tag genau']],
+      n: 'Die Messung mit dem Mikrofon zeigt den Gang in einer Lage, in diesem Moment. Beide Werte ergänzen sich; ein Unterschied von ein paar Sekunden ist normal.' },
+    signal: { t: 'Signal', s: 'Wie klar Tickwerk das Ticken hört: wie viele Schläge es erkennt und wie deutlich sie sich vom Rauschen abheben.',
+      r: [['good', 'stark', 'alle Werte sicher'], ['okay', 'mittel', 'Gang sicher, Amplitude und Abfallfehler meist auch'], ['warn', 'schwach', 'zählt nicht: Handy fester an die Krone halten, ruhiger Raum']] }
+  };
+  var INFO_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.6h.01"/></svg>';
+  Array.prototype.forEach.call(document.querySelectorAll('button.info[data-info]'), function (b) { b.innerHTML = INFO_ICON; });
+  function openInfo(key) {
+    var d = own(INFO, key) ? INFO[key] : null;
+    if (!d) return;
+    $('isTitle').textContent = T(d.t); $('isText').textContent = T(d.s);
+    var ul = $('isRanges'); ul.innerHTML = '';
+    (d.r || []).forEach(function (r) {
+      var li = document.createElement('li'); li.className = r[0] || 'plain';
+      var a = document.createElement('span'); a.className = 'rg-v'; a.textContent = T(r[1]);
+      var b = document.createElement('span'); b.className = 'rg-t'; b.textContent = T(r[2]);
+      li.appendChild(a); li.appendChild(b); ul.appendChild(li);
+    });
+    ul.hidden = !(d.r && d.r.length);
+    $('isNote').textContent = d.n ? T(d.n) : ''; $('isNote').hidden = !d.n;
+    openSheet('infoSheet');
+  }
+  document.addEventListener('click', function (e) {
+    var b = e.target && e.target.closest ? e.target.closest('button.info[data-info]') : null;
+    if (!b) return;
+    e.preventDefault(); e.stopPropagation();
+    openInfo(b.dataset.info);
+  }, true);
+  $('isClose').addEventListener('click', function () { closeSheet(); });
+
+  /* ---------- Aufnahme ---------- */
+  var rec = null, opening = false, wakeLock = null;
+  function micError(e) {
+    var n = e && e.name;
+    if (n === 'NotAllowedError' || n === 'SecurityError') {
+      return T('Mikrofon blockiert. In Chrome: Menü ⋮ → Einstellungen → Website-Einstellungen → Mikrofon → {host} auf «Zulassen» stellen, dann neu laden. Hilft das nicht: Android-Einstellungen → Apps → Chrome (oder Tickwerk) → Berechtigungen → Mikrofon.',
+        { host: location.host || T('diese Seite') });
+    }
+    if (n === 'NotFoundError' || n === 'OverconstrainedError') return T('Kein Mikrofon gefunden.');
+    if (n === 'NotReadableError' || n === 'AbortError') {
+      return T('Das Mikrofon ist gerade belegt, zum Beispiel durch einen Anruf oder eine Aufnahme-App. Diese beenden und nochmals tippen.');
+    }
+    return T('Mikrofon konnte nicht geöffnet werden') + (n ? ' (' + n + ')' : '') + '.';
+  }
+  /* o: { owner, dur, settle, opts, onOpening, onFail, onBegin, onSettle, onTick, onLive, onCancel, onDone } */
+  async function recStart(o) {
+    if (rec || opening) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      o.onFail(T('Dieser Browser erlaubt hier keine Mikrofon-Aufnahme. Tickwerk über https öffnen, zum Beispiel in Chrome.')); return;
+    }
+    opening = true;
+    if (o.onOpening) o.onOpening();
+    var stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 }, video: false
+      });
+    } catch (e) { opening = false; o.onFail(micError(e)); return; }
+    var AC = window.AudioContext || window.webkitAudioContext, ctx = new AC();
+    try { await ctx.resume(); } catch (e) { /* egal */ }
+    var r = { o: o, owner: o.owner, stream: stream, ctx: ctx, chunks: [], n: 0, fs: ctx.sampleRate, dur: o.dur,
+      phase: o.search ? 'search' : 'measure', heard: 0, good: 0, nextSearch: SEARCH_WINDOW, searchBusy: false,
+      settleN: o.search ? 0 : Math.round((o.settle || 0) * ctx.sampleRate), skipped: 0, peak: 0, nextLive: LIVE_FIRST, liveBusy: false };
+    var src = ctx.createMediaStreamSource(stream);
+    var sink = ctx.createGain(); sink.gain.value = 0; sink.connect(ctx.destination);
+    r.src = src; r.sink = sink;
+    try {
+      if (ctx.audioWorklet && window.AudioWorkletNode) {
+        await ctx.audioWorklet.addModule('recorder-worklet.js');
+        var node = new AudioWorkletNode(ctx, 'tw-recorder', { numberOfInputs: 1, numberOfOutputs: 1, channelCount: 1, channelCountMode: 'explicit' });
+        node.port.onmessage = function (e) { onChunk(r, e.data.samples, e.data.peak); };
+        src.connect(node); node.connect(sink); r.node = node;
+      } else {
+        var sp = ctx.createScriptProcessor(4096, 1, 1);
+        sp.onaudioprocess = function (e) {
+          var d = new Float32Array(e.inputBuffer.getChannelData(0)), p = 0;
+          for (var i = 0; i < d.length; i++) { var a = d[i] < 0 ? -d[i] : d[i]; if (a > p) p = a; }
+          onChunk(r, d, p);
+        };
+        src.connect(sp); sp.connect(sink); r.node = sp;
+      }
+    } catch (e) {
+      opening = false; teardown(r);
+      o.onFail(T('Aufnahme konnte nicht starten') + (e && e.message ? ': ' + e.message : '.')); return;
+    }
+    opening = false;
+    if (topScreen() !== o.owner) { teardown(r); if (o.onCancel) o.onCancel(); return; }
+    rec = r;
+    try { if (navigator.wakeLock) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { wakeLock = null; }
+    if (rec !== r) return;
+    if (o.onBegin) o.onBegin(r);
+    r.timer = setInterval(tick, 150);
+    tick();
+  }
+  function onChunk(r, samples, peak) {
+    if (rec !== r) return;
+    r.peak = Math.max(r.peak * 0.85, peak);
+    if (r.phase === 'search') {   /* nur zuhören: die letzten Sekunden behalten, für die Prüfung des Signals */
+      r.chunks.push(samples); r.n += samples.length; r.heard += samples.length;
+      var keep = Math.round(SEARCH_KEEP * r.fs);
+      while (r.chunks.length > 1 && r.n - r.chunks[0].length >= keep) r.n -= r.chunks.shift().length;
+      return;
+    }
+    if (r.skipped < r.settleN) {   /* Beruhigungszeit: die Uhr liegt eben erst, diese Takte nicht verwenden */
+      var drop = Math.min(r.settleN - r.skipped, samples.length);
+      r.skipped += drop;
+      if (drop >= samples.length) return;
+      samples = samples.subarray(drop);
+    }
+    r.chunks.push(samples); r.n += samples.length;
+    if (r.n >= r.dur * r.fs) recFinish();
+  }
+  function tick() {
+    var r = rec; if (!r) return;
+    var o = r.o;
+    if (r.phase === 'search') { searchTick(r); return; }
+    if (r.skipped < r.settleN) { if (o.onSettle) o.onSettle(Math.ceil((r.settleN - r.skipped) / r.fs), r); return; }
+    if (!r.go) { r.go = true; if (o.onGo) o.onGo(r); }   /* Countdown vorbei: ab jetzt zählt die Messzeit */
+    var t = r.n / r.fs;
+    if (o.onTick) o.onTick(Math.max(0, Math.ceil(r.dur - t)), t / r.dur, r);
+    if (!o.noLive && t >= r.nextLive && !r.liveBusy) {
+      r.nextLive = t + LIVE_EVERY; r.liveBusy = true;
+      runJob({ samples: tailSamples(r, LIVE_WINDOW), fs: r.fs, opts: probeOpts(o.opts), live: true }).then(function (res) {
+        r.liveBusy = false;
+        if (rec === r && o.onLive) o.onLive(res);
+      });
+    }
+  }
+  /* Wirklich Ticken gehört? Im Rauschen findet die schnelle Prüfung manchmal ein Scheinmuster: dann liegen die Schläge
+     um Millisekunden neben dem Raster und heben sich kaum vom Rauschen ab. Echtes Ticken, auch leises: unter 2 ms, über 6 dB. */
+  function heardOf(res) { return !!(res && res.ok && res.quality && res.quality.residualMs <= 2 && res.quality.snrDb >= 6); }
+  function probeOpts(op) {
+    var c = { probe: true };
+    Object.keys(op || {}).forEach(function (k) { c[k] = op[k]; });
+    return c;
+  }
+  function searchTick(r) {
+    var o = r.o, t = r.heard / r.fs;
+    if (o.onSearchTick) o.onSearchTick(t, r);
+    if (t > SEARCH_MAX) { recStop(false); if (o.onTimeout) o.onTimeout(); return; }
+    if (r.searchBusy || t < r.nextSearch || r.n < SEARCH_WINDOW * r.fs) return;
+    r.nextSearch = t + SEARCH_EVERY; r.searchBusy = true;
+    runJob({ samples: tailSamples(r, SEARCH_WINDOW), fs: r.fs, opts: probeOpts(o.opts), live: true }).then(function (res) {
+      r.searchBusy = false;
+      if (rec !== r || r.phase !== 'search') return;
+      var good = heardOf(res) && res.quality.label !== 'schwach' && res.quality.detectedFraction >= 0.85;
+      r.good = good ? r.good + 1 : 0;
+      if (o.onSearch) o.onSearch(res, r.good, t);
+      if (r.good >= SEARCH_NEED) { beginMeasure(r); return; }
+      /* Kein Uhrwerk-Ticken: vielleicht eine Quarzuhr (ein Schritt pro Sekunde)? Zweimal nacheinander erkannt → Hinweis */
+      if (!heardOf(res) && o.onQuartz && t >= 6 && !r.qBusy) {
+        r.qBusy = true;
+        runJob({ kind: 'quartzProbe', samples: tailSamples(r, 6), fs: r.fs }).then(function (qr) {
+          r.qBusy = false;
+          if (rec !== r || r.phase !== 'search') return;
+          r.quartz = qr && qr.quartz ? (r.quartz || 0) + 1 : 0;
+          if (r.quartz >= 2) { recStop(false); o.onQuartz(); }
+        });
+      }
+    });
+  }
+  /* Signal klar: Countdown auf dem Bildschirm, danach zählt die Messzeit. Keine Vibration: Das Handy liegt an der Krone,
+     ein Vibrieren würde es verschieben und das Mikrofon nähme es auf. */
+  function beginMeasure(r) {
+    if (rec !== r || r.phase !== 'search') return;
+    r.phase = 'measure'; r.chunks = []; r.n = 0; r.skipped = 0; r.settleN = Math.round(COUNTDOWN * r.fs); r.go = false;
+    r.nextLive = LIVE_FIRST; r.liveBusy = false;
+    if (r.o.onMeasureStart) r.o.onMeasureStart(r);
+  }
+  /* Grosser Countdown: vor dem Start 3, 2, 1; im Lagen-Test danach die restlichen Sekunden. n = null blendet ihn aus */
+  function showCount(id, n, txt) {
+    var box = $(id + 'Box');
+    box.classList.toggle('counting', n != null);
+    if (n != null) { $(id + 'N').textContent = String(n); $(id + 'T').textContent = txt; }
+  }
+  function recForceStart() { if (rec && rec.phase === 'search') beginMeasure(rec); }
+  function tailSamples(r, seconds) {
+    var want = Math.min(r.n, Math.round(seconds * r.fs));
+    var out = new Float32Array(want), pos = want;
+    for (var i = r.chunks.length - 1; i >= 0 && pos > 0; i--) {
+      var c = r.chunks[i], take = Math.min(c.length, pos);
+      out.set(c.subarray(c.length - take), pos - take);
+      pos -= take;
+    }
+    return out;
+  }
+  function allSamples(r, maxN) {
+    var n = Math.min(r.n, maxN), out = new Float32Array(n), pos = 0;
+    for (var i = 0; i < r.chunks.length && pos < n; i++) {
+      var c = r.chunks[i], take = Math.min(c.length, n - pos);
+      out.set(c.subarray(0, take), pos); pos += take;
+    }
+    return out;
+  }
+  function teardown(r) {
+    clearInterval(r.timer);
+    try { r.src.disconnect(); if (r.node) r.node.disconnect(); r.sink.disconnect(); } catch (e) { /* egal */ }
+    r.stream.getTracks().forEach(function (t) { t.stop(); });
+    try { r.ctx.close(); } catch (e) { /* egal */ }
+    if (wakeLock) { try { wakeLock.release(); } catch (e) { /* egal */ } wakeLock = null; }
+  }
+  function recStop(cancelled) {
+    var r = rec; if (!r) return;
+    rec = null; teardown(r);
+    if (cancelled && r.o.onCancel) r.o.onCancel();
+  }
+  /* Datenschutz: Tickwerk hört nur zu, solange die App sichtbar ist. Geht sie in den Hintergrund
+     (anderes App, Bildschirm aus), wird die Aufnahme abgebrochen und das Mikrofon geschlossen. */
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden && rec) { recStop(true); toast(T('Aufnahme abgebrochen: Tickwerk war im Hintergrund.')); }
+  });
+  function recFinish() {
+    var r = rec; if (!r) return;
+    rec = null; teardown(r);
+    r.o.onDone(allSamples(r, Math.round(r.dur * r.fs)), r.fs);
+  }
+
+  /* Papierstreifen platzsparend: höchstens 300 Punkte, nur für die letzten Messungen (fürs Protokoll) */
+  function compactTrace(trace) {
+    if (!trace || !trace.length) return null;
+    var step = Math.max(1, Math.ceil(trace.length / 300)), t = [], d = [], p = '';
+    for (var i = 0; i < trace.length; i += step) { t.push(+trace[i].t.toFixed(2)); d.push(+trace[i].devMs.toFixed(3)); p += trace[i].parity ? '1' : '0'; }
+    return { t: t, d: d, p: p };
+  }
+  /* c: { watch, pos, sess } */
+  function saveMeasurement(r, source, fs, c) {
+    var w = c.watch;
+    var m = {
+      id: nextId(), watchId: w ? w.id : '', watchName: w ? w.name : UNKNOWN.name, pos: c.pos, date: new Date().toISOString(), source: source,
+      rate: +r.rate.toFixed(2), sigma: +r.rateSigma.toFixed(2), stable: r.rateStable !== false,
+      be: +r.beatErrorMs.toFixed(2), beOk: r.beatErrorReliable !== false,
+      amp: r.amplitude ? Math.round(r.amplitude) : null, ampOk: !!r.amplitudeReliable, lift: r.liftAngle,
+      bph: r.bph, q: r.quality.label, dur: +r.duration.toFixed(1),
+      ppm: r.clockPpm || 0, fs: fs || null, eng: engineVersion || '', app: APP_VERSION
+    };
+    if (c.sess) { m.sess = c.sess; if (c.lset) m.lset = c.lset; }
+    if (!isPro() && useFree()) m.fp = true;
+    var tr = compactTrace(r.trace); if (tr) m.tr = tr;
+    meas.push(m);
+    if (meas.length > MAX_MEAS) meas = meas.slice(meas.length - MAX_MEAS);
+    var kept = 0;
+    for (var i = meas.length - 1; i >= 0; i--) { if (meas[i].tr && ++kept > TRACE_KEEP) delete meas[i].tr; }
+    saveMeas();
+    return m;
+  }
+
+  /* ---------- Messen ---------- */
+  var lastRec = null, lastShown = null, busy = false;
+  function qLevel(q) {
+    if (!q) return 0;
+    if (q.label === 'stark') return 4;
+    if (q.label === 'mittel') return q.detectedFraction >= 0.85 ? 3 : 2;
+    return 1;
+  }
+  var LEVEL_TEXT = [T('kein Signal'), T('Signal schwach'), T('Signal mittel'), T('Signal gut'), T('Signal stark')];
+  function qText(q) { return T('Signal ' + q); }
+  function setSignal(level) { $('mSignal').setAttribute('data-level', String(level)); $('mSignalText').textContent = LEVEL_TEXT[level]; }
+  function setMarker(rate, live) {
+    var mk = $('mMarker');
+    mk.hidden = false; mk.classList.toggle('live', !!live);
+    mk.style.left = ((Math.max(-20, Math.min(20, rate)) + 20) / 40 * 100) + '%';
+  }
+  function setChipsDisabled(on) { ['mPos', 'mDur', 'mLagen', 'mWatchPick'].forEach(function (id) { $(id).disabled = on; }); }
+  function setLocks(locked) {
+    ['mBe', 'mAmp'].forEach(function (id) { $(id).classList.toggle('locked', locked); });
+    $('mBeTag').hidden = true; $('mAmpTag').hidden = true;   /* der Wert selbst zeigt «Pro» */
+  }
+  function clearReadout() {
+    lastShown = null; lastRec = null;
+    $('mRate').textContent = '–'; $('mRate').classList.remove('live'); $('mSigma').textContent = '';
+    $('mMarker').hidden = true; $('mVerdict').hidden = true; $('bphWarn').hidden = true; $('mQuartz').hidden = true;
+    $('mBe').textContent = '–'; $('mBeNote').textContent = ''; $('mAmp').textContent = '–'; $('mLift').textContent = '';
+    $('mBph').textContent = '–'; $('mBphNote').textContent = T('erkannt');
+    setLocks(false); setSignal(0);
+    $('shareBtn').hidden = true; $('mState').textContent = T('Bereit');
+    $('mStartLabel').textContent = T('Messen');
+    drawTape($('mTape'), null, T('Der Papierstreifen erscheint während der Messung.'));
+    drawBeat($('mBeat'), null);
+  }
+  function idleHint() {
+    return settings.autoStart ? T('«Messen» tippen und die Unterkante des Handys an die Krone halten. Tickwerk startet, sobald das Ticken klar ist.') :
+      T('Unterkante des Handys an die Krone halten, dann «Messen» tippen.');
+  }
+  function renderMeasure() {
+    var w = currentWatch(), k = w ? kalById(w.kaliberId) : null;
+    if (settings.watchId && !w) { settings.watchId = ''; saveSettings(); }
+    $('mWatchName').textContent = w ? w.name : UNKNOWN.name;
+    $('mWatchSub').textContent = watchSub(w) + (settings.ppm ? ' · ' + T('Handy-Uhr korrigiert') : '');
+    $('mPos').value = settings.pos; $('mDur').value = String(settings.dur);
+    if (!rec && !busy && !lastShown && k && k.messbar === false) setStatus('status', T(k.notiz || 'Dieses Werk lässt sich mit dem Mikrofon nicht messen.'), 'err');
+    renderFree();
+    if (!rec) redrawMeasure();
+  }
+  function redrawMeasure() {
+    if (lastShown) { drawTape($('mTape'), lastShown.r.trace); drawBeat($('mBeat'), lastShown.r.templates, lastShown.r.liftTimeMs); }
+    else if (!busy) drawTape($('mTape'), null, T('Der Papierstreifen erscheint während der Messung.'));
+  }
+  function renderFree() {
+    var el = $('mFree');
+    if (isPro()) { el.hidden = true; return; }
+    var left = freeLeft();
+    el.hidden = false;
+    el.textContent = left ? T('Abfallfehler und Amplitude: noch {n} von {m} Gratis-Messungen diese Woche.', { n: left, m: FREE_PER_WEEK }) :
+      T('Die {m} Gratis-Messungen mit allen Werten sind diese Woche aufgebraucht. Gang und Schlagzahl misst Tickwerk weiter gratis.', { m: FREE_PER_WEEK });
+  }
+  function measureStart() {
+    if (rec) { recStop(true); return; }
+    if (busy || opening) return;
+    var w = currentWatch();
+    function counting() {
+      $('mSearch').hidden = true;
+      $('mState').textContent = T('Gleich');
+      setStatus('status', T('Signal gut. Die Messung beginnt nach dem Countdown. Nichts mehr bewegen.'), 'ok');
+      showCount('mCount', COUNTDOWN, T('Gleich geht es los. Nichts mehr bewegen.'));
+    }
+    function measuring() {
+      showCount('mCount', null);
+      $('mState').textContent = T('Misst');
+      setStatus('status', T('Messung läuft. Nichts bewegen.'), 'busy');
+      drawTape($('mTape'), null, T('Der Papierstreifen erscheint nach ein paar Sekunden.'));
+    }
+    recStart({
+      owner: 'measure', dur: settings.dur, search: settings.autoStart, settle: settings.autoStart ? 0 : COUNTDOWN, opts: watchOpts(w),
+      onOpening: function () { $('mStart').disabled = true; setStatus('status', T('Mikrofon wird geöffnet …'), 'busy'); },
+      onFail: function (msg) { $('mStart').disabled = false; setStatus('status', msg, 'err'); },
+      onBegin: function (r) {
+        clearReadout();
+        $('mStart').disabled = false; $('mStart').classList.add('running'); setChipsDisabled(true);
+        if (r.phase !== 'search') { $('mStartLabel').textContent = T('Abbrechen'); counting(); return; }
+        $('mState').textContent = T('Sucht das Signal');
+        $('mStartLabel').textContent = T('Abbrechen');
+        $('mSearch').hidden = false;
+        setStatus('status', T('Handy-Unterkante an die Krone halten und kurz ruhig bleiben. Sobald das Ticken klar ist, startet die Messung von selbst.'), 'busy');
+        drawTape($('mTape'), null, T('Tickwerk hört zu …'));
+      },
+      onSearchTick: function (t, r) { bar($('levelFill'), (20 * Math.log10(r.peak + 1e-9) + 80) / 60); },
+      onSearch: function (res, good, t) {
+        var heard = heardOf(res);
+        setSignal(heard ? qLevel(res.quality) : 0);
+        if (heard) { drawTape($('mTape'), res.trace); $('mSigma').textContent = T('{bph} A/h erkannt', { bph: thousands(res.bph) }); }
+        if (good) setStatus('status', T('Signal gut. Ruhig halten, die Messung startet gleich.'), 'ok');
+        else if (heard) setStatus('status', T('Ticken erkannt, aber noch schwach. Das Handy etwas verschieben oder fester an die Krone halten.'), 'busy');
+        else setStatus('status', t > 20 ? T('Noch kein klares Ticken. Ist die Uhr aufgezogen und der Raum ruhig? Sonst «Jetzt messen» tippen.') :
+          T('Suche das Ticken … Handy-Unterkante an die Krone halten.'), 'busy');
+      },
+      onMeasureStart: counting,
+      onSettle: function (left) { showCount('mCount', left, T('Gleich geht es los. Nichts mehr bewegen.')); },
+      onGo: measuring,
+      onQuartz: function () { measureIdle(); $('mState').textContent = T('Bereit'); showQuartzHint(); },
+      onTimeout: function () {
+        measureIdle(); $('mState').textContent = T('Bereit');
+        setStatus('status', T('Zwei Minuten lang kein klares Ticken. Uhr aufziehen, Handy-Unterkante direkt an die Krone halten und nochmals versuchen.'), 'err');
+      },
+      onTick: function (left, frac, r) {
+        $('mStartLabel').textContent = T('Abbrechen') + ' · ' + left + ' s';
+        $('mState').textContent = T('Misst · noch {n} s', { n: left });
+        bar($('mProg'), frac);
+        var db = 20 * Math.log10(r.peak + 1e-9);
+        bar($('levelFill'), (db + 80) / 60);
+      },
+      onLive: function (res) {
+        if (heardOf(res)) {
+          $('mRate').textContent = signed(res.rate, 1); $('mRate').classList.add('live');
+          $('mSigma').textContent = T('vorläufig') + ' · ' + thousands(res.bph) + ' ' + T('A/h');
+          setMarker(res.rate, true); setSignal(qLevel(res.quality));
+          drawTape($('mTape'), res.trace);
+          setStatus('status', T('Ticken erkannt. Nichts bewegen, bis die Zeit um ist.'), 'ok');
+        } else {
+          setSignal(0);
+          setStatus('status', T('Noch kein klares Ticken. Unterkante des Handys näher an die Krone, Raum ruhig halten.'), 'err');
+        }
+      },
+      onCancel: function () { measureIdle(); $('mState').textContent = T('Bereit'); setStatus('status', T('Abgebrochen.'), ''); },
+      onDone: function (samples, fs) {
+        measureIdle();
+        lastRec = { samples: samples, fs: fs, date: new Date(), watchName: w ? w.name : UNKNOWN.name, pos: settings.pos };
+        analyzeMeasure(samples, fs, 'Mikrofon');
+      }
+    });
+  }
+  function showQuartzHint() {
+    $('mQuartz').hidden = false; setSignal(0);
+    setStatus('status', T('Quarzuhr erkannt. Die Messung ist für mechanische Uhren.'), '');
+  }
+  function measureIdle() {
+    showCount('mCount', null);
+    $('mStart').classList.remove('running'); $('mStart').disabled = false; setChipsDisabled(false); $('mSearch').hidden = true;
+    bar($('mProg'), 0); bar($('levelFill'), 0);
+    $('mStartLabel').textContent = lastShown ? T('Nochmals messen') : T('Messen');
+  }
+  function analyzeMeasure(samples, fs, source) {
+    var w = currentWatch(), pos = settings.pos, keepRec = lastRec;
+    busy = true;
+    $('mStart').disabled = true; $('mStartLabel').textContent = T('Rechnet …'); $('mState').textContent = T('Rechnet');
+    setStatus('status', T('Rechne …'), 'busy');
+    runJob({ samples: samples, fs: fs, opts: watchOpts(w) }).then(function (res) {
+      busy = false; $('mStart').disabled = false;
+      if (!res || !res.ok) {
+        clearReadout(); lastRec = keepRec;
+        $('shareBtn').hidden = !lastRec;
+        setStatus('status', T((res && res.reason) || 'Keine Messung möglich.'), 'err');
+        runJob({ kind: 'quartzProbe', samples: samples.subarray(0, Math.min(samples.length, Math.round(12 * fs))), fs: fs }).then(function (qr) {
+          if (qr && qr.quartz && !rec && !busy) showQuartzHint();
+        });
+        return;
+      }
+      var m = saveMeasurement(res, source, fs, { watch: w, pos: pos });
+      lastRec = keepRec;
+      showResult(res, m);
+      renderFree();
+    });
+  }
+  function showResult(r, m) {
+    lastShown = { r: r, m: m };
+    var w = findWatch(m.watchId), k = w ? kalById(w.kaliberId) : null, st = liftState(w);
+    $('mRate').textContent = signed(r.rate, 1); $('mRate').classList.remove('live');
+    $('mSigma').textContent = '± ' + fmt(r.rateSigma, 2) + ' ' + T('s/Tag') + ' · ' + fmt(r.duration, 0) + ' s · ' + T('{n} Schläge', { n: r.beatsUsed }) +
+      (r.rateStable === false && r.halves ? ' · ' + T('schwankt') + ' (' + signed(r.halves.rate[0], 1) + ' / ' + signed(r.halves.rate[1], 1) + ')' : '');
+    setMarker(r.rate, false);
+    var kind, text, weak = r.quality && r.quality.label === 'schwach';
+    if (weak) { kind = 'warn'; text = 'Nur ein grober Wert: das Signal ist schwach. Handy näher an die Krone und nochmals messen.'; }
+    else if (r.rateSigma > SIGMA_COUNT) { kind = 'warn'; text = 'Der Gang schwankte während der Messung zu stark. Dieser Wert zählt nicht. Uhr und Handy ruhig halten und nochmals messen, am besten 60 s.'; }
+    else if (r.rateStable === false) { kind = 'warn'; text = 'Der Gang schwankte während der Messung, darum das grössere ±. Der Wert zählt mit dem Vermerk «Gang schwankt». Genauer wird er mit 60 s und ruhig gehaltenem Handy.'; }
+    else if (r.rateSigma > SIGMA_SURE) { kind = 'okay'; text = 'Ein ungenauerer Wert, er zählt aber. Mit einer längeren Messung wird er genauer.'; }
+    else if (r.rate >= -4 && r.rate <= 6) { kind = 'good'; text = 'Im Chronometer-Bereich (−4 bis +6 s/Tag).'; }
+    else if (Math.abs(r.rate) <= 15) { kind = 'okay'; text = 'Gut für eine Uhr ohne Chronometer-Zertifikat.'; }
+    else { kind = 'warn'; text = 'Deutlich daneben. In einer anderen Lage nochmals messen; bleibt es so, regulieren lassen.'; }
+    $('mVerdict').hidden = false; $('mVerdict').setAttribute('data-kind', kind); $('mVerdictText').textContent = T(text);
+    var full = showsPro(m);
+    setLocks(!full);
+    if (full) {
+      $('mBe').textContent = fmt(r.beatErrorMs, 2) + ' ms';
+      $('mBeNote').textContent = T(r.beatErrorReliable === false ? 'unsicher' : (r.beatErrorMs <= 0.5 ? 'sehr gut' : (r.beatErrorMs <= 1 ? 'in Ordnung' : 'hoch')));
+      $('mAmp').textContent = r.amplitude ? Math.round(r.amplitude) + '°' : '–';
+      $('mLift').textContent = !r.amplitude ? '' : !r.amplitudeReliable ? T('unsicher') : (k && k.coaxial ? T('Richtwert (Co-Axial)') : T('bei {a}', { a: deg(r.liftAngle) }) + (st ? ' (' + T(st) + ')' : ''));
+    } else {
+      $('mBe').textContent = 'Pro'; $('mBeNote').textContent = '';
+      $('mAmp').textContent = 'Pro'; $('mLift').textContent = '';
+    }
+    $('mBph').textContent = thousands(r.bph);
+    var expBph = w && w.bph ? w.bph : 0, mismatch = !!expBph && expBph !== r.bph;
+    $('mBphNote').textContent = mismatch ? T('erwartet {bph}', { bph: thousands(expBph) }) : T('A/h');
+    $('bphWarn').hidden = !mismatch;
+    if (mismatch) {
+      $('bphWarnText').textContent = T('Tickwerk hat {a} A/h erkannt, für «{w}» sind {b} A/h hinterlegt. Möglicherweise steckt eine andere Version des Werks in der Uhr.',
+        { a: thousands(r.bph), w: w.name, b: thousands(expBph) });
+      $('bphFix').textContent = T('{bph} A/h übernehmen', { bph: thousands(r.bph) });
+      $('bphFix').onclick = function () { w.bph = r.bph; saveWatches(); $('bphWarn').hidden = true; $('mBphNote').textContent = T('A/h'); renderMeasure(); };
+    }
+    setSignal(qLevel(r.quality));
+    $('mState').textContent = T('Gemessen') + ' · ' + timeStr(new Date(m.date));
+    setStatus('status', (m.watchId ? T('Gespeichert bei «{w}»', { w: m.watchName }) : T('Gespeichert unter «Alle Messungen»')) + ', ' + T('Lage {p}', { p: POS[m.pos] }) +
+      (r.clockPpm ? '. ' + T('Handy-Uhr korrigiert.') : '.') + (r.gaps && r.gaps.length ? ' ' + T('Ein kurzer Aussetzer der Aufnahme wurde ausgeglichen.') : ''), 'ok');
+    $('mStartLabel').textContent = T('Nochmals messen');
+    $('shareBtn').hidden = !lastRec;
+    drawTape($('mTape'), r.trace);
+    drawBeat($('mBeat'), r.templates, r.liftTimeMs);
+  }
+  $('mStart').addEventListener('click', measureStart);
+  $('mForce').addEventListener('click', recForceStart);
+  $('mQuartzGo').addEventListener('click', function () {
+    $('mQuartz').hidden = true;
+    go('settings');
+    $('quartzRec').scrollIntoView({ block: 'center' });
+  });
+  $('mPos').addEventListener('change', function () { settings.pos = this.value; saveSettings(); });
+  $('mDur').addEventListener('change', function () { settings.dur = parseInt(this.value, 10) || 30; saveSettings(); });
+  $('mLagen').addEventListener('click', function () { lagenOpen(settings.watchId); });
+  $('mGuide').addEventListener('click', function () { go('guide'); });
+  $('mWatchPick').addEventListener('click', openWatchSheet);
+  ['mBe', 'mAmp'].forEach(function (id) {
+    $(id).parentNode.parentNode.addEventListener('click', function () { if ($(id).classList.contains('locked')) requirePro('values'); });
+  });
+  function setWatch(id) {
+    if (settings.watchId === id) return;
+    settings.watchId = id; saveSettings();
+    clearReadout(); setStatus('status', idleHint(), '');
+  }
+  function openWatchSheet() {
+    if (rec || busy) return;
+    var ul = $('wsList'); ul.innerHTML = '';
+    watches.concat([null]).forEach(function (w) {
+      var li = document.createElement('li'), b = document.createElement('button');
+      b.type = 'button';
+      b.innerHTML = '<span>' + esc(w ? w.name : UNKNOWN.name) + '</span><small>' + esc(watchSub(w)) + '</small>';
+      if ((w ? w.id : '') === settings.watchId) b.setAttribute('aria-current', 'true');
+      b.addEventListener('click', function () { setWatch(w ? w.id : ''); closeSheet(); renderMeasure(); });
+      li.appendChild(b); ul.appendChild(li);
+    });
+    openSheet('watchSheet');
+  }
+
+  /* ---------- Aufnahme als WAV teilen (Pro) ---------- */
+  function encodeWav(samples, fs) {
+    var n = samples.length, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf), i;
+    function wstr(o, s) { for (var k = 0; k < s.length; k++) v.setUint8(o + k, s.charCodeAt(k)); }
+    wstr(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); wstr(8, 'WAVE'); wstr(12, 'fmt ');
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, fs, true);
+    v.setUint32(28, fs * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); wstr(36, 'data'); v.setUint32(40, n * 2, true);
+    var peak = 0; for (i = 0; i < n; i++) { var a = samples[i] < 0 ? -samples[i] : samples[i]; if (a > peak) peak = a; }
+    var g = peak > 0 ? 0.9 / peak : 1;   // Pegel anheben, damit die 16 Bit gut genutzt werden
+    for (i = 0; i < n; i++) {
+      var x = samples[i] * g; x = x > 1 ? 1 : (x < -1 ? -1 : x);
+      v.setInt16(44 + i * 2, x < 0 ? x * 0x8000 : x * 0x7FFF, true);
+    }
+    return new Blob([buf], { type: 'audio/wav' });
+  }
+  function shareOrDownload(blob, name, title) {
+    var file = null;
+    try { file = new File([blob], name, { type: blob.type }); } catch (e) { file = null; }
+    if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+      navigator.share({ files: [file], title: title }).catch(function () { /* abgebrochen */ });
+      return;
+    }
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 10000);
+  }
+  $('shareBtn').addEventListener('click', function () {
+    if (!lastRec || !requirePro('wav')) return;
+    var d = lastRec.date, pad = function (x) { return (x < 10 ? '0' : '') + x; };
+    var name = ('tickwerk_' + lastRec.watchName + '_' + lastRec.pos + '_' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' + pad(d.getHours()) + pad(d.getMinutes()))
+      .replace(/[^A-Za-z0-9_\-äöüÄÖÜ]+/g, '-') + '.wav';
+    shareOrDownload(encodeWav(lastRec.samples, lastRec.fs), name, T('Tickwerk Aufnahme'));
+  });
+
+  /* ---------- Lagen-Test (Pro) ----------
+     Auswahl (scr-lagen): eine Kachel je Lage. Gemessene Lagen sind grau und zeigen ihr Ergebnis, die nächste
+     offene ist hervorgehoben. Lage antippen → Messung (scr-lpos): oben, wie die Uhr liegt, unten live das Ticken.
+     Die Messung startet von selbst, sobald das Ticken klar ist. Danach kurz das Ergebnis, dann zurück zur Auswahl. */
+  var RESULT_SECONDS = 3;
+  function lagenOpen(watchId) {
+    if (rec || busy || !requirePro('lagen')) return;
+    watchId = watchId || '';
+    if (!session || session.watchId !== watchId || lagenStats(SETS[session.set], sessByPos()).done) newSession(watchId);
+    go('lagen');
+  }
+  function newSession(watchId) {
+    var set = SETS[settings.lagenSet];
+    session = { id: 's' + Date.now().toString(36), watchId: watchId, set: settings.lagenSet, started: new Date().toISOString(), cur: set[0] };
+    saveSession();
+  }
+  function sessMeas() { return session ? meas.filter(function (m) { return m.sess === session.id; }) : []; }
+  function byPosOf(list) {
+    var out = Object.create(null);
+    list.forEach(function (m) { var o = out[m.pos]; if (!o || counted(m) || !counted(o)) out[m.pos] = m; });
+    return out;
+  }
+  function sessByPos() { return byPosOf(sessMeas()); }
+  function lagenStats(set, byPos) {
+    var rows = set.map(function (p) { return { pos: p, m: byPos[p] || null }; });
+    var ok = rows.filter(function (r) { return r.m && counted(r.m); });
+    var rate = function (r) { return r.m.rate; };
+    var h = ok.filter(function (r) { return HORIZ[r.pos]; }), v = ok.filter(function (r) { return !HORIZ[r.pos]; });
+    var st = { rows: rows, ok: ok, n: ok.length, mean: avg(ok.map(rate)), spread: null, hi: null, lo: null, hv: null,
+      be: avg(ok.filter(function (r) { return r.m.beOk; }).map(function (r) { return r.m.be; })),
+      ampH: avg(h.filter(function (r) { return r.m.ampOk && r.m.amp; }).map(function (r) { return r.m.amp; })),
+      ampV: avg(v.filter(function (r) { return r.m.ampOk && r.m.amp; }).map(function (r) { return r.m.amp; })),
+      weak: rows.filter(function (r) { return r.m && !counted(r.m); }).length,
+      wobble: rows.filter(function (r) { return r.m && counted(r.m) && r.m.stable === false; }).length,
+      done: rows.every(function (r) { return !!r.m; }) };
+    if (ok.length >= 2) {
+      st.hi = ok.reduce(function (a, r) { return r.m.rate > a.m.rate ? r : a; });
+      st.lo = ok.reduce(function (a, r) { return r.m.rate < a.m.rate ? r : a; });
+      st.spread = st.hi.m.rate - st.lo.m.rate;
+    }
+    if (h.length && v.length) st.hv = avg(v.map(rate)) - avg(h.map(rate));
+    return st;
+  }
+  /* Nächste Lage: zuerst eine offene, sonst eine schwache zum Wiederholen */
+  function nextPos(set, byPos) {
+    return set.filter(function (p) { return !byPos[p]; })[0] || set.filter(function (p) { return byPos[p] && !counted(byPos[p]); })[0] || null;
+  }
+  function lagenVerdict(st) {
+    if (st.n < 2) return T('Zu wenige sichere Lagen für eine Aussage. Die schwachen Lagen nochmals messen.');
+    var p = [T(st.mean >= -4 && st.mean <= 6 ? 'Mittel {v} s/Tag, im Chronometer-Bereich (−4 bis +6).' : 'Mittel {v} s/Tag.', { v: signed(st.mean, 1) })];
+    if (st.spread <= 10) p.push(T('Die Lagendifferenz von {v} s/Tag ist klein: das Werk läuft in allen Lagen gleichmässig.', { v: fmt(st.spread, 1) }));
+    else if (st.spread <= 20) p.push(T('Eine Lagendifferenz von {v} s/Tag ist üblich für eine Uhr ohne Chronometer-Zertifikat.', { v: fmt(st.spread, 1) }));
+    else p.push(T('Die Lagendifferenz von {v} s/Tag ist gross. Ein Uhrmacher kann prüfen, ob ein Service nötig ist.', { v: fmt(st.spread, 1) }));
+    if (st.hv != null) p.push(T('Senkrecht gegenüber waagrecht: {v} s/Tag (die Chronometer-Norm erlaubt −6 bis +8).', { v: signed(st.hv, 1) }));
+    if (st.wobble) p.push(st.wobble === 1 ? T('In einer Lage schwankte der Gang während der Messung; ihr Wert ist ungenauer.') : T('In {n} Lagen schwankte der Gang während der Messung; ihre Werte sind ungenauer.', { n: st.wobble }));
+    if (st.weak) p.push(st.weak === 1 ? T('Eine Lage zählt nicht: Signal zu schwach oder Gang zu unsicher.') : T('{n} Lagen zählen nicht: Signal zu schwach oder Gang zu unsicher.', { n: st.weak }));
+    return p.join(' ');
+  }
+  function posIcon(pos) {
+    var face = pos !== 'ZU';
+    var g = '<rect x="-12" y="-40" width="24" height="16" rx="4" class="pi-strap"/><rect x="-12" y="24" width="24" height="16" rx="4" class="pi-strap"/>' +
+      '<rect x="24" y="-5" width="9" height="10" rx="2" class="pi-crown"/><circle r="26" class="pi-case"/>';
+    g += face ? '<circle r="20" class="pi-ring"/><path d="M0 -18v4M18 0h-4M0 18v-4M-18 0h4" class="pi-idx"/><path d="M0 0V-14M0 0L9 5" class="pi-hand"/><circle r="2.4" class="pi-pin"/>'
+      : '<circle r="18" class="pi-ring"/><circle r="10" class="pi-ring"/><path d="M-5 -14h10" class="pi-idx"/>';
+    if (HORIZ[pos]) {
+      return '<ellipse cx="55" cy="78" rx="52" ry="15" class="pi-table"/>' +
+        '<g transform="translate(55 60) scale(' + (face ? '1.3' : '-1.3') + ' 0.72)">' + g + '</g>';
+    }
+    var rot = { KR: 0, KU: 90, KL: 180, KO: 270 }[pos], ext = rot % 180 ? 34 : 40, cy = 50;
+    return '<g transform="translate(55 ' + cy + ') rotate(' + rot + ')">' + g + '</g>' +
+      '<path d="M12 ' + (cy + ext + 2) + 'H98" class="pi-ground"/>';
+  }
+  /* Kurzer Text mit Amplitude und Abfallfehler einer Messung (nur wenn die Werte gezeigt werden dürfen) */
+  function ampBe(m) {
+    var a = [];
+    if (showsPro(m)) {
+      if (m.ampOk && m.amp) a.push(m.amp + '°');
+      if (m.beOk && m.be != null) a.push(fmt(m.be, 2) + ' ms');
+    }
+    return a;
+  }
+  function lagenWatch() { return session ? findWatch(session.watchId) : null; }
+  function renderLagen() {
+    if (!session) { newSession(settings.watchId); }
+    var w = lagenWatch(), set = SETS[session.set], byPos = sessByPos(), st = lagenStats(set, byPos);
+    var next = nextPos(set, byPos), finished = st.done;
+    if (next && session.cur !== next) { session.cur = next; saveSession(); }
+    var measured = st.rows.filter(function (r) { return !!r.m; }).length;
+    $('lBackLabel').textContent = stack.length > 1 && stack[stack.length - 2].s === 'watch' ? (w ? w.name : T('Zurück')) : T('Messen');
+    $('lStep').textContent = finished ? T('Fertig · {n} Lagen', { n: set.length }) : T('{a} von {b} gemessen', { a: measured, b: set.length });
+    var mins = Math.max(1, Math.round(set.length * (settings.dur + (settings.autoStart ? 8 : SETTLE) + 15) / 60));
+    $('lLead').textContent = finished ? T('Alle Lagen gemessen. Eine Lage antippen, um ihr Ergebnis zu sehen oder sie nochmals zu messen.') :
+      T(settings.autoStart ? 'Lage antippen. Tickwerk zeigt, wie die Uhr liegt, und misst von selbst, sobald das Ticken klar ist.' : 'Lage antippen. Tickwerk zeigt, wie die Uhr liegt, und misst nach «Messen».') +
+      ' ' + T('Je {d} s, zusammen etwa {m} Minuten.', { d: settings.dur, m: mins });
+    Array.prototype.forEach.call($('lSet').children, function (b) {
+      b.setAttribute('aria-checked', String(+b.dataset.set === session.set)); b.disabled = !!rec;
+    });
+    var prog = $('lProgress'); prog.innerHTML = ''; prog.style.setProperty('--n', String(set.length));
+    set.forEach(function (p) {
+      var i = document.createElement('i'), m = byPos[p];
+      if (m) i.className = counted(m) ? 'done' : 'weak'; else if (p === next) i.className = 'cur';
+      prog.appendChild(i);
+    });
+    var tl = $('lTiles'); tl.innerHTML = '';
+    set.forEach(function (p) {
+      var m = byPos[p], b = document.createElement('button'), cls = ['ltile'];
+      b.type = 'button'; b.dataset.pos = p;
+      if (!m) cls.push(p === next ? 'next' : 'open'); else cls.push(counted(m) ? 'done' : 'weak');
+      b.className = cls.join(' ');
+      var sub = !m ? T(p === next ? 'als Nächstes' : 'offen') : !counted(m) ? whyNot(m) + ' · ' + T('nochmals') :
+        shaky(m) ? shakyText(m) + ' · ± ' + fmt(m.sigma, 1) : (ampBe(m).join(' · ') || '± ' + fmt(m.sigma, 2) + ' ' + T('s/Tag'));
+      b.innerHTML = '<svg class="pos-icon lt-icon" viewBox="0 0 110 110" aria-hidden="true">' + posIcon(p) + '</svg>' +
+        '<span class="lt-txt"><span class="lt-h">' + esc(POS[p]) + '</span>' +
+        '<span class="lt-v">' + (m ? esc(signed(m.rate, 1)) + '<small> ' + esc(T('s/Tag')) + '</small>' : '–') + '</span>' +
+        '<span class="lt-s">' + esc(sub) + '</span></span>' + (m && counted(m) ? ICON.check : '');
+      b.setAttribute('aria-label', POS[p] + ': ' + (m ? T('{v} Sekunden pro Tag', { v: signed(m.rate, 1) }) : sub));
+      b.addEventListener('click', function () { if (rec || busy) return; go('lpos', { pos: p }); });
+      tl.appendChild(b);
+    });
+    $('lDiffCard').hidden = finished;
+    $('lDiff').textContent = st.spread == null ? '–' : fmt(st.spread, 1) + ' s';
+    $('lDiffSub').textContent = st.spread == null ? T('noch zu wenige Lagen') : T('zwischen {a} und {b}', { a: POS[st.hi.pos], b: POS[st.lo.pos] });
+    $('lResult').hidden = !finished;
+    if (finished) {
+      $('lgMean').textContent = st.mean == null ? '–' : signed(st.mean, 1);
+      $('lgSpread').textContent = st.spread == null ? '–' : fmt(st.spread, 1);
+      $('lgHV').textContent = st.hv == null ? '–' : signed(st.hv, 1);
+      $('lgBe').textContent = st.be == null ? '–' : fmt(st.be, 2);
+      $('lgAmp').textContent = st.ampH == null && st.ampV == null ? '–' : (st.ampH != null ? Math.round(st.ampH) + '°' : '–') + ' / ' + (st.ampV != null ? Math.round(st.ampV) + '°' : '–');
+      $('lgVerdict').textContent = lagenVerdict(st);
+      drawLagenChart(st);
+    }
+    $('lNext').hidden = !next;
+    if (next) $('lNextLabel').textContent = T(byPos[next] ? 'Nochmals messen: {p}' : 'Messen: {p}', { p: POS[next] });
+    $('lCancel').textContent = finished ? T('Neuer Lagen-Test') : T('Abbrechen');
+  }
+  $('lNext').addEventListener('click', function () {
+    if (rec || busy || !session) return;
+    var p = nextPos(SETS[session.set], sessByPos());
+    if (p) go('lpos', { pos: p });
+  });
+  $('lBack').addEventListener('click', back);
+  $('lCancel').addEventListener('click', function () {
+    if (rec || !session) return;
+    var st = lagenStats(SETS[session.set], sessByPos());
+    if (st.done) { newSession(session.watchId); setStatus('lStatus', '', ''); renderLagen(); window.scrollTo(0, 0); return; }
+    if (sessMeas().length && !window.confirm(T('Lagen-Test abbrechen? Die bisherigen Messungen bleiben im Verlauf.'))) return;
+    session = null; saveSession(); setStatus('lStatus', '', '');
+    back();
+  });
+  Array.prototype.forEach.call($('lSet').children, function (b) {
+    b.addEventListener('click', function () {
+      if (rec || !session) return;
+      settings.lagenSet = +b.dataset.set === 4 ? 4 : 6; saveSettings();
+      session.set = settings.lagenSet;
+      if (SETS[session.set].indexOf(session.cur) < 0) session.cur = SETS[session.set][0];
+      saveSession(); renderLagen();
+    });
+  });
+  $('lgPdf').addEventListener('click', function () {
+    if (!session) return;
+    var w = lagenWatch() || UNKNOWN, set = SETS[session.set];
+    var list = sessMeas().filter(function (m) { return set.indexOf(m.pos) >= 0; });
+    makeReport(w, $('lgPdfBar'), { list: list, kind: 'lagen', subtitle: T('Lagen-Test in {n} Lagen vom {d}', { n: set.length, d: dLong(new Date(session.started)) }) });
+  });
+
+  /* ---------- Eine Lage messen ---------- */
+  var lpTimer = 0;
+  function lpStop() { clearInterval(lpTimer); lpTimer = 0; }
+  function setPSignal(level) { $('pSignal').setAttribute('data-level', String(level)); $('pSignalText').textContent = LEVEL_TEXT[level]; }
+  function lpReady(p) {
+    lpStop();
+    showCount('pCount', null);
+    $('pState').textContent = T('Bereit');
+    $('pRate').textContent = '–'; $('pRate').classList.remove('live'); $('pSub').textContent = '';
+    $('pMetrics').hidden = true; setPSignal(0); bar($('pLevel'), 0); bar($('pProg'), 0);
+    $('pSearch').hidden = true; $('pAlt').hidden = true;
+    $('pStart').classList.remove('running'); $('pStart').disabled = false;
+    $('pStartLabel').textContent = T('Messen');
+    drawTape($('pTape'), null, T(settings.autoStart ? 'Tickwerk hört gleich zu …' : '«Messen» tippen, wenn die Uhr liegt.'));
+    setStatus('pStatus', settings.autoStart ? '' : T('Uhr so hinlegen, Handy-Unterkante an die Krone halten, dann «Messen» tippen.'), '');
+  }
+  function renderLpos(p) {
+    var set = session ? SETS[session.set] : null;
+    if (!set || set.indexOf(p.pos) < 0) { setTimeout(function () { popTo('lagen'); }, 0); return; }
+    $('pStep').textContent = T('Lage {a} von {b}', { a: set.indexOf(p.pos) + 1, b: set.length });
+    $('pIcon').innerHTML = posIcon(p.pos); $('pIcon').setAttribute('aria-label', POS[p.pos]);
+    $('pName').textContent = POS[p.pos]; $('pHint').textContent = POS_HINT[p.pos];
+    if (p.init) { if (p.res) drawTape($('pTape'), p.res.trace); return; }
+    p.init = true;
+    var m = sessByPos()[p.pos];
+    if (m) { lpShowResult(p, m, null, false); return; }   /* schon gemessen: Ergebnis zeigen, nochmals auf Wunsch */
+    lpReady(p);
+    if (settings.autoStart) lpStart();
+  }
+  function lpStart() {
+    var t = top();
+    if (t.s !== 'lpos') return;
+    if (rec) { recStop(true); return; }
+    if (busy || opening || !session) return;
+    var p = t.p, pos = p.pos, sess = session.id, setN = session.set, w = lagenWatch();
+    lpReady(p); p.res = null;
+    recStart({
+      owner: 'lpos', dur: settings.dur, search: settings.autoStart, settle: settings.autoStart ? 0 : SETTLE, opts: watchOpts(w),
+      onOpening: function () { $('pStart').disabled = true; setStatus('pStatus', T('Mikrofon wird geöffnet …'), 'busy'); },
+      onFail: function (msg) { $('pStart').disabled = false; setStatus('pStatus', msg, 'err'); },
+      onBegin: function (r) {
+        $('pStart').disabled = false; $('pStart').classList.add('running'); $('pStartLabel').textContent = T('Abbrechen');
+        if (r.phase !== 'search') {
+          $('pState').textContent = T('Ruhe'); setStatus('pStatus', T('Hände weg: Die Uhr soll ruhig liegen.'), 'busy');
+          showCount('pCount', SETTLE, T('Gleich geht es los. Nichts mehr bewegen.')); return;
+        }
+        $('pState').textContent = T('Sucht das Signal'); $('pSearch').hidden = false;
+        drawTape($('pTape'), null, T('Tickwerk hört zu …'));
+        setStatus('pStatus', T('Uhr so hinlegen und die Handy-Unterkante an die Krone halten. Sobald das Ticken klar ist, startet die Messung von selbst.'), 'busy');
+      },
+      onSearchTick: function (tt, r) { bar($('pLevel'), (20 * Math.log10(r.peak + 1e-9) + 80) / 60); },
+      onSearch: function (res, good, tt) {
+        var heard = heardOf(res);
+        setPSignal(heard ? qLevel(res.quality) : 0);
+        if (heard) { drawTape($('pTape'), res.trace); $('pSub').textContent = T('{bph} A/h erkannt', { bph: thousands(res.bph) }); }
+        if (good) setStatus('pStatus', T('Signal gut. Ruhig halten, die Messung startet gleich.'), 'ok');
+        else if (heard) setStatus('pStatus', T('Ticken erkannt, aber noch schwach. Das Handy etwas verschieben oder fester an die Krone halten.'), 'busy');
+        else setStatus('pStatus', tt > 20 ? T('Noch kein klares Ticken. Ist die Uhr aufgezogen und der Raum ruhig? Sonst «Jetzt messen» tippen.') :
+          T('Suche das Ticken … Handy-Unterkante an die Krone halten.'), 'busy');
+      },
+      onMeasureStart: function () {
+        $('pSearch').hidden = true; $('pState').textContent = T('Gleich');
+        setStatus('pStatus', T('Signal gut. Die Messung beginnt nach dem Countdown. Nichts mehr bewegen.'), 'ok');
+        showCount('pCount', COUNTDOWN, T('Gleich geht es los. Nichts mehr bewegen.'));
+      },
+      onGo: function () {
+        $('pState').textContent = T('Misst');
+        setStatus('pStatus', T('Messung läuft. Nichts bewegen.'), 'busy');
+      },
+      onQuartz: function () {
+        lpReady(p);
+        setStatus('pStatus', T('Das klingt nach einer Quarzuhr (ein Schritt pro Sekunde). Den Lagen-Test gibt es nur für mechanische Uhren.'), 'err');
+      },
+      onTimeout: function () {
+        lpReady(p);
+        setStatus('pStatus', T('Zwei Minuten lang kein klares Ticken. Uhr aufziehen, Handy-Unterkante direkt an die Krone halten und nochmals versuchen.'), 'err');
+      },
+      onSettle: function (left) {
+        if (!settings.autoStart) $('pState').textContent = T('Ruhe') + ' · ' + left + ' s';
+        showCount('pCount', left, T('Gleich geht es los. Nichts mehr bewegen.'));
+      },
+      onTick: function (left, frac, r) {
+        showCount('pCount', left, T(left === 1 ? 'Sekunde · Handy ruhig halten' : 'Sekunden · Handy ruhig halten'));
+        $('pState').textContent = T('Misst · noch {n} s', { n: left });
+        $('pStartLabel').textContent = T('Abbrechen') + ' · ' + left + ' s';
+        bar($('pProg'), frac);
+        bar($('pLevel'), (20 * Math.log10(r.peak + 1e-9) + 80) / 60);
+      },
+      onLive: function (res) {
+        if (heardOf(res)) {
+          $('pRate').textContent = signed(res.rate, 1); $('pRate').classList.add('live');
+          $('pSub').textContent = T('vorläufig') + ' · ' + thousands(res.bph) + ' ' + T('A/h');
+          setPSignal(qLevel(res.quality)); drawTape($('pTape'), res.trace);
+          setStatus('pStatus', T('Ticken erkannt. Nichts bewegen, bis die Zeit um ist.'), 'ok');
+        } else {
+          setPSignal(0);
+          setStatus('pStatus', T('Noch kein klares Ticken. Handy-Unterkante näher an die Krone, ohne die Uhr zu bewegen.'), 'err');
+        }
+      },
+      onCancel: function () { lpReady(p); setStatus('pStatus', T('Abgebrochen.'), ''); },
+      onDone: function (samples, fs) {
+        busy = true; showCount('pCount', null);
+        $('pStart').classList.remove('running'); $('pStart').disabled = true; $('pSearch').hidden = true;
+        $('pStartLabel').textContent = T('Rechnet …'); $('pState').textContent = T('Rechnet'); bar($('pProg'), 0); bar($('pLevel'), 0);
+        setStatus('pStatus', T('Rechne …'), 'busy');
+        runJob({ samples: samples, fs: fs, opts: watchOpts(w) }).then(function (res) {
+          busy = false; $('pStart').disabled = false;
+          var here = top().s === 'lpos' && top().p === p;
+          if (!session || session.id !== sess) { if (here) lpReady(p); return; }
+          if (!res || !res.ok) {
+            if (here) { lpReady(p); $('pStartLabel').textContent = T('Nochmals messen'); setStatus('pStatus', T((res && res.reason) || 'Keine Messung möglich.') + ' ' + T('Nochmals messen.'), 'err'); }
+            return;
+          }
+          var m = saveMeasurement(res, 'Mikrofon', fs, { watch: w, pos: pos, sess: sess, lset: setN });
+          if (here) lpShowResult(p, m, res, true);
+        });
+      }
+    });
+  }
+  /* Ergebnis einer Lage. fresh: eben gemessen → nach RESULT_SECONDS von selbst zurück zur Auswahl (wenn es zählt) */
+  function lpShowResult(p, m, res, fresh) {
+    lpStop(); showCount('pCount', null); p.res = res;
+    var ok = counted(m), extra = ampBe(m);
+    $('pState').textContent = fresh ? T('Ergebnis') : T('Gemessen') + ' · ' + dateStr(m.date);
+    $('pRate').textContent = signed(m.rate, 1); $('pRate').classList.remove('live');
+    $('pSub').textContent = '± ' + fmt(m.sigma, 2) + ' ' + T('s/Tag') + ' · ' + Math.round(m.dur) + ' s · ' + thousands(m.bph) + ' ' + T('A/h');
+    setPSignal(m.q === 'stark' ? 4 : m.q === 'mittel' ? 3 : 1);
+    var pro = showsPro(m);
+    $('pMetrics').hidden = false;
+    $('pAmp').textContent = !pro ? 'Pro' : m.ampOk && m.amp ? m.amp + '°' : '–';
+    $('pAmpNote').textContent = pro && m.lift ? T('bei {a}', { a: deg(m.lift) }) : '';
+    $('pBe').textContent = !pro ? 'Pro' : m.beOk ? fmt(m.be, 2) : '–';
+    $('pSearch').hidden = true; bar($('pProg'), 0); bar($('pLevel'), 0);
+    $('pStart').classList.remove('running'); $('pStart').disabled = false;
+    if (res) drawTape($('pTape'), res.trace); else drawTape($('pTape'), m.tr ? traceOf(m.tr) : null, 'Gemessen am ' + dateStr(m.date));
+    $('pAlt').hidden = false;
+    var swing = res && res.halves ? ' ' + T('In den beiden Hälften der Messung: {a} und {b} s/Tag.', { a: signed(res.halves.rate[0], 1), b: signed(res.halves.rate[1], 1) }) : '';
+    if (!ok) {
+      $('pStartLabel').textContent = T('Nochmals messen'); $('pAlt').textContent = T('Zur Auswahl'); $('pAlt').dataset.act = 'back';
+      if (m.q === 'schwach') setStatus('pStatus', T('Signal schwach (± {s} s/Tag): Diese Lage zählt nicht. Nochmals messen, Handy fester an die Krone.', { s: fmt(m.sigma, 2) }), 'err');
+      else setStatus('pStatus', T('Das Signal war gut, aber der Gang schwankte während der Messung zu stark (± {s} s/Tag). Diese Lage zählt nicht. Nochmals messen: Handy nur leicht an die Krone halten, Arm aufstützen, am besten 60 s.', { s: fmt(m.sigma, 2) }) + swing, 'err');
+      return;
+    }
+    if (!fresh) {
+      $('pStartLabel').textContent = T('Nochmals messen'); $('pAlt').textContent = T('Zur Auswahl'); $('pAlt').dataset.act = 'back';
+      setStatus('pStatus', POS[p.pos] + ': ' + signed(m.rate, 1) + ' ' + T('s/Tag') + (extra.length ? ' · ' + extra.join(' · ') : '') +
+        (shaky(m) ? ' · ' + shakyText(m) + ' (± ' + fmt(m.sigma, 2) + ' ' + T('s/Tag') + ')' : '') + '.', shaky(m) ? 'warn' : 'ok');
+      return;
+    }
+    $('pAlt').textContent = T('Nochmals messen'); $('pAlt').dataset.act = 'again';
+    var left = RESULT_SECONDS;
+    var label = function () { $('pStartLabel').textContent = T('Weiter') + ' · ' + left; };
+    label();
+    if (shaky(m)) setStatus('pStatus', T('{p} gemessen. Der Gang schwankte während der Messung, darum ± {s} s/Tag. Die Lage zählt mit dem Vermerk «Gang schwankt».', { p: POS[p.pos], s: fmt(m.sigma, 2) }) +
+      (m.stable === false ? swing : ''), 'warn');
+    else setStatus('pStatus', T('{p} gemessen. Gleich geht es zurück zur Auswahl.', { p: POS[p.pos] }), 'ok');
+    lpTimer = setInterval(function () {
+      if (top().s !== 'lpos' || top().p !== p) { lpStop(); return; }
+      left--;
+      if (left <= 0) { lpStop(); back(); return; }
+      label();
+    }, 1000);
+  }
+  /* Gespeicherter (gekürzter) Papierstreifen zurück in die Form für drawTape */
+  function traceOf(tr) {
+    var out = [];
+    for (var i = 0; i < tr.t.length; i++) out.push({ t: tr.t[i], devMs: tr.d[i], parity: tr.p.charAt(i) === '1' ? 1 : 0 });
+    return out;
+  }
+  $('pStart').addEventListener('click', function () {
+    var t = top(); if (t.s !== 'lpos') return;
+    if (lpTimer) { lpStop(); back(); return; }             /* «Weiter» */
+    if (rec) { recStop(true); return; }                    /* «Abbrechen» */
+    if (busy) return;
+    lpStart();                                             /* «Messen» / «Nochmals messen» */
+  });
+  $('pAlt').addEventListener('click', function () {
+    var t = top(); if (t.s !== 'lpos' || rec || busy) return;
+    if (lpTimer) { lpStop(); lpStart(); return; }          /* «Nochmals messen» während der Rückkehr */
+    if ($('pAlt').dataset.act === 'back') { back(); return; }
+    lpStart();
+  });
+  $('pForce').addEventListener('click', recForceStart);
+
+  /* ---------- Meine Uhren ---------- */
+  function watchStatus(w, list) {
+    var ok = list.filter(counted), last = ok[ok.length - 1];
+    if (!list.length) return { cls: 'none', text: T('Noch nicht gemessen') };
+    if (!last) return { cls: 'none', text: T('Kein sicherer Wert') };
+    var pro = showsPro(last);
+    if (Math.abs(last.rate) > 30 || (pro && last.ampOk && last.amp && last.amp < 200) || (pro && last.beOk && last.be > 2)) return { cls: 'warn', text: T('Service prüfen'), last: last };
+    if (last.rate >= -4 && last.rate <= 6) return { cls: 'good', text: T('Chronometer-Bereich'), last: last };
+    return { cls: 'okay', text: T('In Ordnung'), last: last };
+  }
+  var PILL_ICON = {
+    good: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+    okay: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12"/></svg>',
+    warn: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7v6"/><path d="M12 17h.01"/></svg>',
+    none: ''
+  };
+  function sparkline(list, cls) {
+    var pts = list.slice(-10);
+    if (pts.length < 2) return '';
+    var lo = Math.min(-4, Math.min.apply(null, pts.map(function (m) { return m.rate; }))), hi = Math.max(6, Math.max.apply(null, pts.map(function (m) { return m.rate; })));
+    var X = function (i) { return 4 + i / (pts.length - 1) * 102; }, Y = function (v) { return 36 - (v - lo) / (hi - lo) * 32; };
+    var col = cls === 'good' ? C.lume : cls === 'warn' ? C.warn : C.muted;
+    return '<svg class="spark" viewBox="0 0 110 40" aria-hidden="true"><path d="M4 ' + Y(0).toFixed(1) + 'H106" stroke="' + C.line2 + '" stroke-width="1" stroke-dasharray="2 3"/>' +
+      '<polyline points="' + pts.map(function (m, i) { return X(i).toFixed(1) + ',' + Y(m.rate).toFixed(1); }).join(' ') + '" stroke="' + col + '"/>' +
+      '<circle cx="' + X(pts.length - 1).toFixed(1) + '" cy="' + Y(pts[pts.length - 1].rate).toFixed(1) + '" r="3" fill="' + col + '" stroke="none"/></svg>';
+  }
+  function renderWatches() {
+    $('wCount').textContent = plural(watches.length, 'Uhr', 'Uhren');
+    var box = $('watchCards'); box.innerHTML = '';
+    $('watchEmpty').hidden = watches.length > 0;
+    watches.forEach(function (w) {
+      var list = measOf(w), st = watchStatus(w, list), show = st.last || list[list.length - 1];
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'wcard';
+      b.innerHTML = '<span class="wcard-top"><span><span class="wcard-name">' + esc(w.name) + '</span><span class="mono-sub">' + esc(calName(w.kaliberId) || T('Werk unbekannt')) + '</span></span>' +
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></span>' +
+        '<span class="wcard-mid"><span class="wcard-rate"><span class="wcard-num"><b>' + (show ? esc(signed(show.rate, 1)) : '–') + '</b><span>' + esc(T('s/Tag')) + '</span></span>' +
+        '<span class="pill ' + st.cls + '">' + PILL_ICON[st.cls] + esc(st.text) + '</span></span>' + sparkline(list, st.cls) + '</span>' +
+        '<span class="wcard-foot">' + esc(list.length ? plural(list.length, 'Messung', 'Messungen') + ' · ' + T('zuletzt {d}', { d: ago(list[list.length - 1].date) }) : T('Noch keine Messung')) + '</span>';
+      b.addEventListener('click', function () { go('watch', { id: w.id }); });
+      box.appendChild(b);
+    });
+  }
+  function addWatch() {
+    if (!isPro() && watches.length >= 1) { requirePro('watches'); return; }
+    go('edit', {});
+  }
+  $('wAdd').addEventListener('click', addWatch);
+  $('wAddFirst').addEventListener('click', addWatch);
+
+  /* ---------- Uhr mit Verlauf ---------- */
+  var ICON = {
+    check: '<svg class="lt-check" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+    good: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/></svg>',
+    warn: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9.5 17h-19z"/><path d="M12 10v4"/><path d="M12 17.5h.01"/></svg>',
+    neutral: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg>'
+  };
+  function insightFor(list) {
+    var ok = list.filter(counted), last = ok[ok.length - 1];
+    if (!list.length) return { kind: 'neutral', t: 'Noch keine Messung', s: T('Am besten morgens nach dem Aufziehen messen und am Abend nochmals. So siehst du, wie stark der Gang mit dem Aufzug schwankt.') };
+    if (!last) return { kind: 'neutral', t: 'Noch kein sicherer Wert', s: T('Die bisherigen Messungen hatten ein schwaches Signal. Handy näher an die Krone halten und in einem ruhigen Raum messen.') };
+    var pro = showsPro(last);
+    if (pro && last.ampOk && last.amp && last.amp < 200 && HORIZ[last.pos]) {
+      return { kind: 'warn', t: 'Amplitude niedrig', s: T('Unter 200° in waagrechter Lage. Ist die Uhr voll aufgezogen? Bleibt es so, braucht das Werk vermutlich einen Service.') };
+    }
+    if (pro && last.beOk && last.be > 2) return { kind: 'warn', t: 'Abfallfehler hoch', s: T('Über 2 ms: Tick und Tack sind ungleich lang. Ein Uhrmacher kann das bei der nächsten Regulierung einstellen.') };
+    if (Math.abs(last.rate) > 30) return { kind: 'warn', t: 'Deutlich daneben', s: T('Mehr als 30 s/Tag. Möglicherweise ist die Uhr magnetisiert. Ein Uhrmacher kann das schnell prüfen und regulieren.') };
+    var recent = ok.filter(function (m) { return Date.now() - new Date(m.date) < 14 * 86400000; }), byPos = Object.create(null);
+    recent.forEach(function (m) { (byPos[m.pos] = byPos[m.pos] || []).push(m.rate); });
+    var pm = Object.keys(byPos).map(function (p) { return { p: p, r: avg(byPos[p]) }; });
+    if (pm.length >= 2) {
+      var hi = pm.reduce(function (a, x) { return x.r > a.r ? x : a; }), lo = pm.reduce(function (a, x) { return x.r < a.r ? x : a; });
+      if (hi.r - lo.r > 20) return { kind: 'warn', t: 'Grosse Lagendifferenz', s: T('{a} und {b} liegen {v} s/Tag auseinander. Ein Lagen-Test zeigt das ganze Bild.', { a: POS[hi.p], b: POS[lo.p], v: fmt(hi.r - lo.r, 0) }) };
+    }
+    var rng = ok.slice(-5), rlo = Math.min.apply(null, rng.map(function (m) { return m.rate; })), rhi = Math.max.apply(null, rng.map(function (m) { return m.rate; }));
+    var spanTxt = rng.length > 1 ? ' ' + T('Die letzten {n} sicheren Messungen liegen zwischen {a} und {b} s/Tag.', { n: rng.length, a: signed(rlo, 1), b: signed(rhi, 1) }) : '';
+    if (last.rate >= -4 && last.rate <= 6) return { kind: 'good', t: 'Im Chronometer-Bereich', s: T('Die letzte sichere Messung liegt bei {v} s/Tag.', { v: signed(last.rate, 1) }) + spanTxt };
+    if (Math.abs(last.rate) <= 15) return { kind: 'neutral', t: 'In Ordnung', s: T('Für eine Uhr ohne Chronometer-Zertifikat sind bis etwa ±15 s/Tag üblich.') + spanTxt };
+    return { kind: 'warn', t: last.rate > 0 ? 'Geht deutlich vor' : 'Geht deutlich nach', s: T('{v} s/Tag. Ein Uhrmacher kann die Uhr regulieren. Vorher in einer zweiten Lage messen.', { v: signed(last.rate, 1) }) + spanTxt };
+  }
+  function renderBars(list) {
+    var el = $('dBars'), pts = list.slice(-8);
+    el.innerHTML = ''; $('dBarLabels').innerHTML = '';
+    if (!pts.length) { el.innerHTML = '<p class="hint bars-empty">' + esc(T('Noch keine Messung.')) + '</p>'; return; }
+    var lo = Math.min(-4, Math.min.apply(null, pts.map(function (m) { return m.rate; }))), hi = Math.max(6, Math.max.apply(null, pts.map(function (m) { return m.rate; })));
+    var pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
+    var Y = function (v) { return (hi - v) / (hi - lo) * 100; };
+    var grid = document.createElement('div'); grid.className = 'grid';
+    [[0, 'zero', ''], [6, 'lim', '+6'], [-4, 'lim', '−4']].forEach(function (g) {
+      var ln = document.createElement('div'); ln.className = g[1]; ln.style.top = Y(g[0]) + '%';
+      if (g[2]) { var sp = document.createElement('span'); sp.textContent = g[2]; ln.appendChild(sp); }
+      grid.appendChild(ln);
+    });
+    el.appendChild(grid);
+    pts.forEach(function (m, i) {
+      var col = document.createElement('div'), bar = document.createElement('i'), lab = document.createElement('b');
+      col.className = 'bar-col' + (i === pts.length - 1 ? ' last' : '') + (counted(m) ? '' : ' weak');
+      var y0 = Y(Math.max(m.rate, 0)), y1 = Y(Math.min(m.rate, 0));
+      bar.style.top = y0 + '%'; bar.style.height = Math.max(0.8, y1 - y0) + '%';
+      lab.textContent = signed(m.rate, 1);
+      if (m.rate >= 0) lab.style.top = 'calc(' + y0 + '% - 15px)'; else lab.style.top = 'calc(' + y1 + '% + 2px)';
+      col.appendChild(bar); col.appendChild(lab); el.appendChild(col);
+      var xl = document.createElement('span'); xl.textContent = dayShort(m.date); $('dBarLabels').appendChild(xl);
+    });
+  }
+  function renderDetail(p) {
+    var w = findWatch(p.id);
+    if (!w) { setTimeout(function () { popTo('watches'); }, 0); return; }
+    var k = kalById(w.kaliberId), list = measOf(w), st = liftState(w);
+    $('dName').textContent = w.name;
+    $('dCal').textContent = (k ? kName(k) : T('Werk unbekannt')) + (k && k.messbar === false ? ' · ' + T('nicht messbar') : '');
+    $('dDetective').hidden = !!k;
+    var bphSeen = list.length ? list[list.length - 1].bph : 0;
+    $('dBph').innerHTML = esc(w.bph ? thousands(w.bph) : bphSeen ? thousands(bphSeen) : '–') + '<small>' + esc(T(w.bph ? 'A/h hinterlegt' : bphSeen ? 'A/h erkannt' : 'automatisch')) + '</small>';
+    $('dLift').innerHTML = esc(deg(w.liftAngle)) + '<small>' + esc(T(st || 'bestätigt')) + '</small>';
+    $('dCount').textContent = String(list.length);
+    $('dRange').textContent = list.length > 8 ? T('letzte 8') : list.length ? plural(list.length, 'Messung', 'Messungen') : '';
+    renderBars(list);
+    var ins = insightFor(list), box = $('dInsight');
+    box.hidden = false; box.className = 'insight' + (ins.kind === 'good' ? '' : ' ' + ins.kind);
+    box.innerHTML = ICON[ins.kind] + '<div><span class="insight-t">' + esc(T(ins.t)) + '</span><span class="insight-s">' + esc(ins.s) + '</span></div>';
+    var ul = $('dList'); ul.innerHTML = '';
+    var max = isPro() ? 10 : FREE_DETAIL, rows = list.slice(-max).reverse();
+    rows.forEach(function (m) {
+      var li = document.createElement('li'), full = showsPro(m);
+      var extra = [POS[m.pos], !counted(m) ? T('nicht gewertet') : shaky(m) ? shakyText(m) : qText(m.q)];
+      if (full && m.amp) extra.push(m.amp + '°');
+      if (full && m.beOk && m.be != null) extra.push(fmt(m.be, 2) + ' ms');
+      if (m.sess) extra.push(T('Lagen-Test'));
+      li.innerHTML = '<span class="r-l">' + esc(dateStr(m.date)) + '<small>' + esc(extra.join(' · ')) + '</small></span>' +
+        '<span class="r-r' + (counted(m) ? '' : ' dim') + '">' + esc(signed(m.rate, 1) + ' ' + T('s/Tag')) + '</span>';
+      ul.appendChild(li);
+    });
+    if (!rows.length) ul.innerHTML = '<li><span class="r-l">' + esc(T('Noch keine Messung')) + '<small>' + esc(T('Mit «Jetzt messen» beginnen')) + '</small></span></li>';
+    var more = list.length - rows.length;
+    $('dMore').hidden = more <= 0;
+    $('dMore').textContent = isPro() ? T('Alle {n} Messungen unter Mehr → Alle Messungen.', { n: list.length }) : T(more === 1 ? '{n} ältere Messung ist gespeichert. Den ganzen Verlauf zeigt Tickwerk Pro.' : '{n} ältere Messungen sind gespeichert. Den ganzen Verlauf zeigt Tickwerk Pro.', { n: more });
+    $('dPdf').disabled = !list.length; $('dShare').disabled = !list.length;
+    $('dPdfBar').hidden = true;
+    renderLagenCard(w, list);
+    renderTimeCard(w, list);
+  }
+  /* Letzter Lagen-Test dieser Uhr: aus den Messungen mit derselben Sitzung */
+  function lastLagenOf(list) {
+    var sid = '';
+    for (var i = list.length - 1; i >= 0; i--) if (list[i].sess) { sid = list[i].sess; break; }
+    if (!sid) return null;
+    var ms = list.filter(function (m) { return m.sess === sid; }), n;
+    if (session && session.id === sid) n = session.set;
+    else n = ms.some(function (m) { return m.lset === 6 || m.pos === 'KO' || m.pos === 'KR'; }) ? 6 : ms.some(function (m) { return m.lset === 4; }) ? 4 : (ms.length > 4 ? 6 : 4);
+    var set = SETS[n];
+    ms = ms.filter(function (m) { return set.indexOf(m.pos) >= 0; });
+    return { id: sid, set: set, list: ms, byPos: byPosOf(ms), started: ms.length ? ms[0].date : '' };
+  }
+  function renderLagenCard(w, list) {
+    var L = lastLagenOf(list), card = $('dLagenCard');
+    card.hidden = !L;
+    if (!L) return;
+    var st = lagenStats(L.set, L.byPos), pro = isPro(), current = session && session.id === L.id;
+    $('dlDate').textContent = dateStr(L.started) + ' · ' + T('{n} Lagen', { n: L.set.length });
+    $('dlMean').textContent = st.mean == null ? '–' : signed(st.mean, 1);
+    $('dlSpread').textContent = st.spread == null ? '–' : fmt(st.spread, 1);
+    $('dlBe').textContent = !pro ? 'Pro' : st.be == null ? '–' : fmt(st.be, 2);
+    $('dlAmp').textContent = !pro ? 'Pro' : st.ampH == null && st.ampV == null ? '–' : (st.ampH != null ? Math.round(st.ampH) + '°' : '–') + ' / ' + (st.ampV != null ? Math.round(st.ampV) + '°' : '–');
+    var ul = $('dlRows'); ul.innerHTML = '';
+    st.rows.forEach(function (r) {
+      var li = document.createElement('li'), m = r.m;
+      var sub = !m ? T('nicht gemessen') : !counted(m) ? T('{r}, zählt nicht', { r: whyNot(m) }) :
+        ((shaky(m) ? [shakyText(m)] : []).concat(ampBe(m)).join(' · ') || qText(m.q));
+      li.innerHTML = '<span class="r-l">' + esc(POS[r.pos]) + '<small>' + esc(sub) + '</small></span>' +
+        '<span class="r-r' + (m && counted(m) ? '' : ' dim') + '">' + (m ? esc(signed(m.rate, 1) + ' ' + T('s/Tag')) : '–') + '</span>';
+      ul.appendChild(li);
+    });
+    $('dlNote').hidden = st.done;
+    $('dlNote').textContent = st.done ? '' : T(current ? 'Noch nicht fertig: {x}.' : 'Nicht fertig gemessen: {x}.', { x: plural(st.rows.filter(function (r) { return !r.m; }).length, 'Lage fehlt', 'Lagen fehlen') });
+    $('dlOpen').hidden = !(current && !st.done);
+    $('dlPdf').disabled = !st.n;
+    $('dlPdfBar').hidden = true;
+  }
+  $('dlPdf').addEventListener('click', function () {
+    var w = detailWatch(); if (!w) return;
+    var L = lastLagenOf(measOf(w)); if (!L) return;
+    makeReport(w, $('dlPdfBar'), { list: L.list, kind: 'lagen', subtitle: T('Lagen-Test in {n} Lagen vom {d}', { n: L.set.length, d: dLong(new Date(L.started)) }) });
+  });
+  $('dlOpen').addEventListener('click', function () { var w = detailWatch(); if (w && session && session.watchId === w.id) lagenOpen(w.id); });
+  function detailWatch() { var t = top(); return t.s === 'watch' ? findWatch(t.p.id) : null; }
+  $('dPdf').addEventListener('click', function () { var w = detailWatch(); if (w) makeReport(w, $('dPdfBar'), {}); });
+  $('dShare').addEventListener('click', function () { var w = detailWatch(); if (w) makeReport(w, $('dPdfBar'), { share: true }); });
+  $('dMeasure').addEventListener('click', function () { var w = detailWatch(); if (!w) return; setWatch(w.id); switchTab('measure'); });
+  $('dEdit').addEventListener('click', function () { var w = detailWatch(); if (w) go('edit', { id: w.id }); });
+  $('dLagen').addEventListener('click', function () { var w = detailWatch(); if (w) lagenOpen(w.id); });
+
+  /* ---------- Werk-Detektiv: Schlagzahl und Merkmale grenzen das Werk ein ---------- */
+  var DET_Q = ['auto', 'hand', 'stopp', 'datum', 'chrono'];
+  var DET_TXT = { auto: [T('Automatik'), T('kein Rotor')], hand: [T('Handaufzug'), T('kein Handaufzug')], stopp: [T('Sekundenstopp'), T('kein Sekundenstopp')], chrono: [T('Chronograph'), T('kein Chronograph')] };
+  var DATUM_TXT = { kein: T('ohne Datum'), datum: T('Datum'), tag: T('Datum und Tag') };
+  function detective(bph, ans) {
+    var out = [];
+    KAL.forEach(function (k) {
+      if (k.messbar === false || !k.merkmale) return;
+      var m = k.merkmale, score = 0, why = [];
+      if (bph) {
+        var can = k.bph ? [k.bph] : m.bphs || null;
+        if (can && can.indexOf(bph) < 0) return;
+        if (can) { score += 2; why.push(thousands(bph) + ' ' + T('A/h')); }
+      }
+      for (var i = 0; i < DET_Q.length; i++) {
+        var q = DET_Q[i], a = ans[q];
+        if (!a) continue;
+        if (q === 'datum') {
+          if (!m.datum) continue;
+          if (m.datum.indexOf(a) < 0) return;
+          score += 1; why.push(DATUM_TXT[a]);
+        } else {
+          if (m[q] == null) continue;
+          if (m[q] !== (a === 'ja')) return;
+          score += 1; why.push(DET_TXT[q][a === 'ja' ? 0 : 1]);
+        }
+      }
+      out.push({ k: k, score: score, why: why, pop: m.verbreitet || 0 });
+    });
+    out.sort(function (a, b) { return b.score - a.score || b.pop - a.pop || byName(a.k.name, b.k.name); });
+    return out;
+  }
+  function renderDetektiv(p) {
+    if (!p.init) {
+      p.init = true; p.ans = {};
+      var w = p.id ? findWatch(p.id) : null, list = w ? measOf(w).filter(counted) : [];
+      p.measured = list.length ? list[list.length - 1].bph : 0;
+      p.bph = p.measured || (w && w.bph) || 0;
+    }
+    $('xBackLabel').textContent = T(p.from === 'watch' ? 'Uhr' : 'Uhr bearbeiten');
+    $('xBph').value = p.bph ? String(p.bph) : '';
+    $('xBphNote').textContent = p.measured ? T('Von Tickwerk gemessen: {bph} A/h.', { bph: thousands(p.measured) }) :
+      T('Am sichersten: die Uhr zuerst einmal messen. Tickwerk erkennt die Schlagzahl dabei selbst.');
+    Array.prototype.forEach.call(document.querySelectorAll('#scr-detektiv .qcard[data-q]'), function (c) {
+      var v = p.ans[c.dataset.q] || '';
+      Array.prototype.forEach.call(c.querySelectorAll('button[data-v]'), function (b) { b.setAttribute('aria-checked', String(b.dataset.v === v)); });
+    });
+    var res = detective(p.bph, p.ans), asked = DET_Q.filter(function (q) { return p.ans[q]; }).length + (p.bph ? 1 : 0);
+    var ul = $('xList'); ul.innerHTML = '';
+    if (!asked) {
+      $('xHead').textContent = T('Passende Werke');
+      $('xNote').textContent = T('Schlagzahl wählen oder Fragen beantworten. Die Liste grenzt sich mit jeder Antwort weiter ein.');
+      return;
+    }
+    $('xHead').textContent = res.length ? (res.length === 1 ? T('1 passendes Werk') : T('{n} passende Werke', { n: res.length })) + (res.length > 8 ? T(', die wahrscheinlichsten zuerst') : '') : T('Kein Werk passt');
+    res.slice(0, 8).forEach(function (r) {
+      var li = document.createElement('li');
+      li.innerHTML = '<span class="r-l">' + esc(kName(r.k)) + '<small>' + esc(r.why.length ? T('passt: {x}', { x: r.why.join(' · ') }) : calShort(r.k)) + '</small></span>';
+      var b = document.createElement('button'); b.type = 'button'; b.className = 'btn-ghost small'; b.textContent = T('Übernehmen');
+      b.addEventListener('click', function () { detectivePick(p, r.k); });
+      var rr = document.createElement('span'); rr.className = 'r-r'; rr.appendChild(b); li.appendChild(rr);
+      ul.appendChild(li);
+    });
+    $('xNote').textContent = !res.length ? T('Keines der {n} Werke im Katalog passt zu allen Antworten. Eine unsichere Antwort auf «Weiss nicht» stellen.', { n: KAL.length }) :
+      T('Werke mit gleichem Aufbau (z. B. ETA 2824-2, Sellita SW200-1 und ihre Nachbauten) lassen sich so nicht unterscheiden. Für die Messung ist das egal: Schlagzahl und Hebewinkel sind gleich.');
+  }
+  function detectivePick(p, k) {
+    if (p.from === 'watch') {
+      var w = findWatch(p.id);
+      if (w) {
+        w.kaliberId = k.id; w.liftAngle = k.hebewinkel != null ? k.hebewinkel : 52; if (k.bph) w.bph = k.bph;
+        saveWatches(); toast(T('Werk übernommen: {k}.', { k: kName(k) }));
+      }
+      back();
+      return;
+    }
+    back();
+    if (topScreen() === 'edit') { setCal(k); applyCal(k); $('wFindNote').textContent = T('Werk übernommen: {k}.', { k: kName(k) }); }
+  }
+  $('xBph').addEventListener('change', function () { var t = top(); if (t.s !== 'detektiv') return; t.p.bph = parseInt(this.value, 10) || 0; renderDetektiv(t.p); });
+  Array.prototype.forEach.call(document.querySelectorAll('#scr-detektiv .qcard[data-q]'), function (c) {
+    Array.prototype.forEach.call(c.querySelectorAll('button[data-v]'), function (b) {
+      b.addEventListener('click', function () { var t = top(); if (t.s !== 'detektiv') return; t.p.ans[c.dataset.q] = b.dataset.v; renderDetektiv(t.p); });
+    });
+  });
+  $('wDetective').addEventListener('click', function () { var t = top(); if (t.s === 'edit') go('detektiv', { from: 'edit', id: t.p.id || '' }); });
+  $('dDetective').addEventListener('click', function () { var w = detailWatch(); if (w) go('detektiv', { from: 'watch', id: w.id }); });
+
+  /* ---------- Gang im Alltag: Zeitvergleich mit der genauen Zeit des Handys ----------
+     Die Uhrzeit des Handys kommt aus dem Netz. Man tippt, wenn der Sekundenzeiger der Uhr auf der 12 steht;
+     die Abweichung (Uhr minus Handy) wird gespeichert. Aus mehreren Vergleichen über Tage folgt der Gang im
+     Alltag (Gerade durch die Abweichungen). Die Reaktionszeit beim Tippen ist jedes Mal ähnlich und hebt sich auf. */
+  var TAP_SIGMA = 0.15;   /* Streuung eines Tipps in Sekunden (geschätzt) */
+  var MIN_SPAN_H = 6;     /* Gang erst ab 6 Stunden zwischen erstem und letztem Vergleich (zwei Tipps: etwa ±0,9 s/Tag) */
+  var REPLACE_MIN = 10;   /* ein neuer Vergleich innert 10 Minuten ersetzt den vorherigen */
+  function dailyRate(tv) {
+    if (!tv || tv.length < 2) return null;
+    var t0 = new Date(tv[0].t).getTime();
+    if (new Date(tv[tv.length - 1].t).getTime() - t0 < MIN_SPAN_H * 3600000) return null;
+    var xs = tv.map(function (v) { return (new Date(v.t).getTime() - t0) / 86400000; }), ys = tv.map(function (v) { return v.o; });
+    var n = xs.length, mx = avg(xs), my = avg(ys), sxx = 0, sxy = 0, i;
+    for (i = 0; i < n; i++) { sxx += (xs[i] - mx) * (xs[i] - mx); sxy += (xs[i] - mx) * (ys[i] - my); }
+    if (!(sxx > 0)) return null;
+    var rate = sxy / sxx, ss = 0;
+    for (i = 0; i < n; i++) { var r = ys[i] - (my + rate * (xs[i] - mx)); ss += r * r; }
+    var s = n > 2 ? Math.max(TAP_SIGMA, Math.sqrt(ss / (n - 2))) : TAP_SIGMA;
+    return { rate: rate, sigma: s / Math.sqrt(sxx), days: xs[n - 1] - xs[0], n: n };
+  }
+  function daysText(d) {
+    if (d < 1) { var h = Math.max(1, Math.round(d * 24)); return plural(h, 'Stunde', 'Stunden'); }
+    var r = Math.round(d * 10) / 10;
+    return fmt(r, r % 1 ? 1 : 0) + ' ' + T(r === 1 ? 'Tag' : 'Tage');
+  }
+  function renderTimeCard(w, list) {
+    var tv = w.tv || [], dr = dailyRate(tv), last = tv[tv.length - 1];
+    $('dtSub').textContent = tv.length ? plural(tv.length, 'Vergleich', 'Vergleiche') : '';
+    $('dtRateRow').hidden = !dr;
+    $('dtSigma').hidden = !dr;
+    if (dr) {
+      $('dtRate').textContent = signed(dr.rate, 1);
+      $('dtSigma').textContent = '± ' + fmt(dr.sigma, dr.sigma < 0.1 ? 2 : 1) + ' ' + T('s/Tag') + ' · ' + T('über {d}', { d: daysText(dr.days) });
+    }
+    var ok = list.filter(counted), lastM = ok[ok.length - 1], txt;
+    if (!tv.length) txt = T('Wie geht die Uhr, wenn du sie trägst? Vergleiche sie heute mit der genauen Zeit und nach 1 bis 7 Tagen nochmals. Tickwerk rechnet daraus den Gang im Alltag.');
+    else if (!dr && tv.length === 1) txt = T('Erster Vergleich am {d}: Uhr {o} s. Nach mindestens einem Tag nochmals vergleichen, die Uhr bis dahin nicht stellen.', { d: dateStr(last.t), o: signed(last.o, 1) });
+    else if (!dr) txt = T('Die Vergleiche liegen noch zu nahe beieinander. Den Gang zeigt Tickwerk, sobald zwischen dem ersten und dem letzten mindestens {h} Stunden liegen. Am besten morgen nochmals vergleichen.', { h: MIN_SPAN_H });
+    else txt = (dr.days < 1 ? T('Noch weniger als ein Tag: Nach ein paar Tagen wird der Wert genauer.') + ' ' : '') +
+      (lastM ? T('Zum Vergleich die letzte Messung mit dem Mikrofon: {v} s/Tag ({p}).', { v: signed(lastM.rate, 1), p: POS[lastM.pos] }) : '');
+    $('dtText').textContent = txt; $('dtText').hidden = !txt;
+    var ul = $('dtRows'); ul.innerHTML = '';
+    tv.slice(-5).reverse().forEach(function (v) {
+      var li = document.createElement('li');
+      li.innerHTML = '<span class="r-l">' + esc(dateStr(v.t)) + '</span><span class="r-r">' + esc(T('Uhr {o} s', { o: signed(v.o, 1) })) + '</span>';
+      ul.appendChild(li);
+    });
+    $('dtReset').hidden = !tv.length;
+    $('dtNow').textContent = T(tv.length ? 'Jetzt nochmals vergleichen' : 'Mit der Atomzeit vergleichen');
+  }
+  $('dtNow').addEventListener('click', function () { var w = detailWatch(); if (w) go('zeit', { id: w.id }); });
+  $('dtReset').addEventListener('click', function () {
+    var w = detailWatch(); if (!w) return;
+    if (!window.confirm(T('Neue Reihe beginnen? Das braucht es, wenn du die Uhr gestellt hast oder sie stehen geblieben ist. Die bisherigen Vergleiche werden gelöscht.'))) return;
+    delete w.tv; saveWatches(); renderDetail(top().p);
+  });
+
+  var zTimer = 0;
+  function zStop() { clearInterval(zTimer); zTimer = 0; }
+  function pad2(x) { return (x < 10 ? '0' : '') + x; }
+  function hms(d) { return pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds()); }
+  function hm(d) { return pad2(d.getHours()) + ':' + pad2(d.getMinutes()); }
+  function zTick() { $('zClock').textContent = hms(new Date()); }
+  function renderZeit(p) {
+    var w = findWatch(p.id);
+    if (!w) { setTimeout(back, 0); return; }
+    $('zBackLabel').textContent = w.name;
+    zShow(p);
+    zStop(); zTick(); zTimer = setInterval(zTick, 100);
+  }
+  function zShow(p) {
+    $('zStep1').hidden = !!p.tap; $('zStep2').hidden = !p.tap;
+    if (!p.tap) return;
+    $('zWatch').textContent = hm(new Date(p.min));
+    var off = (p.min - p.tap) / 1000;
+    $('zOff').textContent = signed(off, 1);
+    $('zOffText').textContent = Math.abs(off) < 0.05 ? T('Die Uhr geht auf die Sekunde genau.') : T(off > 0 ? 'Die Uhr geht {s} s vor.' : 'Die Uhr geht {s} s nach.', { s: fmt(Math.abs(off), 1) });
+  }
+  /* Zeitpunkt des Tippens: Berührung (pointerdown), mit der Zeit des Ereignisses statt der Zeit der Verarbeitung */
+  $('zTap').addEventListener('pointerdown', function (e) {
+    var t = top(); if (t.s !== 'zeit' || t.p.tap) return;
+    var lag = performance.now() - e.timeStamp;
+    var tap = Date.now() - (lag > 0 && lag < 1000 ? lag : 0);
+    t.p.tap = tap; t.p.min = Math.round(tap / 60000) * 60000;   /* die Uhr zeigt die nächste volle Minute */
+    try { if (navigator.vibrate) navigator.vibrate(30); } catch (err) { /* egal */ }
+    zShow(t.p);
+  });
+  $('zMinus').addEventListener('click', function () { var t = top(); if (t.s === 'zeit' && t.p.tap) { t.p.min -= 60000; zShow(t.p); } });
+  $('zPlus').addEventListener('click', function () { var t = top(); if (t.s === 'zeit' && t.p.tap) { t.p.min += 60000; zShow(t.p); } });
+  $('zAgain').addEventListener('click', function () { var t = top(); if (t.s === 'zeit') { t.p.tap = null; zShow(t.p); } });
+  $('zSave').addEventListener('click', function () {
+    var t = top(); if (t.s !== 'zeit' || !t.p.tap) return;
+    var w = findWatch(t.p.id); if (!w) return;
+    var off = Math.round((t.p.min - t.p.tap) / 10) / 100, tv = (w.tv || []).slice();
+    /* Kurz nacheinander nochmals verglichen: der neue Vergleich ersetzt den vorherigen (sonst ergäben zwei Tipps im Minutenabstand einen unsinnigen Gang) */
+    if (tv.length && t.p.tap - new Date(tv[tv.length - 1].t).getTime() < REPLACE_MIN * 60000) tv.pop();
+    if (tv.length) {
+      var dr = dailyRate(tv), prev = tv[tv.length - 1];
+      var expect = prev.o + (dr ? dr.rate * (t.p.tap - new Date(prev.t).getTime()) / 86400000 : 0);
+      if (Math.abs(off - expect) > 60 && window.confirm(T('Die Abweichung hat sich stark verändert ({d} s). Hast du die Uhr gestellt, oder ist sie stehen geblieben? «OK» beginnt eine neue Reihe mit diesem Vergleich.', { d: signed(off - prev.o, 0) }))) tv = [];
+    }
+    w.tv = tv.concat([{ t: new Date(t.p.tap).toISOString(), o: off }]).slice(-100);
+    saveWatches();
+    toast(T('Gespeichert: Uhr {o} s.', { o: signed(off, 1) }));
+    back();
+  });
+
+  /* ---------- Uhr hinzufügen und bearbeiten ---------- */
+  var nameAuto = false;
+  function byName(a, b) { return a.localeCompare(b, 'de', { numeric: true, sensitivity: 'base' }); }
+  function calInfo(k) {
+    if (!k) return '';
+    if (k.messbar === false) return T(k.notiz || 'Dieses Werk lässt sich nicht messen.');
+    var s = (k.hebewinkel != null ? T('Hebewinkel {a}', { a: deg(k.hebewinkel) }) + (k.sicher ? '' : ' (' + T('unbestätigt') + ')') : T('Hebewinkel unbekannt, 52° angenommen')) +
+      ' · ' + (k.bph ? thousands(k.bph) + ' ' + T('A/h') : T('Schlagzahl wird erkannt'));
+    return s + (k.notiz ? '. ' + T(k.notiz) : '');
+  }
+  function applyCal(k, keepValues) {
+    $('wCalNote').textContent = calInfo(k);
+    $('wCalNote').setAttribute('data-kind', k && k.messbar === false ? 'warn' : '');
+    if (!k || keepValues) return;
+    $('wLift').value = k.hebewinkel != null ? k.hebewinkel : 52;
+    $('wBph').value = k.bph ? String(k.bph) : '';
+  }
+  $('wName').addEventListener('input', function () { nameAuto = false; });
+
+  /* Modellsuche: Marke, Modell, Spitzname oder Werk */
+  function norm(s) {
+    return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .replace(/[’'´`«»"()\/.,:+]/g, ' ').replace(/[-–_]/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+  /* Modellname ohne doppelte Marke («Seiko 5 Sports», nicht «Seiko Seiko 5 Sports») */
+  function fullName(u) { return (' ' + norm(u.modell) + ' ').indexOf(' ' + norm(u.marke) + ' ') >= 0 ? u.modell : u.marke + ' ' + u.modell; }
+  /* Suchtext: p = eigener Name (zählt mehr), s = verbautes Werk (zählt weniger) */
+  var INDEX = [];
+  UHREN.forEach(function (u) {
+    var k = kalById(u.kaliber);
+    INDEX.push({ kind: 'uhr', u: u, k: k, p: ' ' + norm(u.marke + ' ' + u.modell + ' ' + (u.such || '')), s: ' ' + norm(k ? k.name : ''),
+      m: ' ' + norm(u.marke + ' ' + u.modell.split('(')[0]) + ' ' });
+  });
+  KAL.forEach(function (k) {
+    INDEX.push({ kind: 'werk', k: k, p: ' ' + norm(k.name + ' ' + (k.auch || []).join(' ')), s: ' werk kaliber', m: ' ' + norm(k.name.split('(')[0]) + ' ' });
+  });
+  INDEX.forEach(function (e, i) { e.order = i; e.pc = e.p.replace(/ /g, ''); });
+  function search(q) {
+    var toks = norm(q).split(' ').filter(Boolean);
+    if (!toks.length || (toks.length === 1 && toks[0].length < 2)) return [];
+    var hits = [];
+    INDEX.forEach(function (e) {
+      var score = 0;
+      for (var i = 0; i < toks.length; i++) {
+        var t = toks[i];
+        if (e.p.indexOf(' ' + t) >= 0) score += 3;                         /* Wortanfang im Namen */
+        else if (e.p.indexOf(t) >= 0 || e.pc.indexOf(t) >= 0) score += 2;  /* auch «blackbay» */
+        else if (e.s.indexOf(' ' + t) >= 0) score += 1;                    /* nur im Werk */
+        else if (e.s.indexOf(t) >= 0) score += 0.5;
+        else return;
+        if (e.m.indexOf(' ' + t) >= 0) score += 1;                         /* im Hauptnamen, nicht in Klammern */
+        if (e.m.indexOf(' ' + t + ' ') >= 0) score += 0.5;                 /* ganzes Wort */
+      }
+      if (e.kind === 'uhr' && norm(e.u.marke).indexOf(toks[0]) === 0) score += 1;
+      hits.push({ e: e, score: score });
+    });
+    hits.sort(function (a, b) { return b.score - a.score || (a.e.kind === b.e.kind ? 0 : a.e.kind === 'uhr' ? -1 : 1) || a.e.order - b.e.order; });
+    return hits.slice(0, 8).map(function (h) { return h.e; });
+  }
+  function calShort(k) {
+    if (!k) return T('Werk unbekannt');
+    if (k.messbar === false) return T('nicht messbar');
+    return (k.bph ? thousands(k.bph) + ' ' + T('A/h') : T('Schlagzahl wird erkannt')) + ' · ' +
+      (k.hebewinkel != null ? deg(k.hebewinkel) + (k.sicher ? '' : ' (' + T('unbestätigt') + ')') : T('Hebewinkel unbekannt'));
+  }
+  var found = [], foundSel = -1;
+  function hideSuggest() { $('wFindList').hidden = true; $('wFind').setAttribute('aria-expanded', 'false'); found = []; foundSel = -1; }
+  function showSuggest(items) {
+    var ul = $('wFindList'); ul.innerHTML = ''; found = items; foundSel = -1;
+    if (!items.length) ul.innerHTML = '<li class="none">' + esc(T('Nichts gefunden. Name und Werk unten selbst eintragen.')) + '</li>';
+    items.forEach(function (e, i) {
+      var li = document.createElement('li'); li.setAttribute('role', 'option'); li.id = 'wFind-' + i;
+      li.innerHTML = e.kind === 'uhr'
+        ? '<span class="t">' + esc(enName(fullName(e.u))) + '</span><span class="s">' + esc((e.k ? kName(e.k) : '') + ' · ' + calShort(e.k)) + '</span>'
+        : '<span class="t"><span class="tag">' + esc(T('Werk')) + '</span>' + esc(kName(e.k)) + '</span><span class="s">' + esc(calShort(e.k)) + '</span>';
+      li.addEventListener('pointerdown', function (ev) { ev.preventDefault(); });
+      li.addEventListener('click', function () { pick(e); });
+      ul.appendChild(li);
+    });
+    ul.hidden = false; $('wFind').setAttribute('aria-expanded', 'true');
+  }
+  function markSel(i) {
+    foundSel = i;
+    Array.prototype.forEach.call($('wFindList').children, function (li, j) { li.setAttribute('aria-selected', String(j === i)); });
+    if (i >= 0) { $('wFind').setAttribute('aria-activedescendant', 'wFind-' + i); $('wFind-' + i).scrollIntoView({ block: 'nearest' }); }
+    else $('wFind').removeAttribute('aria-activedescendant');
+  }
+  function modelName(u) { return fullName(u).replace(/\s*\([^)]*\)\s*$/, '').trim().slice(0, 60); }
+  function pick(e) {
+    setCal(e.k);
+    applyCal(e.k);
+    if (e.kind === 'uhr') {
+      if (!$('wName').value.trim() || nameAuto) { $('wName').value = enName(modelName(e.u)); nameAuto = true; }
+      $('wFindNote').textContent = T('Übernommen: {m}.', { m: enName(fullName(e.u)) }) + (e.u.notiz ? ' ' + T(e.u.notiz) : '') + ' ' + T('Alles lässt sich unten noch ändern.');
+    } else {
+      $('wFindNote').textContent = T('Werk übernommen: {k}.', { k: kName(e.k) }) + ($('wName').value.trim() ? '' : ' ' + T('Jetzt noch einen Namen eingeben.'));
+      if (!$('wName').value.trim()) $('wName').focus();
+    }
+    $('wFind').value = '';
+    hideSuggest();
+  }
+  function defaultFindNote() {
+    $('wFindNote').textContent = T('{u} beliebte Modelle und {k} Werke. Nicht dabei? Die Felder unten selbst ausfüllen.', { u: UHREN.length, k: KAL.length });
+  }
+  var hideTimer = 0;
+  $('wFind').addEventListener('input', function () {
+    clearTimeout(hideTimer);
+    if (norm(this.value).length < 2) { hideSuggest(); return; }
+    showSuggest(search(this.value));
+  });
+  $('wFind').addEventListener('keydown', function (ev) {
+    if ($('wFindList').hidden) return;
+    if (ev.key === 'ArrowDown') { ev.preventDefault(); markSel(Math.min(found.length - 1, foundSel + 1)); }
+    else if (ev.key === 'ArrowUp') { ev.preventDefault(); markSel(Math.max(-1, foundSel - 1)); }
+    else if (ev.key === 'Enter') { ev.preventDefault(); if (found.length) pick(found[Math.max(0, foundSel)]); }
+    else if (ev.key === 'Escape') { hideSuggest(); }
+  });
+  $('wFind').addEventListener('blur', function () { clearTimeout(hideTimer); hideTimer = setTimeout(hideSuggest, 150); });
+  $('wFind').addEventListener('focus', function () { clearTimeout(hideTimer); });
+
+  /* Werk (Kaliber): Suchfeld mit Vorschlägen wie bei den Modellen. Leer angetippt: alle Werke nach Hersteller. */
+  var calSel = null, calFound = [], calIdx = -1, calTimer = 0;
+  var CAL_INDEX = KAL.map(function (k, i) {
+    var p = ' ' + norm(k.name + ' ' + (k.auch || []).join(' ') + ' ' + (k.hersteller || ''));
+    return { k: k, p: p, pc: p.replace(/ /g, ''), m: ' ' + norm(k.name.split('(')[0]) + ' ', order: i };
+  });
+  function searchCal(q) {
+    var toks = norm(q).split(' ').filter(Boolean), hits = [];
+    if (!toks.length) return [];
+    CAL_INDEX.forEach(function (e) {
+      var score = 0;
+      for (var i = 0; i < toks.length; i++) {
+        var t = toks[i];
+        if (e.p.indexOf(' ' + t) >= 0) score += 3;
+        else if (e.p.indexOf(t) >= 0 || e.pc.indexOf(t) >= 0) score += 2;
+        else return;
+        if (e.m.indexOf(' ' + t) >= 0) score += 1;
+      }
+      hits.push({ e: e, score: score });
+    });
+    hits.sort(function (a, b) { return b.score - a.score || byName(a.e.k.name, b.e.k.name); });
+    return hits.slice(0, 12).map(function (h) { return h.e.k; });
+  }
+  function setCal(k) {
+    calSel = k || null;
+    $('wCal').value = k ? k.id : '';
+    $('wCalFind').value = k ? kName(k) : '';
+    $('wCalClear').hidden = !k;
+  }
+  function hideCalList() { $('wCalList').hidden = true; $('wCalFind').setAttribute('aria-expanded', 'false'); calFound = []; calIdx = -1; }
+  function calItem(k, i) {
+    var li = document.createElement('li'); li.setAttribute('role', 'option'); li.id = 'wCal-' + i;
+    li.innerHTML = k ? '<span class="t">' + esc(kName(k)) + '</span><span class="s">' + esc(calShort(k)) + '</span>' :
+      '<span class="t">' + esc(T('Unbekannt oder eigene Angaben')) + '</span><span class="s">' + esc(T('Hebewinkel 52°, Schlagzahl erkennt Tickwerk selbst')) + '</span>';
+    if (k && calSel && k.id === calSel.id) li.classList.add('picked');
+    li.addEventListener('pointerdown', function (ev) { ev.preventDefault(); });
+    li.addEventListener('click', function () { pickCal(k); });
+    return li;
+  }
+  function showCalList(q) {
+    var ul = $('wCalList'); ul.innerHTML = ''; calFound = []; calIdx = -1;
+    var typed = norm(q) && !(calSel && q === kName(calSel));
+    if (typed) {
+      calFound = searchCal(q);
+      if (!calFound.length) ul.innerHTML = '<li class="none">' + esc(T('Kein Werk gefunden. Leer lassen und Hebewinkel unten selbst eintragen.')) + '</li>';
+      calFound.forEach(function (k, i) { ul.appendChild(calItem(k, i)); });
+    } else {
+      calFound = [null];
+      ul.appendChild(calItem(null, 0));
+      var groups = Object.create(null);
+      KAL.forEach(function (k) { var g = k.hersteller || k.name.split(' ')[0]; (groups[g] = groups[g] || []).push(k); });
+      Object.keys(groups).sort(byName).forEach(function (g) {
+        var h = document.createElement('li'); h.className = 'group'; h.setAttribute('role', 'presentation'); h.textContent = g; ul.appendChild(h);
+        groups[g].sort(function (a, b) { return byName(a.name, b.name); }).forEach(function (k) { ul.appendChild(calItem(k, calFound.length)); calFound.push(k); });
+      });
+    }
+    ul.hidden = false; $('wCalFind').setAttribute('aria-expanded', 'true');
+    var picked = ul.querySelector('.picked'); if (picked) picked.scrollIntoView({ block: 'nearest' });
+  }
+  function pickCal(k) {
+    setCal(k); applyCal(k); hideCalList();
+    $('wCalFind').blur();
+  }
+  function markCal(i) {
+    calIdx = i;
+    calFound.forEach(function (k, j) { var li = $('wCal-' + j); if (li) li.setAttribute('aria-selected', String(j === i)); });
+    if (i >= 0 && $('wCal-' + i)) { $('wCalFind').setAttribute('aria-activedescendant', 'wCal-' + i); $('wCal-' + i).scrollIntoView({ block: 'nearest' }); }
+    else $('wCalFind').removeAttribute('aria-activedescendant');
+  }
+  $('wCalFind').addEventListener('focus', function () { clearTimeout(calTimer); this.select(); showCalList(this.value); });
+  $('wCalFind').addEventListener('input', function () { clearTimeout(calTimer); showCalList(this.value); });
+  $('wCalFind').addEventListener('keydown', function (ev) {
+    if ($('wCalList').hidden) return;
+    if (ev.key === 'ArrowDown') { ev.preventDefault(); markCal(Math.min(calFound.length - 1, calIdx + 1)); }
+    else if (ev.key === 'ArrowUp') { ev.preventDefault(); markCal(Math.max(-1, calIdx - 1)); }
+    else if (ev.key === 'Enter') { ev.preventDefault(); if (calFound.length && norm(this.value)) pickCal(calFound[Math.max(0, calIdx)]); }
+    else if (ev.key === 'Escape') { hideCalList(); }
+  });
+  /* Verlassen ohne Auswahl: wieder das gewählte Werk anzeigen (oder leer) */
+  $('wCalFind').addEventListener('blur', function () {
+    clearTimeout(calTimer);
+    calTimer = setTimeout(function () { hideCalList(); setCal(calSel); }, 150);
+  });
+  $('wCalClear').addEventListener('click', function () { pickCal(null); });
+
+  function renderEdit(p) {
+    if (p.init) return;
+    p.init = true;
+    var w = p.id ? findWatch(p.id) : null;
+    nameAuto = false; $('watchForm').reset(); $('wFind').value = ''; hideSuggest(); hideCalList(); setCal(null); defaultFindNote();
+    if (w) {
+      $('wName').value = w.name; setCal(kalById(w.kaliberId)); $('wLift').value = w.liftAngle; $('wBph').value = w.bph ? String(w.bph) : '';
+      applyCal(kalById(w.kaliberId), true);
+      $('watchFormTitle').textContent = T('Uhr bearbeiten'); $('wSave').textContent = T('Änderungen speichern'); $('wDelete').hidden = false;
+    } else {
+      $('wLift').value = 52; applyCal(null);
+      $('watchFormTitle').textContent = T('Uhr hinzufügen'); $('wSave').textContent = T('Speichern'); $('wDelete').hidden = true;
+    }
+  }
+  $('watchForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var t = top(); if (t.s !== 'edit') return;
+    var name = $('wName').value.trim();
+    if (!name) return;
+    var lift = parseFloat(String($('wLift').value).replace(',', '.'));
+    var editing = t.p.id && findWatch(t.p.id);
+    var w = cleanWatch({ id: editing ? editing.id : 'w' + Date.now().toString(36), name: name, kaliberId: $('wCal').value,
+      liftAngle: isFinite(lift) ? lift : 52, bph: $('wBph').value ? parseInt($('wBph').value, 10) : null, tv: editing ? editing.tv : undefined });
+    if (editing) watches = watches.map(function (x) { return x.id === editing.id ? w : x; });
+    else {
+      if (!isPro() && watches.length >= 1) { requirePro('watches'); return; }
+      if (watches.length >= MAX_WATCHES) { toast(T('Tickwerk speichert höchstens {n} Uhren.', { n: MAX_WATCHES })); return; }
+      watches.push(w);
+    }
+    saveWatches();
+    if (!editing) setWatch(w.id);
+    toast(editing ? T('Gespeichert.') : T('«{w}» hinzugefügt.', { w: w.name }));
+    back();
+  });
+  $('wDelete').addEventListener('click', function () {
+    var t = top(), w = t.p.id ? findWatch(t.p.id) : null;
+    if (!w || !window.confirm(T('«{w}» löschen? Die Messungen bleiben unter «Alle Messungen».', { w: w.name }))) return;
+    watches = watches.filter(function (x) { return x.id !== w.id; }); saveWatches();
+    if (settings.watchId === w.id) setWatch('');
+    if (session && session.watchId === w.id) { session = null; saveSession(); }
+    popTo('watches');
+  });
+
+  /* ---------- Alle Messungen ---------- */
+  function renderHistoryFilter() {
+    var sel = $('historyFilter'), keep = sel.value;
+    sel.innerHTML = '<option value="*">' + esc(T('Alle Uhren')) + '</option>';
+    var seen = Object.create(null);
+    watches.forEach(function (w) { seen[w.id] = true; var o = document.createElement('option'); o.value = w.id; o.textContent = w.name; sel.appendChild(o); });
+    if (meas.some(function (m) { return !m.watchId || !seen[m.watchId]; })) {
+      var o = document.createElement('option'); o.value = ''; o.textContent = T('Ohne Uhr / gelöschte'); sel.appendChild(o);
+    }
+    sel.value = keep && Array.prototype.some.call(sel.options, function (x) { return x.value === keep; }) ? keep : '*';
+  }
+  $('historyFilter').addEventListener('change', function () { renderHistory(); });
+  function filteredMeas() {
+    var f = $('historyFilter').value || '*';
+    var known = Object.create(null); watches.forEach(function (w) { known[w.id] = true; });
+    return meas.filter(function (m) { return f === '*' || (f === '' ? (!m.watchId || !known[m.watchId]) : m.watchId === f); });
+  }
+  function renderHistory() {
+    renderHistoryFilter();
+    var all = filteredMeas(), shown = isPro() ? all : all.slice(-FREE_HISTORY);
+    var ul = $('historyList'); ul.innerHTML = '';
+    $('historyEmpty').hidden = all.length > 0;
+    shown.slice().reverse().forEach(function (m) {
+      var li = document.createElement('li'), full = showsPro(m);
+      var parts = [POS[m.pos] || ''];
+      if (full) { parts.push(T('Abfallfehler {v} ms', { v: fmt(m.be, 2) }) + (m.beOk ? '' : ' (' + T('unsicher') + ')')); if (m.amp) parts.push(m.amp + '°' + (m.ampOk ? '' : ' (' + T('unsicher') + ')')); }
+      parts.push(!counted(m) ? T('nicht gewertet') : shaky(m) ? shakyText(m) : qText(m.q));
+      if (m.sess) parts.push(T('Lagen-Test'));
+      li.innerHTML = '<span class="r-l">' + esc((m.watchName || UNKNOWN.name) + ' · ' + dateStr(m.date)) + '<small>' + esc(parts.join(' · ')) + '</small></span>' +
+        '<span class="r-r' + (counted(m) ? '' : ' dim') + '">' + esc(signed(m.rate, 1)) + '<button type="button" class="del" aria-label="' + esc(T('Messung löschen')) + '">' + esc(T('Löschen')) + '</button></span>';
+      li.querySelector('button').addEventListener('click', function () {
+        meas = meas.filter(function (x) { return x.id !== m.id; }); saveMeas(); renderHistory();
+      });
+      ul.appendChild(li);
+    });
+    var hidden = all.length - shown.length;
+    $('historyPro').hidden = hidden <= 0;
+    $('historyPro').textContent = T(hidden === 1 ? '{n} ältere Messung ist gespeichert. Den ganzen Verlauf zeigt Tickwerk Pro.' : '{n} ältere Messungen sind gespeichert. Den ganzen Verlauf zeigt Tickwerk Pro.', { n: hidden });
+    drawHistory(shown.slice(-40));
+  }
+  $('historyPro').addEventListener('click', function () { requirePro('history'); });
+
+  /* ---------- Einstellungen ---------- */
+  var MAX_FILE = 150 * 1024 * 1024;
+  function decodeFile(file) {
+    if (file.size > MAX_FILE) return Promise.reject(new Error('zu gross'));
+    return file.arrayBuffer().then(function (buf) {
+      var Ctx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+      var ctx = new Ctx(1, 1, 48000);
+      return new Promise(function (resolve, reject) {
+        var p = ctx.decodeAudioData(buf, resolve, reject);
+        if (p && p.then) p.then(resolve, reject);
+      });
+    }).then(function (ab) {
+      var n = ab.length, ch = ab.numberOfChannels, out = new Float32Array(n);
+      for (var c = 0; c < ch; c++) { var d = ab.getChannelData(c); for (var i = 0; i < n; i++) out[i] += d[i] / ch; }
+      return { samples: out, sampleRate: ab.sampleRate };
+    });
+  }
+  function renderSettings() { $('langSel').value = settings.lang; $('ppm').value = settings.ppm || 0; $('autoStart').checked = settings.autoStart; $('quartzRate').value = settings.quartzRate || 0; }
+  $('autoStart').addEventListener('change', function () { settings.autoStart = this.checked; saveSettings(); if (!rec && !lastShown) setStatus('status', idleHint(), ''); });
+  $('fileIn').addEventListener('change', function (e) {
+    var f = e.target.files[0]; e.target.value = '';
+    if (!f || rec || busy) return;
+    switchTab('measure');
+    clearReadout();
+    setStatus('status', T('Lese {f} …', { f: f.name }), 'busy');
+    decodeFile(f).then(function (a) {
+      var maxN = Math.round(120 * a.sampleRate);
+      var s = a.samples.length > maxN ? a.samples.subarray(0, maxN) : a.samples;
+      lastRec = { samples: s, fs: a.sampleRate, date: new Date(), watchName: (currentWatch() || UNKNOWN).name, pos: settings.pos };
+      analyzeMeasure(s, a.sampleRate, 'Datei');
+    }).catch(function () {
+      setStatus('status', f.size > MAX_FILE ? T('{f} ist zu gross (höchstens 150 MB).', { f: f.name }) : T('{f} konnte nicht gelesen werden. Am besten WAV verwenden.', { f: f.name }), 'err');
+    });
+  });
+  $('ppm').addEventListener('change', function () {
+    var v = parseFloat(String(this.value).replace(',', '.'));
+    settings.ppm = isFinite(v) && Math.abs(v) < 500 ? v : 0; settings.quartzRaw = null; saveSettings();
+  });
+  /* Eichung mit einer Quarzuhr: gemessene Abweichung plus eigener Gang der Quarzuhr (geht sie vor, sind ihre Schritte kürzer) */
+  function quartzPpm() { return +(settings.quartzRaw + settings.quartzRate / 0.0864).toFixed(1); }
+  function applyQuartz(q) {
+    if (!q || !q.ok) { $('quartzOut').textContent = T((q && q.reason) || 'Keine Auswertung möglich.'); return; }
+    settings.quartzRaw = +q.ppm.toFixed(2);
+    settings.ppm = quartzPpm(); saveSettings(); $('ppm').value = settings.ppm;
+    $('quartzOut').textContent = T(settings.ppm >= 0 ? 'Die Handy-Uhr geht {p} ppm vor (± {s} ppm), das sind {d} s/Tag' : 'Die Handy-Uhr geht {p} ppm nach (± {s} ppm), das sind {d} s/Tag',
+      { p: fmt(Math.abs(settings.ppm), 1), s: fmt(Math.max(0.1, q.sigmaPpm), 1), d: fmt(Math.abs(settings.ppm) * 0.0864, 2) }) +
+      (settings.quartzRate ? T(', mit dem Gang der Quarzuhr verrechnet') : '') + '. ' + T('Tickwerk korrigiert das ab jetzt bei jeder Messung ({n} Schritte erkannt).', { n: q.steps }) +
+      (q.inhibition ? ' ' + T('Deine Quarzuhr gleicht ihren Gang alle {n} s mit einem kleinen Sprung aus ({j} ms); das ist berücksichtigt.', { n: q.inhibition.everyS, j: fmt(Math.abs(q.inhibition.jumpMs), 1) }) : '');
+  }
+  $('langSel').addEventListener('change', function () {
+    settings.lang = this.value === 'de' || this.value === 'en' ? this.value : 'auto'; saveSettings();
+    location.reload();
+  });
+  $('quartzRate').addEventListener('change', function () {
+    var v = parseFloat(String(this.value).replace(',', '.'));
+    settings.quartzRate = isFinite(v) && Math.abs(v) <= 10 ? v : 0; this.value = settings.quartzRate;
+    if (settings.quartzRaw != null) { settings.ppm = quartzPpm(); $('ppm').value = settings.ppm; }
+    saveSettings();
+  });
+  var QUARTZ_LABEL = T('Quarzuhr messen (2½ Minuten)');
+  $('quartzRec').addEventListener('click', function () {
+    if (rec && rec.owner === 'settings') { recStop(true); return; }
+    if (rec || busy || opening) return;
+    recStart({
+      owner: 'settings', dur: 150, settle: 1, noLive: true, opts: {},
+      onOpening: function () { $('quartzRec').disabled = true; $('quartzOut').textContent = T('Mikrofon wird geöffnet …'); },
+      onFail: function (msg) { $('quartzRec').disabled = false; $('quartzOut').textContent = msg; },
+      onBegin: function () { $('quartzRec').disabled = false; $('quartzRec').textContent = T('Abbrechen'); $('quartzOut').textContent = T('Aufnahme läuft. Handy ruhig an die Quarzuhr halten, nicht reden.'); },
+      onTick: function (left) { $('quartzRec').textContent = T('Abbrechen') + ' · ' + left + ' s'; },
+      onCancel: function () { $('quartzRec').textContent = QUARTZ_LABEL; $('quartzOut').textContent = T('Abgebrochen.'); },
+      onDone: function (samples, fs) {
+        $('quartzRec').textContent = QUARTZ_LABEL; $('quartzOut').textContent = T('Rechne …');
+        runJob({ kind: 'quartz', samples: samples, fs: fs }).then(applyQuartz);
+      }
+    });
+  });
+  $('quartzFile').addEventListener('change', function (e) {
+    var f = e.target.files[0]; e.target.value = '';
+    if (!f) return;
+    $('quartzOut').textContent = T('Lese {f} …', { f: f.name });
+    decodeFile(f).then(function (a) {
+      var maxQ = Math.round(300 * a.sampleRate);
+      return runJob({ kind: 'quartz', samples: a.samples.length > maxQ ? a.samples.subarray(0, maxQ) : a.samples, fs: a.sampleRate });
+    }).then(applyQuartz).catch(function () { $('quartzOut').textContent = f.size > MAX_FILE ? T('{f} ist zu gross (höchstens 150 MB).', { f: f.name }) : T('{f} konnte nicht gelesen werden.', { f: f.name }); });
+  });
+  $('exportBtn').addEventListener('click', function () {
+    var now = new Date(), pad = function (x) { return (x < 10 ? '0' : '') + x; };
+    var data = { app: 'Tickwerk', format: 1, version: APP_VERSION, exported: now.toISOString(), watches: watches, measurements: meas, settings: { ppm: settings.ppm } };
+    var blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+    shareOrDownload(blob, (LANG === 'en' ? 'tickwerk-backup-' : 'tickwerk-sicherung-') + now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate()) + '.json', T('Tickwerk Sicherung'));
+    $('backupOut').textContent = T('{w} und {m} gesichert. Die Datei liegt bei den Downloads.', { w: plural(watches.length, 'Uhr', 'Uhren'), m: plural(meas.length, 'Messung', 'Messungen') });
+  });
+  $('importIn').addEventListener('change', function (e) {
+    var f = e.target.files[0]; e.target.value = '';
+    if (!f) return;
+    if (f.size > 20 * 1024 * 1024) { $('backupOut').textContent = T('Die Datei ist zu gross für eine Tickwerk-Sicherung.'); return; }
+    f.text().then(function (txt) {
+      var d = JSON.parse(txt);
+      if (!d || typeof d !== 'object' || d.app !== 'Tickwerk') throw new Error(T('keine Tickwerk-Sicherung'));
+      var ws = list(d.watches, cleanWatch), ms = list(d.measurements, cleanMeas);
+      var haveW = Object.create(null), haveM = Object.create(null);
+      watches.forEach(function (w) { haveW[w.id] = true; }); meas.forEach(function (m) { haveM[m.id] = true; });
+      /* doppelte Einträge auch innerhalb der Datei nur einmal übernehmen, höchstens MAX_WATCHES Uhren */
+      var addW = ws.filter(function (w) { if (haveW[w.id]) return false; haveW[w.id] = true; return true; }).slice(0, Math.max(0, MAX_WATCHES - watches.length));
+      var addM = ms.filter(function (m) { if (haveM[m.id]) return false; haveM[m.id] = true; return true; });
+      watches = watches.concat(addW);
+      meas = meas.concat(addM).sort(function (a, b) { return new Date(a.date) - new Date(b.date); }).slice(-MAX_MEAS);
+      lastId = meas.reduce(function (a, m) { return Math.max(a, m.id); }, lastId);
+      if (d.settings && typeof d.settings.ppm === 'number' && isFinite(d.settings.ppm) && Math.abs(d.settings.ppm) < 500 && !settings.ppm) settings.ppm = d.settings.ppm;
+      saveWatches(); saveMeas(); saveSettings(); renderSettings();
+      var dup = (ws.length - addW.length) + (ms.length - addM.length);
+      $('backupOut').textContent = T('{w} und {m} übernommen', { w: plural(addW.length, 'Uhr', 'Uhren'), m: plural(addM.length, 'Messung', 'Messungen') }) + (dup ? ' (' + T('{n} waren schon vorhanden', { n: dup }) + ')' : '') + '.';
+    }).catch(function (err) {
+      $('backupOut').textContent = T('Die Sicherung konnte nicht geladen werden') + (err && err.message ? ' (' + err.message + ')' : '') + '.';
+    });
+  });
+  $('wipeBtn').addEventListener('click', function () {
+    if (!window.confirm(T('Alle Uhren und Messungen auf diesem Handy löschen? Das lässt sich nicht rückgängig machen. Tipp: vorher eine Sicherung speichern.'))) return;
+    watches = []; meas = []; session = null; settings.watchId = '';
+    saveWatches(); saveMeas(); saveSession(); saveSettings();
+    clearReadout();
+    $('backupOut').textContent = T('Alle Uhren und Messungen sind gelöscht.');
+  });
+
+  /* ---------- Mehr, Pro, Anleitung ---------- */
+  function renderMore() {
+    $('moreVersion').textContent = T('Version') + ' ' + APP_VERSION + (FLAVOR === 'test' ? ' · ' + T('Testversion') : '');
+    $('moreProState').textContent = isPro() ? T('Freigeschaltet') : T('Gratis · noch {n} von {m} Messungen mit allen Werten diese Woche', { n: freeLeft(), m: FREE_PER_WEEK });
+    $('moreHistory').textContent = plural(meas.length, 'Messung', 'Messungen');
+    $('versionInfo').textContent = 'Tickwerk ' + APP_VERSION + (FLAVOR === 'test' ? ' (' + T('Testversion') + ')' : '') + ' · ' + T('Mess-Engine') + ' ' + (engineVersion || '?');
+  }
+  function renderPro() {
+    var pro = isPro(), card = $('proState'), store = FLAVOR === 'store';
+    $('proFree').textContent = T('Gratis bleiben Gangabweichung, Schlagzahl und Papierstreifen für eine Uhr, dazu {n} Messungen pro Woche mit allen Werten.', { n: FREE_PER_WEEK });
+    var txt;
+    if (pro) txt = FLAVOR === 'test' ? T('Testversion: Pro ist zum Ausprobieren freigeschaltet. Es wurde nichts gekauft.') : T('Tickwerk Pro ist freigeschaltet. Danke für die Unterstützung!');
+    else if (!store) txt = T('Testversion: «Pro kaufen» schaltet Pro hier nur zum Ausprobieren frei. Es wird nichts verrechnet.');
+    else if (billing.svc) txt = T('Preis: {p} einmalig. Der Kauf gilt für dein Google-Konto, auch auf einem neuen Handy.', { p: priceText() });
+    else txt = T('Kaufen lässt sich Pro in der Tickwerk-App aus dem Google Play Store. In dieser Browser-Version gibt es die Gratis-Funktionen.');
+    card.textContent = txt;
+    $('proBuy').hidden = pro;
+    $('proBuy').textContent = T('Pro kaufen') + ' · ' + priceText();
+    $('proBuy').disabled = store && !billing.svc;
+    $('proRestore').hidden = !store || pro;
+    $('proRestore').disabled = !billing.svc;
+    $('proTest').hidden = store;
+    $('proTestToggle').checked = settings.testPro;
+  }
+  $('proBuy').addEventListener('click', buyPro);
+  $('proRestore').addEventListener('click', function () {
+    $('proRestore').disabled = true;
+    restorePurchases().then(function (res) {
+      toast(T(res === 'restored' ? 'Pro ist wiederhergestellt.' : res === 'pending' ? 'Der Kauf ist noch nicht abgeschlossen. Später nochmals versuchen.' :
+        res === 'unavailable' ? 'Google Play ist hier nicht erreichbar.' : res === 'error' ? 'Wiederherstellen hat nicht geklappt. Später nochmals versuchen.' : 'Kein Kauf von Tickwerk Pro auf diesem Google-Konto gefunden.'));
+      afterProChange();
+    });
+  });
+  $('proTestToggle').addEventListener('change', function () { settings.testPro = this.checked; saveSettings(); afterProChange(); });
+  $('proTestReset').addEventListener('click', function () { settings.free = { week: '', used: 0 }; saveSettings(); toast(T('Gratis-Messungen zurückgesetzt: wieder {n} diese Woche.', { n: FREE_PER_WEEK })); render(); });
+  $('gStart').addEventListener('click', function () {
+    settings.guideSeen = true; saveSettings();
+    if (stack.length > 1) back(); else switchTab('measure');
+    measureStart();
+  });
+
+  /* ---------- Messprotokoll (PDF, Pro) ---------- */
+  var lastReportUrl = null;
+  function makeReport(w, bar, opt) {
+    if (!requirePro('pdf')) return;
+    var items = opt.list || measOf(w.id ? w : null);
+    bar.hidden = false;
+    if (!items.length || !window.TickwerkReport) { bar.textContent = T('Für diese Uhr gibt es noch keine Messung.'); return; }
+    var out;
+    try {
+      var rk = kalById(w.kaliberId);
+      out = window.TickwerkReport.build({
+        watch: w, kal: rk, liftState: liftState(w.id ? w : null), meas: items, appVersion: APP_VERSION + (FLAVOR === 'test' ? ' (Test)' : ''),
+        engineVersion: engineVersion, logo: window.TICKWERK_LOGO || null, now: new Date(), subtitle: opt.subtitle, kind: opt.kind,
+        lang: LANG, tr: T, kalName: rk ? kName(rk) : '', kalSource: rk ? enSource(rk.quelle) : ''
+      });
+    } catch (e) {
+      bar.textContent = T('Das Protokoll konnte nicht erstellt werden') + ' (' + (e && e.message || e) + ').'; return;
+    }
+    var blob = new Blob([out.bytes], { type: 'application/pdf' }), file = null;
+    try { file = new File([blob], out.filename, { type: 'application/pdf' }); } catch (e) { /* alte Browser */ }
+    if (lastReportUrl) URL.revokeObjectURL(lastReportUrl);
+    lastReportUrl = URL.createObjectURL(blob);
+    var canShare = !!(file && navigator.canShare && navigator.canShare({ files: [file] }));
+    var share = function () { navigator.share({ files: [file], title: 'Tickwerk ' + T('Messprotokoll') + ' ' + w.name }).catch(function () { /* abgebrochen */ }); };
+    bar.innerHTML = '<span class="pdfinfo">' + esc(T('Protokoll') + ' ' + out.number + ' · ' + plural(out.pages, 'Seite', 'Seiten') + ' · ' +
+      Math.max(1, Math.round(out.bytes.length / 1024)) + ' KB') + '</span>' +
+      (canShare ? '<button type="button" data-p="share">' + esc(T('Teilen oder speichern')) + '</button>' : '') +
+      '<button type="button" data-p="open">' + esc(T('Öffnen und drucken')) + '</button><button type="button" data-p="dl">' + esc(T('Herunterladen')) + '</button>';
+    if (canShare) bar.querySelector('[data-p="share"]').addEventListener('click', share);
+    bar.querySelector('[data-p="open"]').addEventListener('click', function () { window.open(lastReportUrl, '_blank', 'noopener'); });
+    bar.querySelector('[data-p="dl"]').addEventListener('click', function () {
+      var a = document.createElement('a'); a.href = lastReportUrl; a.download = out.filename;
+      document.body.appendChild(a); a.click(); a.remove();
+    });
+    if (opt.share && canShare) share();
+  }
+
+  /* ---------- Zeichnen ---------- */
+  function setupCanvas(cv) {
+    var dpr = window.devicePixelRatio || 1;
+    if (!cv.dataset.h) cv.dataset.h = cv.getAttribute('height');   // logische Höhe merken (Attribut wird mit dpr überschrieben)
+    var w = cv.clientWidth || 320, h = parseInt(cv.dataset.h, 10);
+    cv.style.height = h + 'px';
+    cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    var ctx = cv.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    return { ctx: ctx, w: w, h: h };
+  }
+  function niceStep(range, target) {
+    var raw = range / target, p = Math.pow(10, Math.floor(Math.log10(raw))), m = raw / p;
+    return (m < 1.5 ? 1 : m < 3 ? 2 : m < 7 ? 5 : 10) * p;
+  }
+  function axisNum(v, d) { return Math.abs(v) < 1e-9 ? '0' : signed(v, d); }
+  function emptyText(g, text) { g.ctx.fillStyle = C.faint; g.ctx.font = '13px Inter, sans-serif'; g.ctx.fillText(text, 14, g.h / 2 + 4); }
+  function drawTape(cv, trace, emptyMsg) {
+    var g = setupCanvas(cv), ctx = g.ctx, w = g.w, h = g.h;
+    var L = 50, R = 10, TP = 8, B = 20;
+    if (!trace || !trace.length) { emptyText(g, emptyMsg || T('Noch keine Messung')); return; }
+    var tMax = 0, ys0 = trace.map(function (p) { return p.devMs; }).sort(function (a, b) { return a - b; });
+    trace.forEach(function (p) { if (p.t > tMax) tMax = p.t; });
+    var yMin = ys0[Math.floor(ys0.length * 0.02)], yMax = ys0[Math.ceil(ys0.length * 0.98) - 1];   // Ausreisser bestimmen die Skala nicht
+    var mid = (yMin + yMax) / 2, half = Math.max(0.8, (yMax - yMin) / 2 * 1.2);
+    yMin = mid - half; yMax = mid + half;
+    var X = function (t) { return L + (t / (tMax || 1)) * (w - L - R); };
+    var Y = function (v) { return TP + (1 - (v - yMin) / (yMax - yMin)) * (h - TP - B); };
+    ctx.strokeStyle = C.line; ctx.lineWidth = 1; ctx.fillStyle = C.faint; ctx.font = '10px "IBM Plex Mono", monospace';
+    var ys = niceStep(yMax - yMin, 3);
+    for (var v = Math.ceil(yMin / ys) * ys; v <= yMax; v += ys) {
+      var yy = Math.round(Y(v)) + 0.5;
+      ctx.beginPath(); ctx.moveTo(L, yy); ctx.lineTo(w - R, yy); ctx.stroke();
+      ctx.fillText(axisNum(v, ys < 1 ? 1 : 0) + ' ms', 2, yy + 3);
+    }
+    var xs = niceStep(Math.max(tMax, 1), 5);
+    for (var s = 0; s <= tMax + 1e-9; s += xs) ctx.fillText(fmt(s, 0) + ' s', Math.min(Math.round(X(s)) - 6, w - R - 28), h - 5);
+    trace.forEach(function (p) {
+      var yv = Math.max(yMin, Math.min(yMax, p.devMs));
+      ctx.fillStyle = p.parity ? C.tock : C.lume;
+      ctx.beginPath(); ctx.arc(X(p.t), Y(yv), 1.8, 0, Math.PI * 2); ctx.fill();
+    });
+  }
+  function drawBeat(cv, tpls, liftTimeMs) {
+    var g = setupCanvas(cv), ctx = g.ctx, w = g.w, h = g.h;
+    var L = 10, R = 10, TP = 18, B = 24;
+    if (!tpls) { emptyText(g, T('Noch keine Messung')); return; }
+    var lt = liftTimeMs || 0;
+    var x0 = -Math.max(6, lt + 3.5), x1 = 5;
+    var X = function (ms) { return L + (ms - x0) / (x1 - x0) * (w - L - R); };
+    var Y = function (v) { return TP + (1 - v) * (h - TP - B); };
+    ctx.font = '11px "IBM Plex Mono", monospace';
+    ctx.setLineDash([3, 4]); ctx.strokeStyle = C.faint; ctx.lineWidth = 1;
+    (lt ? [-lt, 0] : [0]).forEach(function (ms) { var xx = Math.round(X(ms)) + 0.5; ctx.beginPath(); ctx.moveTo(xx, TP - 6); ctx.lineTo(xx, h - B); ctx.stroke(); });
+    ctx.setLineDash([]);
+    ctx.fillStyle = C.muted;
+    if (lt) ctx.fillText(T('Auslösung'), X(-lt) + 4, TP + 2);
+    ctx.fillText(T('Fall'), X(0) + 4, TP + 2);
+    ctx.fillStyle = C.faint;
+    if (lt) ctx.fillText('Hebezeit ' + fmt(lt, 2) + ' ms', X(-lt) + 4, h - 7);
+    [1, 0].forEach(function (q) {
+      var tp = tpls[q];
+      ctx.strokeStyle = q ? C.tock : C.lume; ctx.lineWidth = 1.5; ctx.beginPath();
+      var started = false;
+      tp.values.forEach(function (val, i) {
+        var ms = tp.startMs + i * tp.stepMs;
+        if (ms < x0 || ms > x1) return;
+        if (!started) { ctx.moveTo(X(ms), Y(val)); started = true; } else ctx.lineTo(X(ms), Y(val));
+      });
+      ctx.stroke();
+    });
+  }
+  function drawHistory(items) {
+    var cv = $('historyChart'), g = setupCanvas(cv), ctx = g.ctx, w = g.w, h = g.h;
+    var L = 46, R = 10, TP = 10, B = 20;
+    if (!items.length) { emptyText(g, T('Noch keine Messungen')); return; }
+    var lo = -8, hi = 10;
+    items.forEach(function (m) { lo = Math.min(lo, m.rate - m.sigma); hi = Math.max(hi, m.rate + m.sigma); });
+    lo = Math.max(lo, -60); hi = Math.min(hi, 60);
+    var X = function (i) { return items.length === 1 ? (L + w - R) / 2 : L + i / (items.length - 1) * (w - L - R); };
+    var Y = function (v) { return TP + (1 - (v - lo) / (hi - lo)) * (h - TP - B); };
+    ctx.fillStyle = C.band; ctx.fillRect(L, Y(6), w - L - R, Y(-4) - Y(6));
+    ctx.strokeStyle = C.line; ctx.fillStyle = C.faint; ctx.font = '11px "IBM Plex Mono", monospace';
+    var st = niceStep(hi - lo, 4);
+    for (var v = Math.ceil(lo / st) * st; v <= hi; v += st) {
+      var yy = Math.round(Y(v)) + 0.5;
+      ctx.beginPath(); ctx.moveTo(L, yy); ctx.lineTo(w - R, yy); ctx.stroke();
+      ctx.fillText(axisNum(v, 0) + ' s', 2, yy + 4);
+    }
+    ctx.fillText(dateStr(items[0].date), L, h - 5);
+    items.forEach(function (m, i) {
+      var x = X(i), y = Y(Math.max(lo, Math.min(hi, m.rate)));
+      ctx.strokeStyle = C.faint; ctx.beginPath();
+      ctx.moveTo(x, Y(Math.max(lo, m.rate - m.sigma))); ctx.lineTo(x, Y(Math.min(hi, m.rate + m.sigma))); ctx.stroke();
+      ctx.fillStyle = counted(m) ? C.lume : C.faint;
+      ctx.beginPath(); ctx.arc(x, y, 3.5, 0, Math.PI * 2); ctx.fill();
+    });
+  }
+  function drawLagenChart(st) {
+    var cv = $('lagenChart'), g = setupCanvas(cv), ctx = g.ctx, w = g.w, h = g.h;
+    var L = 40, R = 8, TP = 18, B = 26, rows = st.rows;
+    var vals = [];
+    rows.forEach(function (r) { if (r.m) vals.push(r.m.rate - r.m.sigma, r.m.rate + r.m.sigma); });
+    var lo = Math.min(-8, Math.min.apply(null, vals.concat([0]))), hi = Math.max(10, Math.max.apply(null, vals.concat([0])));
+    var pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
+    var X = function (i) { return L + (i + 0.5) / rows.length * (w - L - R); };
+    var Y = function (v) { return TP + (1 - (v - lo) / (hi - lo)) * (h - TP - B); };
+    ctx.fillStyle = C.band; ctx.fillRect(L, Y(6), w - L - R, Y(-4) - Y(6));
+    ctx.font = '10px "IBM Plex Mono", monospace'; ctx.lineWidth = 1;
+    var step = niceStep(hi - lo, 4);
+    for (var v = Math.ceil(lo / step) * step; v <= hi; v += step) {
+      var yy = Math.round(Y(v)) + 0.5;
+      ctx.strokeStyle = v === 0 ? C.line2 : C.line; ctx.beginPath(); ctx.moveTo(L, yy); ctx.lineTo(w - R, yy); ctx.stroke();
+      ctx.fillStyle = C.faint; ctx.fillText(axisNum(v, 0), 4, yy + 3);
+    }
+    if (st.mean != null) {
+      ctx.setLineDash([4, 4]); ctx.strokeStyle = C.muted;
+      var ym = Math.round(Y(st.mean)) + 0.5; ctx.beginPath(); ctx.moveTo(L, ym); ctx.lineTo(w - R, ym); ctx.stroke(); ctx.setLineDash([]);
+    }
+    ctx.textAlign = 'center';
+    rows.forEach(function (r, i) {
+      var x = X(i);
+      ctx.fillStyle = C.faint; ctx.fillText(r.pos, x, h - 8);
+      if (!r.m) return;
+      var ok = counted(r.m), col = ok ? (HORIZ[r.pos] ? C.lume : C.tock) : C.faint;
+      ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.beginPath();
+      ctx.moveTo(x, Y(r.m.rate - r.m.sigma)); ctx.lineTo(x, Y(r.m.rate + r.m.sigma)); ctx.stroke();
+      ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, Y(r.m.rate), ok ? 4.5 : 3.5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = C.text; ctx.fillText(signed(r.m.rate, 1), x, Y(r.m.rate + r.m.sigma) - 6);
+    });
+    ctx.textAlign = 'start';
+  }
+  var resizeTimer = 0;
+  window.addEventListener('resize', function () {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function () {
+      var s = topScreen();
+      if (s === 'measure' && !rec) redrawMeasure();
+      else if (s === 'history') drawHistory(isPro() ? filteredMeas().slice(-40) : filteredMeas().slice(-FREE_HISTORY));
+      else if (s === 'lagen' && session && !$('lResult').hidden) drawLagenChart(lagenStats(SETS[session.set], sessByPos()));
+      else if (s === 'lpos' && !rec) renderLpos(top().p);
+    }, 150);
+  });
+  $('mDetails').addEventListener('toggle', function () { if (this.open && lastShown) drawBeat($('mBeat'), lastShown.r.templates, lastShown.r.liftTimeMs); });
+
+  /* ---------- Installieren und neue Version ---------- */
+  var deferredPrompt = null;
+  window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); deferredPrompt = e; $('installBtn').hidden = false; });
+  $('installBtn').addEventListener('click', function () {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    deferredPrompt.userChoice.then(function () { deferredPrompt = null; $('installBtn').hidden = true; });
+  });
+  window.addEventListener('appinstalled', function () { $('installBtn').hidden = true; });
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+    /* Neue Version im Hintergrund geladen: Knopf zum Neuladen anbieten (nie mitten in einer Messung neu laden) */
+    var hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (!hadController) return;
+      $('updateBtn').hidden = false;
+      toast(T('Eine neue Version von Tickwerk ist bereit. Unter «Mehr» neu laden.'));
+    });
+    $('updateBtn').addEventListener('click', function () { if (!rec && !busy) location.reload(); });
+    navigator.serviceWorker.register('sw.js').catch(function () { /* ohne Offline-Modus weiter */ });
+  }
+
+  /* ---------- Start ---------- */
+  var RENDER = { measure: renderMeasure, watches: renderWatches, watch: renderDetail, edit: renderEdit, lagen: renderLagen, lpos: renderLpos, zeit: renderZeit, detektiv: renderDetektiv, guide: function () {},
+    more: renderMore, pro: renderPro, history: renderHistory, settings: renderSettings };
+  if (FLAVOR === 'test') {
+    var row = document.createElement('span'), badge = document.createElement('span');
+    row.className = 'eyebrow-row'; badge.className = 'test-badge'; badge.textContent = 'TEST';
+    $('mState').parentNode.insertBefore(row, $('mState')); row.appendChild($('mState')); row.appendChild(badge);
+  }
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persisted().then(function (p) { return p || navigator.storage.persist(); }).catch(function () {}); } catch (e) { /* egal */ }
+  clearReadout();
+  setStatus('status', idleHint(), '');
+  if (location.hash === '#mehr') { stack = [{ s: 'more', p: {} }]; history.replaceState({ tw: 0 }, '', location.pathname + location.search); }
+  render();
+  if (!settings.guideSeen) go('guide');
+  if (FLAVOR === 'store') {
+    billingInit().then(function () { return restorePurchases(); }).then(function (res) {
+      if (res === 'restored') afterProChange();
+      else if (topScreen() === 'pro') renderPro();
+    });
+  }
+  runJob({ samples: new Float32Array(48000 * 5), fs: 48000, opts: {} }).then(function () { if (topScreen() === 'more') renderMore(); });
+})();
