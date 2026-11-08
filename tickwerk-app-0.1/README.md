@@ -1,4 +1,4 @@
-# Tickwerk – Web-App 0.4.2 (Testversion)
+# Tickwerk – Web-App 0.4.3 (Testversion)
 
 Misst mit dem Handy-Mikrofon, wie genau eine mechanische Uhr geht: Gangabweichung, Abfallfehler, Amplitude, Schlagzahl. Die Aufnahme bleibt auf dem Handy; die App schickt nichts ins Internet.
 
@@ -9,6 +9,14 @@ Das ist die **Testversion** für GitHub: Pro lässt sich unter Mehr → Tickwerk
 1. Im Repository den Ordner `tickwerk-app-0.1` öffnen.
 2. **Add file → Upload files**, den ganzen Inhalt dieses Pakets hineinziehen (Dateien und die Ordner `engine`, `fonts`, `icons`), **Commit changes**. Gleichnamige Dateien werden ersetzt; deine Uhren und Messungen bleiben auf dem Handy erhalten.
 3. App auf dem Handy öffnen. Nach ein paar Sekunden erscheint «Neue Version ist bereit»; unter Mehr auf **Neue Version: neu laden** tippen.
+
+## Neu in 0.4.3
+
+- **Lagen-Test neu:** Auf der Auswahl eine Lage antippen. Oben zeigt Tickwerk gross, wie die Uhr liegt, unten live das Ticken (Signal, Pegel, Papierstreifen, vorläufiger Gang). Die Messung startet von selbst, sobald das Ticken klar ist. Danach 3 Sekunden das Ergebnis mit Amplitude und Abfallfehler, dann zurück zur Auswahl. Gemessene Lagen sind grau und zeigen ihr Ergebnis, die nächste offene ist hervorgehoben.
+- **Uhr-Seite:** neue Karte «Letzter Lagen-Test» mit Mittel, Lagendifferenz, Abfallfehler, Amplitude und den Werten je Lage, dazu das PDF des Tests. In der Messliste steht jetzt auch der Abfallfehler.
+- **Werk wählen** wie die Modelle: tippen und aus den Vorschlägen wählen. Leer angetippt zeigt das Feld alle Werke nach Hersteller.
+- **Datenschutz:** Geht Tickwerk während einer Aufnahme in den Hintergrund, bricht die Aufnahme ab und das Mikrofon geht zu.
+- Sicherung laden: doppelte Einträge innerhalb der Datei werden nur einmal übernommen, höchstens 200 Uhren.
 
 ## Neu in 0.4.2
 

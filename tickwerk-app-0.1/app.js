@@ -17,13 +17,13 @@
   var UHREN = window.TICKWERK_UHREN || [];
   var CFG = window.TICKWERK_CONFIG || {};
   var FLAVOR = CFG.flavor === 'store' ? 'store' : 'test';
-  var APP_VERSION = '0.4.2';
+  var APP_VERSION = '0.4.3';
   var PREFIX = typeof CFG.storage === 'string' && /^[a-z][a-z0-9.]{2,30}$/.test(CFG.storage) ? CFG.storage : 'tickwerk.v1';
   var KEYS = { watches: PREFIX + '.watches', meas: PREFIX + '.measurements', settings: PREFIX + '.settings', session: PREFIX + '.session', pro: PREFIX + '.pro' };
   var PRO_SKU = typeof CFG.proSku === 'string' && /^[a-z0-9._]{1,40}$/.test(CFG.proSku) ? CFG.proSku : 'tickwerk_pro';
   var BACKEND = typeof CFG.billingBackend === 'string' && /^https:\/\/[A-Za-z0-9.\-]+(:\d+)?(\/[A-Za-z0-9._\-\/]*)?$/.test(CFG.billingBackend) ? CFG.billingBackend : '';
   var PRICE = typeof CFG.price === 'string' ? CFG.price.slice(0, 20) : 'CHF 9.–';
-  var FREE_PER_WEEK = 3, FREE_HISTORY = 5, FREE_DETAIL = 3, MAX_MEAS = 3000, TRACE_KEEP = 40;
+  var FREE_PER_WEEK = 3, FREE_HISTORY = 5, FREE_DETAIL = 3, MAX_MEAS = 3000, MAX_WATCHES = 200, TRACE_KEEP = 40;
   var POS = { ZO: 'Zifferblatt oben', ZU: 'Zifferblatt unten', KU: 'Krone unten', KO: 'Krone oben', KL: 'Krone links', KR: 'Krone rechts' };
   var POS_HINT = {
     ZO: 'Uhr flach hinlegen, Zifferblatt nach oben. Die Unterkante des Handys an die Krone.',
@@ -79,6 +79,7 @@
     if (str(m.app, 20)) out.app = str(m.app, 20);
     if (m.fp === true) out.fp = true;
     if (str(m.sess, 40)) out.sess = str(m.sess, 40);
+    if (m.lset === 4 || m.lset === 6) out.lset = m.lset;
     var tr = cleanTrace(m.tr); if (tr) out.tr = tr;
     return out;
   }
@@ -97,7 +98,7 @@
     return { active: true, since: str(p.since, 40), via: p.via === 'backend' ? 'backend' : 'play' };
   }
 
-  var watches = list(load(KEYS.watches, []), cleanWatch);
+  var watches = list(load(KEYS.watches, []), cleanWatch).slice(0, MAX_WATCHES);
   var meas = list(load(KEYS.meas, []), cleanMeas).slice(-MAX_MEAS);
   var S = load(KEYS.settings, {});
   if (!S || typeof S !== 'object') S = {};
@@ -320,8 +321,8 @@
   }
 
   /* ---------- Navigation: Bildschirme als Stapel, Android-Zurück schliesst den obersten ---------- */
-  var SCREENS = ['measure', 'watches', 'watch', 'edit', 'lagen', 'guide', 'more', 'pro', 'history', 'settings'];
-  var NO_TABS = { edit: true, lagen: true, guide: true };
+  var SCREENS = ['measure', 'watches', 'watch', 'edit', 'lagen', 'lpos', 'guide', 'more', 'pro', 'history', 'settings'];
+  var NO_TABS = { edit: true, lagen: true, lpos: true, guide: true };
   var stack = [{ s: 'measure', p: {} }];
   var sheetOpen = null, afterPop = null, shownScreen = '';
   var tabs = Array.prototype.slice.call(document.querySelectorAll('.tabbar button'));
@@ -330,6 +331,7 @@
   function render(restoreScroll) {
     var t = top();
     if (rec && rec.owner !== t.s) recStop(true);
+    if (t.s !== 'lpos') lpStop();
     SCREENS.forEach(function (s) { $('scr-' + s).hidden = s !== t.s; });
     document.body.classList.toggle('no-tabs', !!NO_TABS[t.s]);
     document.body.classList.toggle('is-pro', isPro());
@@ -567,6 +569,11 @@
     rec = null; teardown(r);
     if (cancelled && r.o.onCancel) r.o.onCancel();
   }
+  /* Datenschutz: Tickwerk hört nur zu, solange die App sichtbar ist. Geht sie in den Hintergrund
+     (anderes App, Bildschirm aus), wird die Aufnahme abgebrochen und das Mikrofon geschlossen. */
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden && rec) { recStop(true); toast('Aufnahme abgebrochen: Tickwerk war im Hintergrund.'); }
+  });
   function recFinish() {
     var r = rec; if (!r) return;
     rec = null; teardown(r);
@@ -591,7 +598,7 @@
       bph: r.bph, q: r.quality.label, dur: +r.duration.toFixed(1),
       ppm: r.clockPpm || 0, fs: fs || null, eng: engineVersion || '', app: APP_VERSION
     };
-    if (c.sess) m.sess = c.sess;
+    if (c.sess) { m.sess = c.sess; if (c.lset) m.lset = c.lset; }
     if (!isPro() && useFree()) m.fp = true;
     var tr = compactTrace(r.trace); if (tr) m.tr = tr;
     meas.push(m);
@@ -870,10 +877,15 @@
     shareOrDownload(encodeWav(lastRec.samples, lastRec.fs), name, 'Tickwerk Aufnahme');
   });
 
-  /* ---------- Lagen-Test (Pro) ---------- */
+  /* ---------- Lagen-Test (Pro) ----------
+     Auswahl (scr-lagen): eine Kachel je Lage. Gemessene Lagen sind grau und zeigen ihr Ergebnis, die nächste
+     offene ist hervorgehoben. Lage antippen → Messung (scr-lpos): oben, wie die Uhr liegt, unten live das Ticken.
+     Die Messung startet von selbst, sobald das Ticken klar ist. Danach kurz das Ergebnis, dann zurück zur Auswahl. */
+  var RESULT_SECONDS = 3;
   function lagenOpen(watchId) {
     if (rec || busy || !requirePro('lagen')) return;
-    if (!session || session.watchId !== (watchId || '')) newSession(watchId || '');
+    watchId = watchId || '';
+    if (!session || session.watchId !== watchId || lagenStats(SETS[session.set], sessByPos()).done) newSession(watchId);
     go('lagen');
   }
   function newSession(watchId) {
@@ -882,11 +894,12 @@
     saveSession();
   }
   function sessMeas() { return session ? meas.filter(function (m) { return m.sess === session.id; }) : []; }
-  function sessByPos() {
+  function byPosOf(list) {
     var out = Object.create(null);
-    sessMeas().forEach(function (m) { var o = out[m.pos]; if (!o || counted(m) || !counted(o)) out[m.pos] = m; });
+    list.forEach(function (m) { var o = out[m.pos]; if (!o || counted(m) || !counted(o)) out[m.pos] = m; });
     return out;
   }
+  function sessByPos() { return byPosOf(sessMeas()); }
   function lagenStats(set, byPos) {
     var rows = set.map(function (p) { return { pos: p, m: byPos[p] || null }; });
     var ok = rows.filter(function (r) { return r.m && counted(r.m); });
@@ -905,6 +918,10 @@
     }
     if (h.length && v.length) st.hv = avg(v.map(rate)) - avg(h.map(rate));
     return st;
+  }
+  /* Nächste Lage: zuerst eine offene, sonst eine schwache zum Wiederholen */
+  function nextPos(set, byPos) {
+    return set.filter(function (p) { return !byPos[p]; })[0] || set.filter(function (p) { return byPos[p] && !counted(byPos[p]); })[0] || null;
   }
   function lagenVerdict(st) {
     if (st.n < 2) return 'Zu wenige sichere Lagen für eine Aussage. Die schwachen Lagen nochmals messen.';
@@ -930,52 +947,54 @@
     return '<g transform="translate(55 ' + cy + ') rotate(' + rot + ')">' + g + '</g>' +
       '<path d="M12 ' + (cy + ext + 2) + 'H98" class="pi-ground"/>';
   }
+  /* Kurzer Text mit Amplitude und Abfallfehler einer Messung (nur wenn die Werte gezeigt werden dürfen) */
+  function ampBe(m) {
+    var a = [];
+    if (showsPro(m)) {
+      if (m.ampOk && m.amp) a.push(m.amp + '°');
+      if (m.beOk && m.be != null) a.push(fmt(m.be, 2) + ' ms');
+    }
+    return a;
+  }
   function lagenWatch() { return session ? findWatch(session.watchId) : null; }
   function renderLagen() {
     if (!session) { newSession(settings.watchId); }
-    var w = lagenWatch(), set = SETS[session.set], byPos = sessByPos(), st = lagenStats(set, byPos), recording = !!(rec && rec.owner === 'lagen');
-    var idx = set.indexOf(session.cur);
-    if (idx < 0) { session.cur = set[0]; idx = 0; saveSession(); }
-    var finished = st.done && !recording;
+    var w = lagenWatch(), set = SETS[session.set], byPos = sessByPos(), st = lagenStats(set, byPos);
+    var next = nextPos(set, byPos), finished = st.done;
+    if (next && session.cur !== next) { session.cur = next; saveSession(); }
+    var measured = st.rows.filter(function (r) { return !!r.m; }).length;
     $('lBackLabel').textContent = stack.length > 1 && stack[stack.length - 2].s === 'watch' ? (w ? w.name : 'Zurück') : 'Messen';
-    $('lStep').textContent = finished ? 'Fertig · ' + set.length + ' Lagen' : 'Lage ' + (idx + 1) + ' von ' + set.length;
+    $('lStep').textContent = finished ? 'Fertig · ' + set.length + ' Lagen' : measured + ' von ' + set.length + ' gemessen';
     var mins = Math.max(1, Math.round(set.length * (settings.dur + (settings.autoStart ? 8 : SETTLE) + 15) / 60));
-    $('lLead').textContent = finished ? 'Alle Lagen gemessen. Eine Lage lässt sich mit Tippen auf ihre Kachel wiederholen.' :
-      set.length + ' Lagen nacheinander, je ' + settings.dur + ' s. ' + (settings.autoStart ? 'Jede Messung startet von selbst, sobald das Ticken klar ist.' :
-      'Vor jeder Messung wartet Tickwerk ' + SETTLE + ' s, bis die Uhr ruhig liegt.') + ' Etwa ' + mins + ' Minuten.';
+    $('lLead').textContent = finished ? 'Alle Lagen gemessen. Eine Lage antippen, um ihr Ergebnis zu sehen oder sie nochmals zu messen.' :
+      'Lage antippen. Tickwerk zeigt, wie die Uhr liegt, und ' + (settings.autoStart ? 'misst von selbst, sobald das Ticken klar ist.' : 'misst nach «Messen».') +
+      ' Je ' + settings.dur + ' s, zusammen etwa ' + mins + ' Minuten.';
     Array.prototype.forEach.call($('lSet').children, function (b) {
-      b.setAttribute('aria-checked', String(+b.dataset.set === session.set)); b.disabled = recording;
+      b.setAttribute('aria-checked', String(+b.dataset.set === session.set)); b.disabled = !!rec;
     });
     var prog = $('lProgress'); prog.innerHTML = ''; prog.style.setProperty('--n', String(set.length));
     set.forEach(function (p) {
       var i = document.createElement('i'), m = byPos[p];
-      if (m) i.className = counted(m) ? 'done' : 'weak'; else if (p === session.cur) i.className = 'cur';
+      if (m) i.className = counted(m) ? 'done' : 'weak'; else if (p === next) i.className = 'cur';
       prog.appendChild(i);
     });
-    $('lNow').hidden = finished;
-    if (!finished) {
-      $('lIcon').innerHTML = posIcon(session.cur);
-      $('lIcon').setAttribute('aria-label', POS[session.cur]);
-      $('lNowLabel').textContent = byPos[session.cur] ? 'Jetzt · nochmals' : 'Jetzt';
-      $('lNowName').textContent = POS[session.cur];
-      $('lNowHint').textContent = POS_HINT[session.cur];
-      if (!recording) $('lNowTime').textContent = settings.dur + ' s Messung';
-    }
     var tl = $('lTiles'); tl.innerHTML = '';
     set.forEach(function (p) {
       var m = byPos[p], b = document.createElement('button'), cls = ['ltile'];
       b.type = 'button'; b.dataset.pos = p;
-      if (p === session.cur && !finished) cls.push('cur');
-      if (!m) cls.push('open'); else if (!counted(m)) cls.push('weak');
+      if (!m) cls.push(p === next ? 'next' : 'open'); else cls.push(counted(m) ? 'done' : 'weak');
       b.className = cls.join(' ');
-      var sub = !m ? (p === session.cur && !finished ? 'als Nächstes' : 'offen') : !counted(m) ? 'schwach · nochmals' :
-        '± ' + fmt(m.sigma, 2) + (showsPro(m) && m.ampOk && m.amp ? ' · ' + m.amp + '°' : '');
-      b.innerHTML = '<span class="lt-h">' + esc(POS[p]) + ' <b>' + p + '</b></span><span class="lt-v" id="lt-' + p + '">' + (m ? esc(signed(m.rate, 1)) : '–') + '</span><span class="lt-s">' + esc(sub) + '</span>';
-      b.disabled = recording;
-      b.addEventListener('click', function () { if (rec) return; session.cur = p; saveSession(); renderLagen(); });
+      var sub = !m ? (p === next ? 'als Nächstes' : 'offen') : !counted(m) ? 'Signal schwach · nochmals' :
+        (ampBe(m).join(' · ') || '± ' + fmt(m.sigma, 2) + ' s/Tag');
+      b.innerHTML = '<svg class="pos-icon lt-icon" viewBox="0 0 110 110" aria-hidden="true">' + posIcon(p) + '</svg>' +
+        '<span class="lt-txt"><span class="lt-h">' + esc(POS[p]) + '</span>' +
+        '<span class="lt-v">' + (m ? esc(signed(m.rate, 1)) + '<small> s/Tag</small>' : '–') + '</span>' +
+        '<span class="lt-s">' + esc(sub) + '</span></span>' + (m && counted(m) ? ICON.check : '');
+      b.setAttribute('aria-label', POS[p] + ': ' + (m ? signed(m.rate, 1) + ' Sekunden pro Tag' : sub));
+      b.addEventListener('click', function () { if (rec || busy) return; go('lpos', { pos: p }); });
       tl.appendChild(b);
     });
-    $('lDiff').parentNode.hidden = finished;
+    $('lDiffCard').hidden = finished;
     $('lDiff').textContent = st.spread == null ? '–' : fmt(st.spread, 1) + ' s';
     $('lDiffSub').textContent = st.spread == null ? 'noch zu wenige Lagen' : 'zwischen ' + POS[st.hi.pos] + ' und ' + POS[st.lo.pos];
     $('lResult').hidden = !finished;
@@ -988,89 +1007,20 @@
       $('lgVerdict').textContent = lagenVerdict(st);
       drawLagenChart(st);
     }
-    $('lStart').hidden = finished;
-    if (!recording) { $('lStartLabel').textContent = byPos[session.cur] ? 'Diese Lage nochmals messen' : 'Messen'; bar($('lProg'), 0); }
+    $('lNext').hidden = !next;
+    if (next) $('lNextLabel').textContent = (byPos[next] ? 'Nochmals messen: ' : 'Messen: ') + POS[next];
     $('lCancel').textContent = finished ? 'Neuer Lagen-Test' : 'Abbrechen';
-    $('lCancel').disabled = recording;
   }
-  function lagenMeasure() {
-    if (rec) { recStop(true); return; }
-    if (busy || opening || !session) return;
-    var w = lagenWatch(), pos = session.cur, sess = session.id;
-    recStart({
-      owner: 'lagen', dur: settings.dur, search: settings.autoStart, settle: settings.autoStart ? 0 : SETTLE, opts: watchOpts(w),
-      onOpening: function () { $('lStart').disabled = true; setStatus('lStatus', 'Mikrofon wird geöffnet …', 'busy'); },
-      onFail: function (msg) { $('lStart').disabled = false; setStatus('lStatus', msg, 'err'); },
-      onBegin: function (r) {
-        $('lStart').disabled = false; $('lStart').classList.add('running'); renderLagen();
-        if (r.phase !== 'search') { setStatus('lStatus', 'Hände weg: Die Uhr soll ruhig liegen.', 'busy'); return; }
-        $('lSearch').hidden = false; $('lStartLabel').textContent = 'Abbrechen'; $('lNowTime').textContent = 'Hört zu …';
-        setStatus('lStatus', 'Uhr in die Lage bringen, Handy an die Krone halten. Sobald das Ticken klar ist, startet die Messung von selbst.', 'busy');
-      },
-      onSearch: function (res, good, t) {
-        var heard = heardOf(res);
-        $('lNowTime').textContent = good ? 'Signal gut · gleich geht es los' : heard ? 'Signal schwach · Handy etwas verschieben' : 'Sucht das Ticken …';
-        setStatus('lStatus', good ? 'Signal gut. Ruhig halten.' : heard ? 'Ticken erkannt, aber noch schwach.' :
-          t > 20 ? 'Noch kein klares Ticken. Uhr aufgezogen, Raum ruhig? Sonst «Jetzt messen» tippen.' : 'Suche das Ticken …', good ? 'ok' : 'busy');
-      },
-      onMeasureStart: function () { $('lSearch').hidden = true; setStatus('lStatus', 'Messung läuft. Nichts bewegen.', 'busy'); },
-      onQuartz: function () {
-        $('lStart').classList.remove('running'); $('lSearch').hidden = true;
-        setStatus('lStatus', 'Das klingt nach einer Quarzuhr (ein Schritt pro Sekunde). Den Lagen-Test gibt es nur für mechanische Uhren.', 'err');
-        if (topScreen() === 'lagen') renderLagen();
-      },
-      onTimeout: function () {
-        $('lStart').classList.remove('running'); $('lSearch').hidden = true;
-        setStatus('lStatus', 'Zwei Minuten lang kein klares Ticken. Uhr aufziehen, Handy direkt an die Krone halten und nochmals versuchen.', 'err');
-        if (topScreen() === 'lagen') renderLagen();
-      },
-      onSettle: function (left) { $('lNowTime').textContent = 'Hände weg · Ruhe ' + left + ' s'; $('lStartLabel').textContent = 'Abbrechen'; },
-      onTick: function (left, frac) {
-        $('lNowTime').textContent = 'Misst · noch ' + left + ' s';
-        $('lStartLabel').textContent = 'Abbrechen · ' + left + ' s';
-        bar($('lProg'), frac);
-      },
-      onLive: function (res) {
-        var el = $('lt-' + pos);
-        if (heardOf(res)) {
-          if (el) el.textContent = signed(res.rate, 1);
-          setStatus('lStatus', 'Ticken erkannt · ' + thousands(res.bph) + ' A/h · vorläufig ' + signed(res.rate, 1) + ' s/Tag', 'ok');
-        } else setStatus('lStatus', 'Noch kein klares Ticken. Mikrofon näher an die Krone, ohne die Uhr zu bewegen.', 'err');
-      },
-      onCancel: function () { $('lStart').classList.remove('running'); $('lSearch').hidden = true; setStatus('lStatus', 'Abgebrochen. Diese Lage nochmals messen.', ''); if (topScreen() === 'lagen') renderLagen(); },
-      onDone: function (samples, fs) {
-        $('lStart').classList.remove('running'); $('lSearch').hidden = true; busy = true; $('lStart').disabled = true;
-        $('lStartLabel').textContent = 'Rechnet …'; bar($('lProg'), 0); $('lNowTime').textContent = 'Rechnet …';
-        runJob({ samples: samples, fs: fs, opts: watchOpts(w) }).then(function (res) {
-          busy = false; $('lStart').disabled = false;
-          if (!session || session.id !== sess) return;
-          if (!res || !res.ok) {
-            setStatus('lStatus', ((res && res.reason) || 'Keine Messung möglich.') + ' Diese Lage nochmals messen.', 'err');
-            if (topScreen() === 'lagen') renderLagen();
-            return;
-          }
-          var m = saveMeasurement(res, 'Mikrofon', fs, { watch: w, pos: pos, sess: sess });
-          var set = SETS[session.set], byPos = sessByPos();
-          if (counted(m)) {
-            var nextOpen = set.filter(function (p) { return !byPos[p]; })[0];
-            var nextWeak = set.filter(function (p) { return byPos[p] && !counted(byPos[p]); })[0];
-            session.cur = nextOpen || nextWeak || pos; saveSession();
-            setStatus('lStatus', POS[pos] + ': ' + signed(m.rate, 1) + ' s/Tag. ' + (nextOpen ? 'Jetzt die Uhr in die nächste Lage bringen.' : nextWeak ? 'Noch die schwache Lage wiederholen.' : 'Alle Lagen gemessen.'), 'ok');
-          } else {
-            setStatus('lStatus', POS[pos] + ': Signal schwach (± ' + fmt(m.sigma, 2) + ' s/Tag). Nochmals messen oder eine andere Lage antippen.', 'err');
-          }
-          if (topScreen() === 'lagen') renderLagen();
-        });
-      }
-    });
-  }
-  $('lStart').addEventListener('click', lagenMeasure);
-  $('lForce').addEventListener('click', recForceStart);
+  $('lNext').addEventListener('click', function () {
+    if (rec || busy || !session) return;
+    var p = nextPos(SETS[session.set], sessByPos());
+    if (p) go('lpos', { pos: p });
+  });
   $('lBack').addEventListener('click', back);
   $('lCancel').addEventListener('click', function () {
     if (rec || !session) return;
     var st = lagenStats(SETS[session.set], sessByPos());
-    if (st.done) { newSession(session.watchId); setStatus('lStatus', '', ''); renderLagen(); return; }
+    if (st.done) { newSession(session.watchId); setStatus('lStatus', '', ''); renderLagen(); window.scrollTo(0, 0); return; }
     if (sessMeas().length && !window.confirm('Lagen-Test abbrechen? Die bisherigen Messungen bleiben im Verlauf.')) return;
     session = null; saveSession(); setStatus('lStatus', '', '');
     back();
@@ -1090,6 +1040,173 @@
     var list = sessMeas().filter(function (m) { return set.indexOf(m.pos) >= 0; });
     makeReport(w, $('lgPdfBar'), { list: list, kind: 'lagen', subtitle: 'Lagen-Test in ' + set.length + ' Lagen vom ' + dLong(new Date(session.started)) });
   });
+
+  /* ---------- Eine Lage messen ---------- */
+  var lpTimer = 0;
+  function lpStop() { clearInterval(lpTimer); lpTimer = 0; }
+  function setPSignal(level) { $('pSignal').setAttribute('data-level', String(level)); $('pSignalText').textContent = LEVEL_TEXT[level]; }
+  function lpReady(p) {
+    lpStop();
+    $('pState').textContent = 'Bereit';
+    $('pRate').textContent = '–'; $('pRate').classList.remove('live'); $('pSub').textContent = '';
+    $('pMetrics').hidden = true; setPSignal(0); bar($('pLevel'), 0); bar($('pProg'), 0);
+    $('pSearch').hidden = true; $('pAlt').hidden = true;
+    $('pStart').classList.remove('running'); $('pStart').disabled = false;
+    $('pStartLabel').textContent = 'Messen';
+    drawTape($('pTape'), null, settings.autoStart ? 'Tickwerk hört gleich zu …' : '«Messen» tippen, wenn die Uhr liegt.');
+    setStatus('pStatus', settings.autoStart ? '' : 'Uhr so hinlegen, Handy-Unterkante an die Krone halten, dann «Messen» tippen.', '');
+  }
+  function renderLpos(p) {
+    var set = session ? SETS[session.set] : null;
+    if (!set || set.indexOf(p.pos) < 0) { setTimeout(function () { popTo('lagen'); }, 0); return; }
+    $('pStep').textContent = 'Lage ' + (set.indexOf(p.pos) + 1) + ' von ' + set.length;
+    $('pIcon').innerHTML = posIcon(p.pos); $('pIcon').setAttribute('aria-label', POS[p.pos]);
+    $('pName').textContent = POS[p.pos]; $('pHint').textContent = POS_HINT[p.pos];
+    if (p.init) { if (p.res) drawTape($('pTape'), p.res.trace); return; }
+    p.init = true;
+    var m = sessByPos()[p.pos];
+    if (m) { lpShowResult(p, m, null, false); return; }   /* schon gemessen: Ergebnis zeigen, nochmals auf Wunsch */
+    lpReady(p);
+    if (settings.autoStart) lpStart();
+  }
+  function lpStart() {
+    var t = top();
+    if (t.s !== 'lpos') return;
+    if (rec) { recStop(true); return; }
+    if (busy || opening || !session) return;
+    var p = t.p, pos = p.pos, sess = session.id, setN = session.set, w = lagenWatch();
+    lpReady(p); p.res = null;
+    recStart({
+      owner: 'lpos', dur: settings.dur, search: settings.autoStart, settle: settings.autoStart ? 0 : SETTLE, opts: watchOpts(w),
+      onOpening: function () { $('pStart').disabled = true; setStatus('pStatus', 'Mikrofon wird geöffnet …', 'busy'); },
+      onFail: function (msg) { $('pStart').disabled = false; setStatus('pStatus', msg, 'err'); },
+      onBegin: function (r) {
+        $('pStart').disabled = false; $('pStart').classList.add('running'); $('pStartLabel').textContent = 'Abbrechen';
+        if (r.phase !== 'search') { $('pState').textContent = 'Ruhe'; setStatus('pStatus', 'Hände weg: Die Uhr soll ruhig liegen.', 'busy'); return; }
+        $('pState').textContent = 'Sucht das Signal'; $('pSearch').hidden = false;
+        drawTape($('pTape'), null, 'Tickwerk hört zu …');
+        setStatus('pStatus', 'Uhr so hinlegen und die Handy-Unterkante an die Krone halten. Sobald das Ticken klar ist, startet die Messung von selbst.', 'busy');
+      },
+      onSearchTick: function (tt, r) { bar($('pLevel'), (20 * Math.log10(r.peak + 1e-9) + 80) / 60); },
+      onSearch: function (res, good, tt) {
+        var heard = heardOf(res);
+        setPSignal(heard ? qLevel(res.quality) : 0);
+        if (heard) { drawTape($('pTape'), res.trace); $('pSub').textContent = thousands(res.bph) + ' A/h erkannt'; }
+        if (good) setStatus('pStatus', 'Signal gut. Ruhig halten, die Messung startet gleich.', 'ok');
+        else if (heard) setStatus('pStatus', 'Ticken erkannt, aber noch schwach. Das Handy etwas verschieben oder fester an die Krone halten.', 'busy');
+        else setStatus('pStatus', tt > 20 ? 'Noch kein klares Ticken. Ist die Uhr aufgezogen und der Raum ruhig? Sonst «Jetzt messen» tippen.' :
+          'Suche das Ticken … Handy-Unterkante an die Krone halten.', 'busy');
+      },
+      onMeasureStart: function () {
+        $('pSearch').hidden = true; $('pState').textContent = 'Misst';
+        setStatus('pStatus', 'Messung läuft. Nichts bewegen.', 'busy');
+      },
+      onQuartz: function () {
+        lpReady(p);
+        setStatus('pStatus', 'Das klingt nach einer Quarzuhr (ein Schritt pro Sekunde). Den Lagen-Test gibt es nur für mechanische Uhren.', 'err');
+      },
+      onTimeout: function () {
+        lpReady(p);
+        setStatus('pStatus', 'Zwei Minuten lang kein klares Ticken. Uhr aufziehen, Handy-Unterkante direkt an die Krone halten und nochmals versuchen.', 'err');
+      },
+      onSettle: function (left) { if (!settings.autoStart) $('pState').textContent = 'Ruhe · ' + left + ' s'; },
+      onTick: function (left, frac, r) {
+        $('pState').textContent = 'Misst · noch ' + left + ' s';
+        $('pStartLabel').textContent = 'Abbrechen · ' + left + ' s';
+        bar($('pProg'), frac);
+        bar($('pLevel'), (20 * Math.log10(r.peak + 1e-9) + 80) / 60);
+      },
+      onLive: function (res) {
+        if (heardOf(res)) {
+          $('pRate').textContent = signed(res.rate, 1); $('pRate').classList.add('live');
+          $('pSub').textContent = 'vorläufig · ' + thousands(res.bph) + ' A/h';
+          setPSignal(qLevel(res.quality)); drawTape($('pTape'), res.trace);
+          setStatus('pStatus', 'Ticken erkannt. Nichts bewegen, bis die Zeit um ist.', 'ok');
+        } else {
+          setPSignal(0);
+          setStatus('pStatus', 'Noch kein klares Ticken. Handy-Unterkante näher an die Krone, ohne die Uhr zu bewegen.', 'err');
+        }
+      },
+      onCancel: function () { lpReady(p); setStatus('pStatus', 'Abgebrochen.', ''); },
+      onDone: function (samples, fs) {
+        busy = true;
+        $('pStart').classList.remove('running'); $('pStart').disabled = true; $('pSearch').hidden = true;
+        $('pStartLabel').textContent = 'Rechnet …'; $('pState').textContent = 'Rechnet'; bar($('pProg'), 0); bar($('pLevel'), 0);
+        setStatus('pStatus', 'Rechne …', 'busy');
+        runJob({ samples: samples, fs: fs, opts: watchOpts(w) }).then(function (res) {
+          busy = false; $('pStart').disabled = false;
+          var here = top().s === 'lpos' && top().p === p;
+          if (!session || session.id !== sess) { if (here) lpReady(p); return; }
+          if (!res || !res.ok) {
+            if (here) { lpReady(p); $('pStartLabel').textContent = 'Nochmals messen'; setStatus('pStatus', ((res && res.reason) || 'Keine Messung möglich.') + ' Nochmals messen.', 'err'); }
+            return;
+          }
+          var m = saveMeasurement(res, 'Mikrofon', fs, { watch: w, pos: pos, sess: sess, lset: setN });
+          try { if (navigator.vibrate) navigator.vibrate([60, 90, 60]); } catch (e) { /* egal */ }
+          if (here) lpShowResult(p, m, res, true);
+        });
+      }
+    });
+  }
+  /* Ergebnis einer Lage. fresh: eben gemessen → nach RESULT_SECONDS von selbst zurück zur Auswahl (wenn es zählt) */
+  function lpShowResult(p, m, res, fresh) {
+    lpStop(); p.res = res;
+    var ok = counted(m), extra = ampBe(m);
+    $('pState').textContent = fresh ? 'Ergebnis' : 'Gemessen · ' + dateStr(m.date);
+    $('pRate').textContent = signed(m.rate, 1); $('pRate').classList.remove('live');
+    $('pSub').textContent = '± ' + fmt(m.sigma, 2) + ' s/Tag · ' + Math.round(m.dur) + ' s · ' + thousands(m.bph) + ' A/h';
+    setPSignal(ok ? (m.q === 'stark' ? 4 : 3) : 1);
+    var pro = showsPro(m);
+    $('pMetrics').hidden = false;
+    $('pAmp').textContent = !pro ? 'Pro' : m.ampOk && m.amp ? m.amp + '°' : '–';
+    $('pAmpNote').textContent = pro && m.lift ? 'bei ' + deg(m.lift) : '';
+    $('pBe').textContent = !pro ? 'Pro' : m.beOk ? fmt(m.be, 2) : '–';
+    $('pSearch').hidden = true; bar($('pProg'), 0); bar($('pLevel'), 0);
+    $('pStart').classList.remove('running'); $('pStart').disabled = false;
+    if (res) drawTape($('pTape'), res.trace); else drawTape($('pTape'), m.tr ? traceOf(m.tr) : null, 'Gemessen am ' + dateStr(m.date));
+    $('pAlt').hidden = false;
+    if (!ok) {
+      $('pStartLabel').textContent = 'Nochmals messen'; $('pAlt').textContent = 'Zur Auswahl';
+      setStatus('pStatus', 'Signal schwach (± ' + fmt(m.sigma, 2) + ' s/Tag): Diese Lage zählt nicht. Nochmals messen, Handy fester an die Krone.', 'err');
+      return;
+    }
+    if (!fresh) {
+      $('pStartLabel').textContent = 'Nochmals messen'; $('pAlt').textContent = 'Zur Auswahl';
+      setStatus('pStatus', POS[p.pos] + ': ' + signed(m.rate, 1) + ' s/Tag' + (extra.length ? ' · ' + extra.join(' · ') : '') + '.', 'ok');
+      return;
+    }
+    $('pAlt').textContent = 'Nochmals messen';
+    var left = RESULT_SECONDS;
+    var label = function () { $('pStartLabel').textContent = 'Weiter · ' + left; };
+    label();
+    setStatus('pStatus', POS[p.pos] + ' gemessen. Gleich geht es zurück zur Auswahl.', 'ok');
+    lpTimer = setInterval(function () {
+      if (top().s !== 'lpos' || top().p !== p) { lpStop(); return; }
+      left--;
+      if (left <= 0) { lpStop(); back(); return; }
+      label();
+    }, 1000);
+  }
+  /* Gespeicherter (gekürzter) Papierstreifen zurück in die Form für drawTape */
+  function traceOf(tr) {
+    var out = [];
+    for (var i = 0; i < tr.t.length; i++) out.push({ t: tr.t[i], devMs: tr.d[i], parity: tr.p.charAt(i) === '1' ? 1 : 0 });
+    return out;
+  }
+  $('pStart').addEventListener('click', function () {
+    var t = top(); if (t.s !== 'lpos') return;
+    if (lpTimer) { lpStop(); back(); return; }             /* «Weiter» */
+    if (rec) { recStop(true); return; }                    /* «Abbrechen» */
+    if (busy) return;
+    lpStart();                                             /* «Messen» / «Nochmals messen» */
+  });
+  $('pAlt').addEventListener('click', function () {
+    var t = top(); if (t.s !== 'lpos' || rec || busy) return;
+    if (lpTimer) { lpStop(); lpStart(); return; }          /* «Nochmals messen» während der Rückkehr */
+    if ($('pAlt').textContent === 'Zur Auswahl') { back(); return; }
+    lpStart();
+  });
+  $('pForce').addEventListener('click', recForceStart);
 
   /* ---------- Meine Uhren ---------- */
   function watchStatus(w, list) {
@@ -1143,6 +1260,7 @@
 
   /* ---------- Uhr mit Verlauf ---------- */
   var ICON = {
+    check: '<svg class="lt-check" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
     good: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/></svg>',
     warn: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9.5 17h-19z"/><path d="M12 10v4"/><path d="M12 17.5h.01"/></svg>',
     neutral: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg>'
@@ -1216,6 +1334,7 @@
       var li = document.createElement('li'), full = showsPro(m);
       var extra = [POS[m.pos], counted(m) ? 'Signal ' + m.q : 'nicht gewertet'];
       if (full && m.amp) extra.push(m.amp + '°');
+      if (full && m.beOk && m.be != null) extra.push(fmt(m.be, 2) + ' ms');
       if (m.sess) extra.push('Lagen-Test');
       li.innerHTML = '<span class="r-l">' + esc(dateStr(m.date)) + '<small>' + esc(extra.join(' · ')) + '</small></span>' +
         '<span class="r-r' + (counted(m) ? '' : ' dim') + '">' + esc(signed(m.rate, 1) + ' s/Tag') + '</span>';
@@ -1227,7 +1346,50 @@
     $('dMore').textContent = isPro() ? 'Alle ' + list.length + ' Messungen unter Mehr → Alle Messungen.' : more + ' ältere ' + (more === 1 ? 'Messung ist' : 'Messungen sind') + ' gespeichert. Den ganzen Verlauf zeigt Tickwerk Pro.';
     $('dPdf').disabled = !list.length; $('dShare').disabled = !list.length;
     $('dPdfBar').hidden = true;
+    renderLagenCard(w, list);
   }
+  /* Letzter Lagen-Test dieser Uhr: aus den Messungen mit derselben Sitzung */
+  function lastLagenOf(list) {
+    var sid = '';
+    for (var i = list.length - 1; i >= 0; i--) if (list[i].sess) { sid = list[i].sess; break; }
+    if (!sid) return null;
+    var ms = list.filter(function (m) { return m.sess === sid; }), n;
+    if (session && session.id === sid) n = session.set;
+    else n = ms.some(function (m) { return m.lset === 6 || m.pos === 'KO' || m.pos === 'KR'; }) ? 6 : ms.some(function (m) { return m.lset === 4; }) ? 4 : (ms.length > 4 ? 6 : 4);
+    var set = SETS[n];
+    ms = ms.filter(function (m) { return set.indexOf(m.pos) >= 0; });
+    return { id: sid, set: set, list: ms, byPos: byPosOf(ms), started: ms.length ? ms[0].date : '' };
+  }
+  function renderLagenCard(w, list) {
+    var L = lastLagenOf(list), card = $('dLagenCard');
+    card.hidden = !L;
+    if (!L) return;
+    var st = lagenStats(L.set, L.byPos), pro = isPro(), current = session && session.id === L.id;
+    $('dlDate').textContent = dateStr(L.started) + ' · ' + L.set.length + ' Lagen';
+    $('dlMean').textContent = st.mean == null ? '–' : signed(st.mean, 1);
+    $('dlSpread').textContent = st.spread == null ? '–' : fmt(st.spread, 1);
+    $('dlBe').textContent = !pro ? 'Pro' : st.be == null ? '–' : fmt(st.be, 2);
+    $('dlAmp').textContent = !pro ? 'Pro' : st.ampH == null && st.ampV == null ? '–' : (st.ampH != null ? Math.round(st.ampH) + '°' : '–') + ' / ' + (st.ampV != null ? Math.round(st.ampV) + '°' : '–');
+    var ul = $('dlRows'); ul.innerHTML = '';
+    st.rows.forEach(function (r) {
+      var li = document.createElement('li'), m = r.m;
+      var sub = !m ? 'nicht gemessen' : !counted(m) ? 'Signal schwach, zählt nicht' : (ampBe(m).join(' · ') || 'Signal ' + m.q);
+      li.innerHTML = '<span class="r-l">' + esc(POS[r.pos]) + '<small>' + esc(sub) + '</small></span>' +
+        '<span class="r-r' + (m && counted(m) ? '' : ' dim') + '">' + (m ? esc(signed(m.rate, 1) + ' s/Tag') : '–') + '</span>';
+      ul.appendChild(li);
+    });
+    $('dlNote').hidden = st.done;
+    $('dlNote').textContent = st.done ? '' : (current ? 'Noch nicht fertig: ' : 'Nicht fertig gemessen: ') + plural(st.rows.filter(function (r) { return !r.m; }).length, 'Lage fehlt', 'Lagen fehlen') + '.';
+    $('dlOpen').hidden = !(current && !st.done);
+    $('dlPdf').disabled = !st.n;
+    $('dlPdfBar').hidden = true;
+  }
+  $('dlPdf').addEventListener('click', function () {
+    var w = detailWatch(); if (!w) return;
+    var L = lastLagenOf(measOf(w)); if (!L) return;
+    makeReport(w, $('dlPdfBar'), { list: L.list, kind: 'lagen', subtitle: 'Lagen-Test in ' + L.set.length + ' Lagen vom ' + dLong(new Date(L.started)) });
+  });
+  $('dlOpen').addEventListener('click', function () { var w = detailWatch(); if (w && session && session.watchId === w.id) lagenOpen(w.id); });
   function detailWatch() { var t = top(); return t.s === 'watch' ? findWatch(t.p.id) : null; }
   $('dPdf').addEventListener('click', function () { var w = detailWatch(); if (w) makeReport(w, $('dPdfBar'), {}); });
   $('dShare').addEventListener('click', function () { var w = detailWatch(); if (w) makeReport(w, $('dPdfBar'), { share: true }); });
@@ -1238,19 +1400,6 @@
   /* ---------- Uhr hinzufügen und bearbeiten ---------- */
   var nameAuto = false;
   function byName(a, b) { return a.localeCompare(b, 'de', { numeric: true, sensitivity: 'base' }); }
-  (function fillCalSelect() {
-    var sel = $('wCal');
-    var o = document.createElement('option'); o.value = ''; o.textContent = 'Unbekannt oder eigene Angaben'; sel.appendChild(o);
-    var groups = Object.create(null);
-    KAL.forEach(function (k) { var g = k.hersteller || k.name.split(' ')[0]; (groups[g] = groups[g] || []).push(k); });
-    Object.keys(groups).sort(byName).forEach(function (g) {
-      var og = document.createElement('optgroup'); og.label = g;
-      groups[g].sort(function (a, b) { return byName(a.name, b.name); }).forEach(function (k) {
-        var x = document.createElement('option'); x.value = k.id; x.textContent = k.name; og.appendChild(x);
-      });
-      sel.appendChild(og);
-    });
-  })();
   function calInfo(k) {
     if (!k) return '';
     if (k.messbar === false) return k.notiz || 'Dieses Werk lässt sich nicht messen.';
@@ -1265,7 +1414,6 @@
     $('wLift').value = k.hebewinkel != null ? k.hebewinkel : 52;
     $('wBph').value = k.bph ? String(k.bph) : '';
   }
-  $('wCal').addEventListener('change', function () { applyCal(kalById(this.value)); });
   $('wName').addEventListener('input', function () { nameAuto = false; });
 
   /* Modellsuche: Marke, Modell, Spitzname oder Werk */
@@ -1338,7 +1486,7 @@
   }
   function modelName(u) { return fullName(u).replace(/\s*\([^)]*\)\s*$/, '').trim().slice(0, 60); }
   function pick(e) {
-    $('wCal').value = e.k ? e.k.id : '';
+    setCal(e.k);
     applyCal(e.k);
     if (e.kind === 'uhr') {
       if (!$('wName').value.trim() || nameAuto) { $('wName').value = modelName(e.u); nameAuto = true; }
@@ -1369,13 +1517,98 @@
   $('wFind').addEventListener('blur', function () { clearTimeout(hideTimer); hideTimer = setTimeout(hideSuggest, 150); });
   $('wFind').addEventListener('focus', function () { clearTimeout(hideTimer); });
 
+  /* Werk (Kaliber): Suchfeld mit Vorschlägen wie bei den Modellen. Leer angetippt: alle Werke nach Hersteller. */
+  var calSel = null, calFound = [], calIdx = -1, calTimer = 0;
+  var CAL_INDEX = KAL.map(function (k, i) {
+    var p = ' ' + norm(k.name + ' ' + (k.auch || []).join(' ') + ' ' + (k.hersteller || ''));
+    return { k: k, p: p, pc: p.replace(/ /g, ''), m: ' ' + norm(k.name.split('(')[0]) + ' ', order: i };
+  });
+  function searchCal(q) {
+    var toks = norm(q).split(' ').filter(Boolean), hits = [];
+    if (!toks.length) return [];
+    CAL_INDEX.forEach(function (e) {
+      var score = 0;
+      for (var i = 0; i < toks.length; i++) {
+        var t = toks[i];
+        if (e.p.indexOf(' ' + t) >= 0) score += 3;
+        else if (e.p.indexOf(t) >= 0 || e.pc.indexOf(t) >= 0) score += 2;
+        else return;
+        if (e.m.indexOf(' ' + t) >= 0) score += 1;
+      }
+      hits.push({ e: e, score: score });
+    });
+    hits.sort(function (a, b) { return b.score - a.score || byName(a.e.k.name, b.e.k.name); });
+    return hits.slice(0, 12).map(function (h) { return h.e.k; });
+  }
+  function setCal(k) {
+    calSel = k || null;
+    $('wCal').value = k ? k.id : '';
+    $('wCalFind').value = k ? k.name : '';
+    $('wCalClear').hidden = !k;
+  }
+  function hideCalList() { $('wCalList').hidden = true; $('wCalFind').setAttribute('aria-expanded', 'false'); calFound = []; calIdx = -1; }
+  function calItem(k, i) {
+    var li = document.createElement('li'); li.setAttribute('role', 'option'); li.id = 'wCal-' + i;
+    li.innerHTML = k ? '<span class="t">' + esc(k.name) + '</span><span class="s">' + esc(calShort(k)) + '</span>' :
+      '<span class="t">Unbekannt oder eigene Angaben</span><span class="s">Hebewinkel 52°, Schlagzahl erkennt Tickwerk selbst</span>';
+    if (k && calSel && k.id === calSel.id) li.classList.add('picked');
+    li.addEventListener('pointerdown', function (ev) { ev.preventDefault(); });
+    li.addEventListener('click', function () { pickCal(k); });
+    return li;
+  }
+  function showCalList(q) {
+    var ul = $('wCalList'); ul.innerHTML = ''; calFound = []; calIdx = -1;
+    var typed = norm(q) && !(calSel && q === calSel.name);
+    if (typed) {
+      calFound = searchCal(q);
+      if (!calFound.length) ul.innerHTML = '<li class="none">Kein Werk gefunden. Leer lassen und Hebewinkel unten selbst eintragen.</li>';
+      calFound.forEach(function (k, i) { ul.appendChild(calItem(k, i)); });
+    } else {
+      calFound = [null];
+      ul.appendChild(calItem(null, 0));
+      var groups = Object.create(null);
+      KAL.forEach(function (k) { var g = k.hersteller || k.name.split(' ')[0]; (groups[g] = groups[g] || []).push(k); });
+      Object.keys(groups).sort(byName).forEach(function (g) {
+        var h = document.createElement('li'); h.className = 'group'; h.setAttribute('role', 'presentation'); h.textContent = g; ul.appendChild(h);
+        groups[g].sort(function (a, b) { return byName(a.name, b.name); }).forEach(function (k) { ul.appendChild(calItem(k, calFound.length)); calFound.push(k); });
+      });
+    }
+    ul.hidden = false; $('wCalFind').setAttribute('aria-expanded', 'true');
+    var picked = ul.querySelector('.picked'); if (picked) picked.scrollIntoView({ block: 'nearest' });
+  }
+  function pickCal(k) {
+    setCal(k); applyCal(k); hideCalList();
+    $('wCalFind').blur();
+  }
+  function markCal(i) {
+    calIdx = i;
+    calFound.forEach(function (k, j) { var li = $('wCal-' + j); if (li) li.setAttribute('aria-selected', String(j === i)); });
+    if (i >= 0 && $('wCal-' + i)) { $('wCalFind').setAttribute('aria-activedescendant', 'wCal-' + i); $('wCal-' + i).scrollIntoView({ block: 'nearest' }); }
+    else $('wCalFind').removeAttribute('aria-activedescendant');
+  }
+  $('wCalFind').addEventListener('focus', function () { clearTimeout(calTimer); this.select(); showCalList(this.value); });
+  $('wCalFind').addEventListener('input', function () { clearTimeout(calTimer); showCalList(this.value); });
+  $('wCalFind').addEventListener('keydown', function (ev) {
+    if ($('wCalList').hidden) return;
+    if (ev.key === 'ArrowDown') { ev.preventDefault(); markCal(Math.min(calFound.length - 1, calIdx + 1)); }
+    else if (ev.key === 'ArrowUp') { ev.preventDefault(); markCal(Math.max(-1, calIdx - 1)); }
+    else if (ev.key === 'Enter') { ev.preventDefault(); if (calFound.length && norm(this.value)) pickCal(calFound[Math.max(0, calIdx)]); }
+    else if (ev.key === 'Escape') { hideCalList(); }
+  });
+  /* Verlassen ohne Auswahl: wieder das gewählte Werk anzeigen (oder leer) */
+  $('wCalFind').addEventListener('blur', function () {
+    clearTimeout(calTimer);
+    calTimer = setTimeout(function () { hideCalList(); setCal(calSel); }, 150);
+  });
+  $('wCalClear').addEventListener('click', function () { pickCal(null); });
+
   function renderEdit(p) {
     if (p.init) return;
     p.init = true;
     var w = p.id ? findWatch(p.id) : null;
-    nameAuto = false; $('watchForm').reset(); $('wFind').value = ''; hideSuggest(); defaultFindNote();
+    nameAuto = false; $('watchForm').reset(); $('wFind').value = ''; hideSuggest(); hideCalList(); setCal(null); defaultFindNote();
     if (w) {
-      $('wName').value = w.name; $('wCal').value = w.kaliberId || ''; $('wLift').value = w.liftAngle; $('wBph').value = w.bph ? String(w.bph) : '';
+      $('wName').value = w.name; setCal(kalById(w.kaliberId)); $('wLift').value = w.liftAngle; $('wBph').value = w.bph ? String(w.bph) : '';
       applyCal(kalById(w.kaliberId), true);
       $('watchFormTitle').textContent = 'Uhr bearbeiten'; $('wSave').textContent = 'Änderungen speichern'; $('wDelete').hidden = false;
     } else {
@@ -1395,6 +1628,7 @@
     if (editing) watches = watches.map(function (x) { return x.id === editing.id ? w : x; });
     else {
       if (!isPro() && watches.length >= 1) { requirePro('watches'); return; }
+      if (watches.length >= MAX_WATCHES) { toast('Tickwerk speichert höchstens ' + MAX_WATCHES + ' Uhren.'); return; }
       watches.push(w);
     }
     saveWatches();
@@ -1550,7 +1784,9 @@
       var ws = list(d.watches, cleanWatch), ms = list(d.measurements, cleanMeas);
       var haveW = Object.create(null), haveM = Object.create(null);
       watches.forEach(function (w) { haveW[w.id] = true; }); meas.forEach(function (m) { haveM[m.id] = true; });
-      var addW = ws.filter(function (w) { return !haveW[w.id]; }), addM = ms.filter(function (m) { return !haveM[m.id]; });
+      /* doppelte Einträge auch innerhalb der Datei nur einmal übernehmen, höchstens MAX_WATCHES Uhren */
+      var addW = ws.filter(function (w) { if (haveW[w.id]) return false; haveW[w.id] = true; return true; }).slice(0, Math.max(0, MAX_WATCHES - watches.length));
+      var addM = ms.filter(function (m) { if (haveM[m.id]) return false; haveM[m.id] = true; return true; });
       watches = watches.concat(addW);
       meas = meas.concat(addM).sort(function (a, b) { return new Date(a.date) - new Date(b.date); }).slice(-MAX_MEAS);
       lastId = meas.reduce(function (a, m) { return Math.max(a, m.id); }, lastId);
@@ -1787,6 +2023,7 @@
       if (s === 'measure' && !rec) redrawMeasure();
       else if (s === 'history') drawHistory(isPro() ? filteredMeas().slice(-40) : filteredMeas().slice(-FREE_HISTORY));
       else if (s === 'lagen' && session && !$('lResult').hidden) drawLagenChart(lagenStats(SETS[session.set], sessByPos()));
+      else if (s === 'lpos' && !rec) renderLpos(top().p);
     }, 150);
   });
   $('mDetails').addEventListener('toggle', function () { if (this.open && lastShown) drawBeat($('mBeat'), lastShown.r.templates, lastShown.r.liftTimeMs); });
@@ -1813,7 +2050,7 @@
   }
 
   /* ---------- Start ---------- */
-  var RENDER = { measure: renderMeasure, watches: renderWatches, watch: renderDetail, edit: renderEdit, lagen: renderLagen, guide: function () {},
+  var RENDER = { measure: renderMeasure, watches: renderWatches, watch: renderDetail, edit: renderEdit, lagen: renderLagen, lpos: renderLpos, guide: function () {},
     more: renderMore, pro: renderPro, history: renderHistory, settings: renderSettings };
   if (FLAVOR === 'test') {
     var row = document.createElement('span'), badge = document.createElement('span');

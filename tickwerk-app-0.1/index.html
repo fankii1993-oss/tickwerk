@@ -152,6 +152,22 @@
       <div class="bar-labels" id="dBarLabels" aria-hidden="true"></div>
     </div>
     <div class="insight" id="dInsight" hidden></div>
+    <div class="card dlagen" id="dLagenCard" hidden>
+      <div class="row-between"><span class="card-title">Letzter Lagen-Test</span><span class="mono-sub" id="dlDate"></span></div>
+      <dl class="metrics">
+        <div class="metric"><dt>Mittel</dt><dd id="dlMean">–</dd><small>s/Tag</small></div>
+        <div class="metric"><dt>Lagendifferenz</dt><dd id="dlSpread">–</dd><small>s/Tag</small></div>
+        <div class="metric"><dt>Abfallfehler</dt><dd id="dlBe">–</dd><small>ms, Mittel</small></div>
+        <div class="metric"><dt>Amplitude</dt><dd id="dlAmp">–</dd><small>waagrecht / senkrecht</small></div>
+      </dl>
+      <ul class="rows lrows" id="dlRows"></ul>
+      <p class="hint" id="dlNote" hidden></p>
+      <div class="actions">
+        <button type="button" class="btn-ghost small" id="dlPdf">Protokoll dieses Tests (PDF)</button>
+        <button type="button" class="btn-ghost small" id="dlOpen" hidden>Fortsetzen</button>
+      </div>
+      <span class="pdfbar" id="dlPdfBar" hidden></span>
+    </div>
     <div class="section">
       <span class="eyebrow">Letzte Messungen</span>
       <ul class="rows" id="dList"></ul>
@@ -184,9 +200,15 @@
         <label for="wName">Name</label>
         <input type="text" id="wName" placeholder="z. B. Omega Seamaster" required maxlength="60">
       </div>
-      <div class="field">
-        <label for="wCal">Kaliber (Werk)</label>
-        <select id="wCal"></select>
+      <div class="field find">
+        <label for="wCalFind">Kaliber (Werk)</label>
+        <div class="combo">
+          <input type="search" id="wCalFind" placeholder="Werk suchen, z. B. 2824, NH35, L888" enterkeyhint="search"
+                 role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="wCalList" spellcheck="false" autocomplete="off">
+          <button type="button" class="combo-x" id="wCalClear" aria-label="Werk entfernen" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10"/><path d="M17 7L7 17"/></svg></button>
+        </div>
+        <input type="hidden" id="wCal" value="">
+        <ul class="suggest" id="wCalList" role="listbox" aria-label="Werke" hidden></ul>
         <p class="hint" id="wCalNote"></p>
       </div>
       <div class="row2">
@@ -225,15 +247,6 @@
       <button type="button" role="radio" data-set="6">6 Lagen</button>
     </div>
     <div class="progress" id="lProgress" aria-hidden="true"></div>
-    <div class="card now" id="lNow">
-      <svg class="pos-icon" id="lIcon" viewBox="0 0 110 110" width="110" height="110" role="img" aria-label=""></svg>
-      <div class="now-txt">
-        <span class="eyebrow" id="lNowLabel">Jetzt</span>
-        <span class="now-name" id="lNowName"></span>
-        <span class="now-hint" id="lNowHint"></span>
-        <span class="now-time" id="lNowTime"></span>
-      </div>
-    </div>
     <div class="card lresult" id="lResult" hidden>
       <span class="eyebrow">Ergebnis · Mittel der Lagen</span>
       <div class="big-row"><span class="big big-md" id="lgMean">–</span><span class="big-unit">s/Tag</span></div>
@@ -249,14 +262,50 @@
       <span class="pdfbar" id="lgPdfBar" hidden></span>
     </div>
     <div class="tiles2" id="lTiles"></div>
-    <div class="card diff-card">
+    <div class="card diff-card" id="lDiffCard">
       <div class="diff-txt"><span class="card-title">Grösste Lagendifferenz bisher</span><span class="mono-sub" id="lDiffSub">noch zu wenige Lagen</span></div>
       <span class="diff-v" id="lDiff">–</span>
     </div>
     <p class="status" id="lStatus" data-kind=""></p>
-    <div class="actions center" id="lSearch" hidden><button type="button" class="btn-ghost small" id="lForce">Jetzt messen</button></div>
-    <button type="button" class="btn-primary btn-big" id="lStart"><span class="prog" id="lProg"></span><span class="btn-label" id="lStartLabel">Messen</span></button>
+    <button type="button" class="btn-primary btn-big" id="lNext"><span class="btn-label" id="lNextLabel">Messen</span></button>
     <button type="button" class="btn-ghost btn-big" id="lCancel">Abbrechen</button>
+  </section>
+
+  <!-- ======================= LAGEN-TEST: EINE LAGE MESSEN ======================= -->
+  <section class="screen" id="scr-lpos" aria-label="Lage messen" hidden>
+    <div class="bar">
+      <button type="button" class="back" data-back><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span>Alle Lagen</span></button>
+      <span class="mono-sub" id="pStep"></span>
+    </div>
+    <div class="card lp-guide">
+      <svg class="pos-icon lp-icon" id="pIcon" viewBox="0 0 110 110" role="img" aria-label=""></svg>
+      <div class="lp-guide-txt">
+        <span class="eyebrow">So liegt die Uhr</span>
+        <span class="now-name" id="pName"></span>
+        <span class="now-hint" id="pHint"></span>
+      </div>
+    </div>
+    <div class="card lp-live">
+      <div class="row-between">
+        <span class="eyebrow" id="pState">Bereit</span>
+        <span class="signal" id="pSignal" data-level="0">
+          <svg viewBox="0 0 16 14" aria-hidden="true"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="4.3" y="6" width="3" height="8" rx="1"/><rect x="8.6" y="3" width="3" height="11" rx="1"/><rect x="12.9" y="0" width="3" height="14" rx="1"/></svg>
+          <span id="pSignalText">kein Signal</span>
+        </span>
+      </div>
+      <div class="big-row lp-rate"><span class="big big-md" id="pRate">–</span><span class="big-unit">s/Tag</span></div>
+      <span class="sigma center" id="pSub"></span>
+      <dl class="metrics" id="pMetrics" hidden>
+        <div class="metric"><dt>Amplitude</dt><dd id="pAmp">–</dd><small id="pAmpNote"></small></div>
+        <div class="metric"><dt>Abfallfehler</dt><dd id="pBe">–</dd><small>ms</small></div>
+      </dl>
+      <canvas class="plot" id="pTape" height="84" aria-label="Papierstreifen"></canvas>
+      <div class="level" aria-hidden="true"><div class="level-fill" id="pLevel"></div></div>
+    </div>
+    <p class="status" id="pStatus" data-kind=""></p>
+    <div class="actions center" id="pSearch" hidden><button type="button" class="btn-ghost small" id="pForce">Jetzt messen</button></div>
+    <button type="button" class="btn-primary btn-big" id="pStart"><span class="prog" id="pProg"></span><span class="btn-label" id="pStartLabel">Messen</span></button>
+    <button type="button" class="btn-ghost btn-big" id="pAlt" hidden>Zur Auswahl</button>
   </section>
 
   <!-- ======================= MIKROFON ANLEGEN ======================= -->
