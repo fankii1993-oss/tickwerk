@@ -198,7 +198,7 @@
 
   function fmt(v, d) { return v.toFixed(d).replace('.', ','); }
   function signed(v, d) { var s = fmt(Math.abs(v), d); return (v < 0 && /[1-9]/.test(s) ? '−' : '+') + s; }
-  function thousands(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '’'); }
+  function thousands(n) { var s = String(Math.round(Math.abs(n))), o = ''; while (s.length > 3) { o = '’' + s.slice(-3) + o; s = s.slice(0, -3); } return (n < 0 ? '−' : '') + s + o; }
   function p2(v) { return (v < 10 ? '0' : '') + v; }
   function dShort(d) { return p2(d.getDate()) + '.' + p2(d.getMonth() + 1) + '.' + d.getFullYear(); }
   function dTime(d) { return dShort(d) + ', ' + p2(d.getHours()) + ':' + p2(d.getMinutes()); }
@@ -233,7 +233,7 @@
     var k = d.kal, lift = d.watch.liftAngle || 52, liftState = d.liftState || '';
 
     /* Auswertung je Lage: nur gewertete Messungen */
-    var byPos = {};
+    var byPos = Object.create(null);
     ok.forEach(function (m) { (byPos[m.pos] = byPos[m.pos] || []).push(m); });
     var rows = POS_ORDER.filter(function (p) { return byPos[p]; }).map(function (p) {
       var a = byPos[p];
@@ -251,7 +251,7 @@
     var beMean = mean(ok.filter(function (m) { return m.beOk; }).map(function (m) { return m.be; }));
     var ampH = mean(ok.filter(function (m) { return HORIZ[m.pos] && m.ampOk && m.amp; }).map(function (m) { return m.amp; }));
     var ampV = mean(ok.filter(function (m) { return !HORIZ[m.pos] && m.ampOk && m.amp; }).map(function (m) { return m.amp; }));
-    var bphs = {}; meas.forEach(function (m) { if (m.bph) bphs[m.bph] = (bphs[m.bph] || 0) + 1; });
+    var bphs = Object.create(null); meas.forEach(function (m) { if (m.bph) bphs[m.bph] = (bphs[m.bph] || 0) + 1; });
     var bphMain = Object.keys(bphs).sort(function (a, b) { return bphs[b] - bphs[a]; })[0];
 
     var y = 0;

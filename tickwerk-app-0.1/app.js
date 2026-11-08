@@ -2,10 +2,20 @@
 (function () {
   'use strict';
 
+  /* Nicht eingebettet in fremden Seiten laufen (Schutz vor untergeschobenen Klicks) */
+  if (window.top !== window.self) {
+    document.documentElement.className += ' framed';
+    var fm = document.createElement('p'), fa = document.createElement('a');
+    fm.className = 'framed-msg'; fa.href = location.href; fa.target = '_blank'; fa.rel = 'noopener';
+    fa.textContent = 'Tickwerk in einem eigenen Fenster öffnen';
+    fm.appendChild(fa); document.body.appendChild(fm);
+    return;
+  }
+
   var $ = function (id) { return document.getElementById(id); };
   var KAL = window.TICKWERK_KALIBER || [];
   var UHREN = window.TICKWERK_UHREN || [];
-  var APP_VERSION = '0.3';
+  var APP_VERSION = '0.3.2';
   var KEYS = { watches: 'tickwerk.v1.watches', meas: 'tickwerk.v1.measurements', settings: 'tickwerk.v1.settings' };
   var POS = { ZO: 'Zifferblatt oben', ZU: 'Zifferblatt unten', KU: 'Krone unten', KO: 'Krone oben', KL: 'Krone links', KR: 'Krone rechts' };
   var C = { lume: '#B8F28A', tock: '#9FD8FF', faint: '#8A95A3', line: '#27303B', muted: '#AEB7C2', warn: '#F59B5E', text: '#EEF1F4' };
@@ -14,15 +24,57 @@
   /* ---------- Speicher ---------- */
   function load(key, def) { try { var v = localStorage.getItem(key); return v ? JSON.parse(v) : def; } catch (e) { return def; } }
   function store(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) { /* voll oder gesperrt */ } }
-  var watches = load(KEYS.watches, []);
-  var meas = load(KEYS.meas, []);
-  var settings = Object.assign({ dur: 30, watchId: '', pos: 'ZO', ppm: 0 }, load(KEYS.settings, {}));
+  function own(o, k) { return typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k); }
+  function finite(v, d) { v = typeof v === 'number' ? v : NaN; return isFinite(v) ? v : d; }
+  function str(v, max) { return typeof v === 'string' ? v.slice(0, max || 200) : ''; }
+  function cleanWatch(w) {
+    if (!w || typeof w !== 'object' || !str(w.id) || !str(w.name)) return null;
+    var lift = finite(w.liftAngle, 52), bph = finite(w.bph, 0);
+    return { id: str(w.id, 40), name: str(w.name, 60), kaliberId: str(w.kaliberId, 60),
+      liftAngle: lift >= 30 && lift <= 70 ? lift : 52, bph: bph >= 3600 && bph <= 72000 ? Math.round(bph) : null };
+  }
+  function cleanTrace(tr) {
+    if (!tr || !Array.isArray(tr.t) || !Array.isArray(tr.d) || typeof tr.p !== 'string') return undefined;
+    var n = Math.min(tr.t.length, tr.d.length, tr.p.length, 2000), t = [], d = [], p = '';
+    for (var i = 0; i < n; i++) {
+      if (typeof tr.t[i] !== 'number' || typeof tr.d[i] !== 'number' || !isFinite(tr.t[i]) || !isFinite(tr.d[i])) return undefined;
+      t.push(tr.t[i]); d.push(tr.d[i]); p += tr.p.charAt(i) === '1' ? '1' : '0';
+    }
+    return n ? { t: t, d: d, p: p } : undefined;
+  }
+  function cleanMeas(m) {
+    if (!m || typeof m !== 'object') return null;
+    var rate = finite(m.rate, NaN), sigma = finite(m.sigma, NaN), date = new Date(str(m.date, 40));
+    if (!isFinite(rate) || !isFinite(sigma) || isNaN(date.getTime())) return null;
+    var amp = finite(m.amp, 0), out = {
+      id: finite(m.id, 0) || date.getTime(), watchId: str(m.watchId, 40), watchName: str(m.watchName, 60), pos: own(POS, m.pos) ? m.pos : 'ZO',
+      date: date.toISOString(), source: m.source === 'Datei' ? 'Datei' : 'Mikrofon', rate: rate, sigma: Math.abs(sigma), stable: m.stable !== false,
+      be: Math.abs(finite(m.be, 0)), beOk: m.beOk === true, amp: amp > 0 && amp < 400 ? amp : null, ampOk: m.ampOk === true,
+      lift: finite(m.lift, 52), bph: Math.round(finite(m.bph, 0)), q: ['stark', 'mittel', 'schwach'].indexOf(m.q) >= 0 ? m.q : 'schwach', dur: finite(m.dur, 0)
+    };
+    if (typeof m.ppm === 'number' && isFinite(m.ppm)) out.ppm = m.ppm;
+    if (finite(m.fs, 0) > 0) out.fs = m.fs;
+    if (str(m.eng, 20)) out.eng = str(m.eng, 20);
+    if (str(m.app, 20)) out.app = str(m.app, 20);
+    var tr = cleanTrace(m.tr); if (tr) out.tr = tr;
+    return out;
+  }
+  function list(v, fn) { return (Array.isArray(v) ? v : []).map(fn).filter(Boolean); }
+  var watches = list(load(KEYS.watches, []), cleanWatch);
+  var meas = list(load(KEYS.meas, []), cleanMeas).slice(-1000);
+  var storedSettings = load(KEYS.settings, {}) || {};
+  var settings = {
+    dur: [20, 30, 60].indexOf(storedSettings.dur) >= 0 ? storedSettings.dur : 30,
+    watchId: str(storedSettings.watchId, 40),
+    pos: own(POS, storedSettings.pos) ? storedSettings.pos : 'ZO',
+    ppm: Math.abs(finite(storedSettings.ppm, 0)) < 500 ? finite(storedSettings.ppm, 0) : 0
+  };
   function saveSettings() { store(KEYS.settings, settings); }
 
   /* ---------- Format ---------- */
   function fmt(v, d) { return v.toFixed(d).replace('.', ','); }
   function signed(v, d) { var s = fmt(Math.abs(v), d); return (v < 0 && s.replace(/[0,]/g, '') !== '' ? '−' : '+') + s; }
-  function thousands(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '’'); }
+  function thousands(n) { var s = String(Math.round(Math.abs(n))), o = ''; while (s.length > 3) { o = '’' + s.slice(-3) + o; s = s.slice(0, -3); } return (n < 0 ? '−' : '') + s + o; }
   function dateStr(iso) {
     var d = new Date(iso);
     return d.toLocaleDateString('de-CH', { day: 'numeric', month: 'short' }) + ' ' + d.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' });
@@ -255,7 +307,7 @@
       var li = document.createElement('li'); li.className = 'item';
       li.innerHTML = '<span class="t">' + esc(w.name) + '</span>' +
         '<span class="s">' + esc((calName(w.kaliberId) || 'Werk unbekannt') + ' · ' + deg(w.liftAngle) + (liftState(w) ? ' (' + liftState(w) + ')' : '') + ' · ' + (w.bph ? thousands(w.bph) + ' A/h' : 'Schlagzahl automatisch')) + '</span>' +
-        '<span class="v">' + n + '<small>Messungen</small></span>' +
+        '<span class="v">' + esc(n) + '<small>Messungen</small></span>' +
         '<span class="acts"><button type="button" data-act="pdf"' + (n ? '' : ' disabled') + '>Messprotokoll (PDF)<span class="pro">Pro</span></button>' +
         '<button type="button" data-act="edit">Bearbeiten</button><button type="button" data-act="del">Löschen</button></span>' +
         '<span class="pdfbar" hidden></span>';
@@ -299,14 +351,14 @@
     lastReportUrl = URL.createObjectURL(blob);
     var canShare = !!(file && navigator.canShare && navigator.canShare({ files: [file] }));
     bar.hidden = false;
-    bar.innerHTML = '<span class="pdfinfo">Protokoll ' + esc(out.number) + ' · ' + out.pages + (out.pages === 1 ? ' Seite' : ' Seiten') + ' · ' +
-      Math.max(1, Math.round(out.bytes.length / 1024)) + ' KB</span>' +
+    bar.innerHTML = '<span class="pdfinfo">' + esc('Protokoll ' + out.number + ' · ' + out.pages + (out.pages === 1 ? ' Seite' : ' Seiten') + ' · ' +
+      Math.max(1, Math.round(out.bytes.length / 1024)) + ' KB') + '</span>' +
       (canShare ? '<button type="button" data-p="share">Teilen oder speichern</button>' : '') +
       '<button type="button" data-p="open">Öffnen und drucken</button><button type="button" data-p="dl">Herunterladen</button>';
     if (canShare) bar.querySelector('[data-p="share"]').addEventListener('click', function () {
       navigator.share({ files: [file], title: 'Tickwerk Messprotokoll ' + w.name }).catch(function () { /* abgebrochen */ });
     });
-    bar.querySelector('[data-p="open"]').addEventListener('click', function () { window.open(lastReportUrl, '_blank'); });
+    bar.querySelector('[data-p="open"]').addEventListener('click', function () { window.open(lastReportUrl, '_blank', 'noopener'); });
     bar.querySelector('[data-p="dl"]').addEventListener('click', function () {
       var a = document.createElement('a'); a.href = lastReportUrl; a.download = out.filename;
       document.body.appendChild(a); a.click(); a.remove();
@@ -605,7 +657,9 @@
   });
 
   /* ---------- Dateien (Erweitert) ---------- */
+  var MAX_FILE = 150 * 1024 * 1024;
   function decodeFile(file) {
+    if (file.size > MAX_FILE) return Promise.reject(new Error('zu gross'));
     return file.arrayBuffer().then(function (buf) {
       var Ctx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
       var ctx = new Ctx(1, 1, 48000);
@@ -629,7 +683,9 @@
       var s = a.samples.length > maxN ? a.samples.subarray(0, maxN) : a.samples;
       lastRec = { samples: s, fs: a.sampleRate, date: new Date(), watchName: watchLabel(currentWatch()), pos: settings.pos };
       analyzeAndShow(s, a.sampleRate, 'Datei');
-    }).catch(function () { setStatus(f.name + ' konnte nicht gelesen werden. Am besten WAV verwenden.', 'err'); });
+    }).catch(function () {
+      setStatus(f.size > MAX_FILE ? f.name + ' ist zu gross (höchstens 150 MB).' : f.name + ' konnte nicht gelesen werden. Am besten WAV verwenden.', 'err');
+    });
   });
   $('ppm').value = settings.ppm || 0;
   $('ppm').addEventListener('change', function () {
@@ -641,19 +697,20 @@
     if (!f) return;
     $('quartzOut').textContent = 'Lese ' + f.name + ' …';
     decodeFile(f).then(function (a) {
-      return runJob({ kind: 'quartz', samples: a.samples, fs: a.sampleRate });
+      var maxQ = Math.round(300 * a.sampleRate);
+      return runJob({ kind: 'quartz', samples: a.samples.length > maxQ ? a.samples.subarray(0, maxQ) : a.samples, fs: a.sampleRate });
     }).then(function (q) {
       if (!q.ok) { $('quartzOut').textContent = q.reason; return; }
       settings.ppm = +q.ppm.toFixed(1); saveSettings(); $('ppm').value = settings.ppm; renderWatchSelect();
       $('quartzOut').textContent = 'Die Handy-Uhr weicht um ' + fmt(q.ppm, 1) + ' ppm ab (± ' + fmt(q.sigmaPpm, 1) + '), das sind ' + fmt(q.ppm * 0.0864, 2) + ' s/Tag. Wird ab jetzt korrigiert.';
-    }).catch(function () { $('quartzOut').textContent = f.name + ' konnte nicht gelesen werden.'; });
+    }).catch(function () { $('quartzOut').textContent = f.size > MAX_FILE ? f.name + ' ist zu gross (höchstens 150 MB).' : f.name + ' konnte nicht gelesen werden.'; });
   });
 
   /* ---------- Verlauf ---------- */
   function renderHistoryFilter() {
     var sel = $('historyFilter'), keep = sel.value;
     sel.innerHTML = '<option value="*">Alle Uhren</option>';
-    var seen = {};
+    var seen = Object.create(null);
     watches.forEach(function (w) { seen[w.id] = true; var o = document.createElement('option'); o.value = w.id; o.textContent = w.name; sel.appendChild(o); });
     if (meas.some(function (m) { return !m.watchId || !seen[m.watchId]; })) {
       var o = document.createElement('option'); o.value = ''; o.textContent = 'Ohne Uhr / gelöschte'; sel.appendChild(o);
@@ -663,7 +720,7 @@
   $('historyFilter').addEventListener('change', renderHistory);
   function filteredMeas() {
     var f = $('historyFilter').value || '*';
-    var known = {}; watches.forEach(function (w) { known[w.id] = true; });
+    var known = Object.create(null); watches.forEach(function (w) { known[w.id] = true; });
     return meas.filter(function (m) { return f === '*' || (f === '' ? (!m.watchId || !known[m.watchId]) : m.watchId === f); });
   }
   function renderHistory() {
@@ -677,7 +734,7 @@
       parts.push('Signal ' + m.q);
       li.innerHTML = '<span class="t">' + esc(m.watchName || 'Unbekannte Uhr') + '</span>' +
         '<span class="s">' + esc(parts.join(' · ')) + '</span>' +
-        '<span class="v">' + signed(m.rate, 1) + '<small>± ' + fmt(m.sigma, 2) + (m.stable ? '' : ', schwankt') + '</small></span>' +
+        '<span class="v">' + esc(signed(m.rate, 1)) + '<small>' + esc('± ' + fmt(m.sigma, 2) + (m.stable ? '' : ', schwankt')) + '</small></span>' +
         '<span class="acts"><button type="button">Löschen</button></span>';
       li.querySelector('button').addEventListener('click', function () {
         meas = meas.filter(function (x) { return x.id !== m.id; }); store(KEYS.meas, meas); renderHistory(); renderWatches();

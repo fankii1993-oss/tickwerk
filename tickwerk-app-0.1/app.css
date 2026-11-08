@@ -93,6 +93,7 @@ button { cursor: pointer; }
 .gauge .marker { position: absolute; top: -2px; bottom: 12px; width: 2px; margin-left: -1px; left: 50%; background: var(--lume); border-radius: 1px; transition: left 0.3s ease; }
 .gauge .labels { position: absolute; left: 0; right: 0; bottom: 0; height: 14px; font-family: var(--mono); font-size: 11px; color: var(--faint); }
 .gauge .labels span { position: absolute; transform: translateX(-50%); }
+.gauge .labels .l0 { left: 0; } .gauge .labels .l50 { left: 50%; } .gauge .labels .l100 { left: 100%; }
 .gauge .labels span:first-child { transform: none; }
 .gauge .labels span:last-child { transform: translateX(-100%); }
 .verdict { margin: 0; font-size: 14px; }
@@ -153,3 +154,8 @@ details.card[open] > summary::after { content: "−"; }
 .tabbar button[aria-selected="true"] { color: var(--lume); }
 
 @media (prefers-reduced-motion: reduce) { .ring-fg, .gauge .marker, .level-fill { transition: none; } }
+
+/* In fremden Seiten eingebettet: nichts anzeigen ausser dem Hinweis */
+.framed body > * { display: none !important; }
+.framed body > .framed-msg { display: block !important; margin: 24px; font-size: 16px; }
+.framed-msg a { color: var(--lume); }
