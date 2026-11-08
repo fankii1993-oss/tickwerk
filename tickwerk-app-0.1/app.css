@@ -33,7 +33,7 @@ button, input, select { font: inherit; color: inherit; }
 
 header.top { display: flex; align-items: center; justify-content: space-between; padding: calc(14px + env(safe-area-inset-top)) 16px 10px; max-width: 640px; margin: 0 auto; }
 .brand { display: flex; align-items: center; gap: 10px; font-family: var(--display); font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
-.brand img { border-radius: 7px; }
+.brand .mark { display: block; flex-shrink: 0; }
 
 main { max-width: 640px; margin: 0 auto; padding: 0 12px; }
 .screen { display: flex; flex-direction: column; gap: 12px; }
