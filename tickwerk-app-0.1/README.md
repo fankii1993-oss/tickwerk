@@ -1,4 +1,4 @@
-# Tickwerk – Web-App 0.4 (Testversion)
+# Tickwerk – Web-App 0.4.2 (Testversion)
 
 Misst mit dem Handy-Mikrofon, wie genau eine mechanische Uhr geht: Gangabweichung, Abfallfehler, Amplitude, Schlagzahl. Die Aufnahme bleibt auf dem Handy; die App schickt nichts ins Internet.
 
@@ -9,6 +9,22 @@ Das ist die **Testversion** für GitHub: Pro lässt sich unter Mehr → Tickwerk
 1. Im Repository den Ordner `tickwerk-app-0.1` öffnen.
 2. **Add file → Upload files**, den ganzen Inhalt dieses Pakets hineinziehen (Dateien und die Ordner `engine`, `fonts`, `icons`), **Commit changes**. Gleichnamige Dateien werden ersetzt; deine Uhren und Messungen bleiben auf dem Handy erhalten.
 3. App auf dem Handy öffnen. Nach ein paar Sekunden erscheint «Neue Version ist bereit»; unter Mehr auf **Neue Version: neu laden** tippen.
+
+## Neu in 0.4.2
+
+- Hält man eine Quarzuhr ans Mikrofon (ein Schritt pro Sekunde), erkennt «Messen» das nach wenigen Sekunden und führt mit «Handy-Uhr damit eichen» direkt zur Eichung.
+- **Eichung mit Quarzuhren, die sich selbst korrigieren** (Mess-Engine 0.2.5): Viele Quarzuhren, z. B. Swatch, lassen den Quarz etwas zu schnell laufen und gleichen das alle 60 Sekunden mit einem kleinen Sprung von einigen Millisekunden aus (Inhibition). Tickwerk erkennt diesen Sägezahn und rechnet mit dem mittleren Gang. Vorher konnte das die Eichung um mehrere ppm verfälschen.
+- Die Zeit eines Quarz-Schritts misst Tickwerk jetzt am Beginn des Klicks statt an der lautesten Stelle. Bei Uhren, deren Schritt aus mehreren Spitzen besteht, ist das rund zehnmal genauer.
+- Die Eichung dauert jetzt 2½ Minuten, damit immer zwei solche Korrekturen in der Aufnahme liegen. Kürzere Dateien wertet Tickwerk nur aus, wenn es die Korrekturen darin sicher erkennt.
+- Ein lautes Geräusch am Anfang (Antippen) bringt die Erkennung der Quarz-Schritte nicht mehr durcheinander.
+
+## Neu in 0.4.1
+
+- **Handy-Uhr eichen** direkt in der App: unter Einstellungen «Quarzuhr messen», dazu das Feld «Gang der Quarzuhr».
+- **Automatischer Start:** Nach «Messen» hört Tickwerk zuerst nur zu und zeigt, wie klar das Ticken ist. Sobald es zwei kurze Prüfungen nacheinander klar ist, startet die Messung von selbst (kurzes Vibrieren). So lässt sich das Handy in Ruhe an die beste Stelle halten. «Jetzt messen» startet sofort; nach 2 Minuten ohne klares Ticken hört Tickwerk auf. Abschaltbar unter Einstellungen.
+- Gilt auch im Lagen-Test: Statt fester 5 Sekunden Ruhe beginnt jede Lage, sobald das Signal stimmt.
+- Mess-Engine 0.2.2: schnelle Signalprüfung für kurze Ausschnitte (ohne Einfluss auf die eigentliche Messung); Rauschen wird nicht mehr als «schwaches Ticken» gemeldet.
+- Tickwerk bittet Chrome, die gespeicherten Daten dauerhaft zu behalten (nicht automatisch löschen, wenn das Handy knapp an Speicher ist).
 
 ## Neu in 0.4
 

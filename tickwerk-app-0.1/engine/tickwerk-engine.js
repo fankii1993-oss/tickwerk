@@ -698,17 +698,19 @@
   }
   function stepModel(f, p) {
     var m = f.c + f.T * p.k + f.d * p.parity;
+    if (f.saw) m += f.saw.E * sawCol(p.k, f.saw.N, f.saw.k0);
     if (f.steps) f.steps.forEach(function (s) { if (p.k >= s.k) m += s.dt; });
     return m;
   }
   /* Aussetzer der Aufnahme finden: Fällt im Handy ein Audiopuffer weg oder kommt einer doppelt (z. B. bei hoher
      Last), springen alle folgenden Schläge um einige Millisekunden. Eine echte Uhr kann das nicht. Ein Sprung
      zeigt sich als Unterschied der Mediane vor und nach einer Stelle; Drift oder einzelne gestörte Schläge nicht. */
-  function findGaps(points) {
+  function findGaps(points, fitFn) {
+    fitFn = fitFn || fitBeats;
     var W = 8, pts = points.slice().sort(function (a, b) { return a.k - b.k; }), ks = [];
     if (pts.length < 4 * W) return ks;
     for (var iter = 0; iter < 6; iter++) {
-      var f = fitBeats(pts, ks);
+      var f = fitFn(pts, ks);
       if (!f || !(f.T > 0)) break;
       var res = pts.map(function (p) { return p.t - stepModel(f, p); }), dif = [], i;
       for (i = 1; i < res.length; i++) dif.push(Math.abs(res[i] - res[i - 1]));
@@ -732,6 +734,43 @@
     return ks;
   }
 
+  /* Gerade t = c + k·P mit je einem Versatz ab jedem Aussetzer, für die Quarzuhr (ein Schritt pro Sekunde, kein Tick/Tack) */
+  function fitLineSteps(points, stepKs) {
+    var use = points.slice(), result = null;
+    for (var iter = 0; iter < 3; iter++) {
+      var ks = (stepKs || []).filter(function (s) {
+        var nb = 0, na = 0;
+        use.forEach(function (p) { if (p.k < s) nb++; else na++; });
+        return nb >= 3 && na >= 3;
+      });
+      var P = 2 + ks.length;
+      if (use.length < P + 5) return result;
+      var kMean = 0, tMean = 0;
+      use.forEach(function (p) { kMean += p.k; tMean += p.t; });
+      kMean /= use.length; tMean /= use.length;
+      var A = [], b = [], i, j;
+      for (i = 0; i < P; i++) { A.push(new Array(P).fill(0)); b.push(0); }
+      var rowOf = function (p) { var row = [1, p.k - kMean]; ks.forEach(function (s) { row.push(p.k >= s ? 1 : 0); }); return row; };
+      use.forEach(function (p) {
+        var row = rowOf(p), y = p.t - tMean;
+        for (i = 0; i < P; i++) { b[i] += row[i] * y; for (j = 0; j < P; j++) A[i][j] += row[i] * row[j]; }
+      });
+      var x = solveN(A, b);
+      if (!x) return result;
+      var res = use.map(function (p) { var row = rowOf(p), m = 0; for (var q = 0; q < P; q++) m += row[q] * x[q]; return (p.t - tMean) - m; });
+      var ss = 0;
+      res.forEach(function (r) { ss += r * r; });
+      var s2 = ss / Math.max(1, use.length - P), inv = invertN(A);
+      result = { c: x[0] + tMean - x[1] * kMean, T: x[1], d: 0, sigmaT: inv ? Math.sqrt(Math.max(0, inv[1][1] * s2)) : NaN,
+        residualS: Math.sqrt(s2), used: use.length, steps: ks.map(function (s, q) { return { k: s, dt: x[2 + q] }; }) };
+      var lim = Math.max(4 * Math.sqrt(s2), 0.0005);
+      var next = use.filter(function (p, idx) { return Math.abs(res[idx]) <= lim; });
+      if (next.length === use.length) break;
+      use = next;
+    }
+    return result;
+  }
+
   /* ---------- Hauptfunktion ---------- */
 
   /**
@@ -748,7 +787,7 @@
     var cb = chooseBand(x, fs, opts);
     var tried = cb.tried.slice().sort(function (a, b) { return b.z - a.z; });
     var zMax = tried.length ? tried[0].z : 0;
-    var cands = tried.filter(function (t, i) { return i === 0 || t.z >= 0.6 * zMax; }).slice(0, 3);
+    var cands = tried.filter(function (t, i) { return i === 0 || t.z >= 0.6 * zMax; }).slice(0, opts.probe ? 1 : 3);   // Suche: nur das beste Band, damit es schnell geht
     if (!cands.length) cands = [{ lo: 2000, hi: 10000 }];
     var best = null, firstFail = null, oks = [];
     cands.forEach(function (c) {
@@ -778,7 +817,7 @@
           if (dd > 2 * Math.sqrt(r.rateSigma * r.rateSigma + best.rateSigma * best.rateSigma)) best.rateSigma = Math.max(best.rateSigma, dd / 2);
         });
       }
-      if (!(best.rateSigma <= 2)) {
+      if (!opts.probe && !(best.rateSigma <= 2)) {
         best = null;
         firstFail = { ok: false, reason: 'Signal zu schwach für eine verlässliche Messung. Mikrofon näher an die Krone, ruhiger Raum.' };
       }
@@ -1080,7 +1119,8 @@
     if (label === 'schwach') amplitudeReliable = false;
 
     // Lieber keine Zahl als eine falsche: zu unsicher -> ablehnen
-    if (detectedFraction < 0.5 || fit.used < 20 || !(rateSigma <= 2)) {
+    // Suchbetrieb (opts.probe): nur fragen, ob das Ticken klar ist; die Gangzahl darf dann ungenau sein
+    if (opts.probe ? (detectedFraction < 0.5 || fit.used < 12) : (detectedFraction < 0.5 || fit.used < 20 || !(rateSigma <= 2))) {
       return {
         ok: false,
         reason: 'Signal zu schwach für eine verlässliche Messung. Mikrofon näher an die Krone, ruhiger Raum.',
@@ -1151,68 +1191,240 @@
 
   /* ---------- Kalibrierung mit einer Quarzuhr (1 Schritt pro Sekunde) ---------- */
 
-  function analyzeQuartz(samples, fs) {
-    var x = samples instanceof Float32Array ? samples : Float32Array.from(samples);
-    var duration = x.length / fs;
-    if (duration < 30) return { ok: false, reason: 'Für die Kalibrierung mindestens 30 Sekunden aufnehmen (besser 2 Minuten).' };
-    var hp = highpass(x, fs, Math.min(1000, 0.1 * fs));
-    var n = hp.length, i;
+  /* Hüllkurve der Schritte einer Quarzuhr (Klick über 1 kHz, 0,5 ms geglättet) */
+  function quartzEnvelope(x, fs) {
+    var hp = highpass(x, fs, Math.min(1000, 0.1 * fs)), n = hp.length, i;
     var e = new Float32Array(n);
     for (i = 0; i < n; i++) e[i] = hp[i] * hp[i];
     var env = movingAverage(e, Math.max(1, Math.round(0.0005 * fs)));
     for (i = 0; i < n; i++) env[i] = Math.sqrt(env[i]);
-    var noise = approxMedian(env) || 1e-12;
-    var Ts = fs; // 1 s
-    var w = Math.round(0.15 * fs);
-    var anchor = argmax(env, Math.round(0.2 * fs), Math.min(n, Math.round(1.25 * fs)));
-    var pts = [];
-    for (var dir = -1; dir <= 1; dir += 2) {
-      var p = anchor;
-      for (var k = 1; ; k++) {
-        var pred = p + dir * Ts;
-        if (pred - w < 0 || pred + w >= n) break;
-        var idx = argmax(env, Math.round(pred - w), Math.round(pred + w) + 1);
-        var ok = env[idx] >= 4 * noise;
-        if (ok) {
-          var off = parabolicOffset(env[idx - 1], env[idx], env[idx + 1]);
-          pts.push({ k: dir * k, t: (idx + off) / fs });
-          p = idx;
-        } else {
-          p = Math.round(pred);
-        }
-      }
+    return { env: env, noise: approxMedian(env) || 1e-12 };
+  }
+  /* Auf eine Sekunde falten (1-ms-Fächer): Eine Quarzuhr gibt eine einzige starke Spitze, ein mechanisches Werk
+     (5 bis 10 Schläge pro Sekunde) mehrere gleich hohe, Rauschen keine. */
+  function foldOneSecond(env, fs, from) {
+    var bins = 1000, prof = new Float64Array(bins), cnt = new Float64Array(bins), per = Math.round(fs), i, b;
+    for (i = from || 0; i < env.length; i++) { b = Math.floor((i % per) * bins / per); prof[b] += env[i]; cnt[b]++; }
+    var peak = 0, pb = 0;
+    for (b = 0; b < bins; b++) { prof[b] = cnt[b] ? prof[b] / cnt[b] : 0; if (prof[b] > peak) { peak = prof[b]; pb = b; } }
+    var sorted = Array.prototype.slice.call(prof).sort(function (a, c) { return a - c; });
+    var second = 0;
+    for (b = 0; b < bins; b++) {
+      var d = Math.abs(b - pb); d = Math.min(d, bins - d);
+      if (d > 40 && prof[b] > second) second = prof[b];
     }
-    pts.push({ k: 0, t: anchor / fs });
-    if (pts.length < 20) return { ok: false, reason: 'Zu wenige Schritte der Quarzuhr erkannt.' };
-    // einfache Gerade t = c + k*P mit Ausreissern entfernen
-    var use = pts.slice(), P = 1, c = 0, s = 0;
-    for (var iter = 0; iter < 3; iter++) {
-      var nU = use.length, sk = 0, st = 0, skk = 0, skt = 0;
-      use.forEach(function (q) { sk += q.k; st += q.t; skk += q.k * q.k; skt += q.k * q.t; });
-      P = (nU * skt - sk * st) / (nU * skk - sk * sk);
-      c = (st - P * sk) / nU;
-      var res = use.map(function (q) { return q.t - (c + P * q.k); });
+    return { phase: Math.round((pb + 0.5) * per / bins), peak: peak, med: sorted[bins >> 1], second: second };
+  }
+  /* Klingt das nach einer Quarzuhr (ein Schritt pro Sekunde)? Für den Hinweis beim Messen. */
+  function probeQuartz(samples, fs) {
+    var x = samples instanceof Float32Array ? samples : Float32Array.from(samples);
+    var n = x.length;
+    if (n < 3.5 * fs) return { quartz: false };
+    var q = quartzEnvelope(x, fs), f = foldOneSecond(q.env, fs, 0), per = Math.round(fs);
+    var w = Math.round(0.008 * fs), periods = 0, hits = 0;
+    for (var start = 0; start + per <= n; start += per) {
+      var c = start + f.phase;
+      if (c - w < 0 || c + w >= n) continue;
+      periods++;
+      var mx = 0;
+      for (var i = c - w; i <= c + w; i++) if (q.env[i] > mx) mx = q.env[i];
+      if (mx >= 6 * q.noise) hits++;
+    }
+    var ratio = f.peak / (f.med || 1e-30), single = f.second < 0.35 * f.peak;
+    return { quartz: periods >= 3 && hits >= 3 && hits >= periods - 1 && ratio >= 4 && single, periods: periods, hits: hits, ratio: +ratio.toFixed(1), single: single };
+  }
+
+  /* Sägezahn einer Quarzuhr mit Inhibition: Viele Quarzuhren (Swatch, ETA und andere) lassen den Quarz etwas zu
+     schnell laufen und unterdrücken alle N Sekunden einige seiner Schwingungen. Dazwischen kommen die Schritte
+     etwas zu früh, nach dem Unterdrücken einer um einige Millisekunden zu spät. Im Mittel stimmt der Gang.
+     sawCol: Lage im Zyklus (0 bis 1). Mit ihr als eigener Spalte ist die Steigung der Geraden direkt der mittlere
+     Abstand der Schritte; der Sprung ist das Negative ihres Faktors. */
+  var QUARTZ_SAW_N = [10, 20, 30, 60, 120];
+  function sawCol(k, N, k0) { var m = (k - k0) % N; if (m < 0) m += N; return m / N; }
+  /* Wie viele Sprünge liegen in der Aufnahme (mit je mindestens 2 Schritten davor und danach)? */
+  function sawJumps(pts, N, k0) {
+    var kmin = pts[0].k, kmax = pts[pts.length - 1].k, c = 0;
+    for (var k = kmin + 2; k <= kmax - 1; k++) if (sawCol(k, N, k0) === 0) c++;
+    return c;
+  }
+
+  /* Gerade t = c + k·P für die Quarzuhr, mit Versatz zwischen geraden und ungeraden Sekunden (der Motor wird
+     abwechselnd umgepolt), wahlweise mit Sägezahn (saw: {N, k0}) und je einem Versatz ab jedem Aussetzer. */
+  function fitQuartzModel(points, stepKs, saw) {
+    var use = points.slice(), result = null;
+    for (var iter = 0; iter < 4; iter++) {
+      var ks = (stepKs || []).filter(function (s) {
+        var nb = 0, na = 0;
+        use.forEach(function (p) { if (p.k < s) nb++; else na++; });
+        return nb >= 3 && na >= 3;
+      });
+      var P = 3 + (saw ? 1 : 0) + ks.length;
+      if (use.length < P + 8) return result;
+      var kMean = 0, tMean = 0;
+      use.forEach(function (p) { kMean += p.k; tMean += p.t; });
+      kMean /= use.length; tMean /= use.length;
+      var rowOf = function (p) {
+        var row = [1, p.k - kMean, p.parity];
+        if (saw) row.push(sawCol(p.k, saw.N, saw.k0));
+        ks.forEach(function (s) { row.push(p.k >= s ? 1 : 0); });
+        return row;
+      };
+      var A = [], b = [], i, j;
+      for (i = 0; i < P; i++) { A.push(new Array(P).fill(0)); b.push(0); }
+      use.forEach(function (p) {
+        var row = rowOf(p), y = p.t - tMean;
+        for (i = 0; i < P; i++) { b[i] += row[i] * y; for (j = 0; j < P; j++) A[i][j] += row[i] * row[j]; }
+      });
+      var x = solveN(A, b);
+      if (!x) return result;
+      var res = use.map(function (p) { var row = rowOf(p), m = 0; for (var q = 0; q < P; q++) m += row[q] * x[q]; return (p.t - tMean) - m; });
       var ss = 0;
       res.forEach(function (r) { ss += r * r; });
-      s = Math.sqrt(ss / Math.max(1, nU - 2));
-      var lim = Math.max(4 * s, 0.0005);
-      var next = use.filter(function (q, j) { return Math.abs(res[j]) <= lim; });
+      var o = 3 + (saw ? 1 : 0);
+      result = { c: x[0] + tMean - x[1] * kMean, T: x[1], d: x[2], A: A, s2: ss / Math.max(1, use.length - P), used: use.length,
+        saw: saw ? { N: saw.N, k0: saw.k0, E: x[3] } : null,
+        steps: ks.map(function (s, q) { return { k: s, dt: x[o + q] }; }) };
+      var medR = median(res);
+      var mad = 1.4826 * median(res.map(function (r) { return Math.abs(r - medR); }));
+      var lim = Math.max(4 * mad, 0.0002);
+      var next = use.filter(function (p, idx) { return Math.abs(res[idx] - medR) <= lim; });
       if (next.length === use.length) break;
       use = next;
     }
-    var kMean = 0;
-    use.forEach(function (q) { kMean += q.k; });
-    kMean /= use.length;
-    var sxx = 0;
-    use.forEach(function (q) { sxx += (q.k - kMean) * (q.k - kMean); });
-    var sigmaP = s / Math.sqrt(sxx);
-    return { ok: true, periodS: P, ppm: (P - 1) * 1e6, sigmaPpm: sigmaP * 1e6, steps: use.length, duration: duration };
+    return result;
+  }
+
+  /* Welches Modell beschreibt die Schritte am besten: ohne Sägezahn oder mit Sägezahn alle N Sekunden?
+     stepKs: alle gefundenen Sprünge (Inhibition und Aussetzer der Aufnahme). Was ein Sägezahn erklärt, zählt bei
+     ihm nicht als Aussetzer. Kosten: Quadratsumme der Reste, jeder Rest höchstens 4·s0 (Ausreisser zählen
+     begrenzt), dazu ein Aufschlag je Sägezahn und je Aussetzer, damit Rauschen allein nichts vortäuscht. Ein
+     Sägezahn, der zwei Sprünge erklärt, ist so günstiger als zwei einzelne Aussetzer. In Frage kommt nur ein
+     Sägezahn mit mindestens zwei Sprüngen in der Aufnahme. */
+  function selectQuartzModel(pts, stepKs, s0) {
+    var cap2 = 16 * s0 * s0, pen = 25 * s0 * s0;
+    var prevK = {};
+    stepKs.forEach(function (s) {
+      var pk = -Infinity;
+      pts.forEach(function (p) { if (p.k < s && p.k > pk) pk = p.k; });
+      prevK[s] = pk;
+    });
+    var costOf = function (saw) {
+      // Ein Sprung bei s gehört zum Sägezahn, wenn ein Sprung des Sägezahns zwischen dem vorherigen Schritt und s liegt
+      var steps = stepKs.filter(function (s) {
+        if (!saw) return true;
+        for (var j = s; j > prevK[s]; j--) if (sawCol(j, saw.N, saw.k0) === 0) return false;
+        return true;
+      });
+      var f = fitQuartzModel(pts, steps, saw);
+      if (!f || !(f.T > 0)) return null;
+      var c = (saw ? pen : 0) + pen * steps.length;
+      pts.forEach(function (p) { var r = p.t - stepModel(f, p); c += Math.min(r * r, cap2); });
+      return { f: f, cost: c, saw: saw, steps: steps };
+    };
+    var best = costOf(null);
+    QUARTZ_SAW_N.forEach(function (N) {
+      for (var k0 = 0; k0 < N; k0++) {
+        if (sawJumps(pts, N, k0) < 2) continue;
+        var c = costOf({ N: N, k0: k0 });
+        if (c && (!best || c.cost < best.cost)) best = c;
+      }
+    });
+    return best;
+  }
+
+  /* Zeitpunkte der Schritte. Grob: geglättete Hüllkurve (8 ms) Sekunde für Sekunde verfolgen. Fein: Beginn des
+     Klicks, d. h. die erste Überschreitung von 15 % zwischen Rauschen und Spitze. Bei vielen Quarzuhren ist ein
+     Schritt ein Bündel aus mehreren Spitzen, und welche davon am lautesten ist, wechselt von Sekunde zu Sekunde.
+     Der Beginn des Bündels wechselt nicht. */
+  function quartzTickTimes(x, fs) {
+    var q = quartzEnvelope(x, fs), env = q.env, noise = q.noise, n = env.length;
+    var sm = movingAverage(env, Math.max(1, Math.round(0.008 * fs)));
+    var smNoise = approxMedian(sm) || 1e-12;
+    var fold = foldOneSecond(sm, fs, Math.round(0.2 * fs));
+    var guess = fold.phase < Math.round(0.2 * fs) ? fold.phase + Math.round(fs) : fold.phase;
+    var r30 = Math.round(0.03 * fs), w = Math.round(0.15 * fs);
+    var anchor = argmax(sm, Math.max(0, guess - r30), Math.min(n, guess + r30 + 1));
+    var coarse = [{ k: 0, t: anchor / fs }];
+    for (var dir = -1; dir <= 1; dir += 2) {
+      var p = anchor;
+      for (var k = 1; ; k++) {
+        var pred = p + dir * fs;
+        if (pred - w < 0 || pred + w >= n) break;
+        var idx = argmax(sm, Math.round(pred - w), Math.round(pred + w) + 1);
+        if (sm[idx] >= 4 * smNoise) { coarse.push({ k: dir * k, t: idx / fs }); p = idx; }
+        else p = Math.round(pred);
+      }
+    }
+    coarse.sort(function (a, b) { return a.k - b.k; });
+    if (coarse.length < 20) return { pts: [], noise: noise };
+    var line = fitLineSteps(coarse, []);
+    if (!line) return { pts: [], noise: noise };
+    // Mitte des Suchfensters: grobe Gerade plus örtlicher Median der groben Lagen (folgt einem Aussetzer)
+    var cres = coarse.map(function (c) { return c.t - (line.c + line.T * c.k); });
+    var pre = Math.round(0.04 * fs), post = Math.round(0.03 * fs), quiet = Math.round(0.004 * fs), out = [];
+    coarse.forEach(function (c, j) {
+      if (Math.abs(cres[j]) > 0.05) return;
+      var near = cres.slice(Math.max(0, j - 4), j + 5).filter(function (r) { return Math.abs(r) <= 0.05; });
+      var mid = Math.round((line.c + line.T * c.k + median(near)) * fs);
+      var lo = mid - pre, hi = mid + post, i, M = 0;
+      if (lo < 1 || hi >= n) return;
+      for (i = lo; i <= hi; i++) if (env[i] > M) M = env[i];
+      if (M < 8 * noise) return;
+      var thr = Math.max(noise + 0.15 * (M - noise), 4 * noise);
+      for (i = lo; i < lo + quiet; i++) if (env[i] >= thr) return;   // Fenster beginnt mitten in einem Geräusch
+      for (i = lo + quiet; i <= hi; i++) if (env[i] >= thr) break;
+      if (i > hi) return;
+      out.push({ k: c.k - coarse[0].k, t: (i - 1 + (thr - env[i - 1]) / (env[i] - env[i - 1])) / fs, parity: (c.k - coarse[0].k) & 1 });
+    });
+    return { pts: out, noise: noise };
+  }
+
+  function analyzeQuartz(samples, fs) {
+    var x = samples instanceof Float32Array ? samples : Float32Array.from(samples);
+    var duration = x.length / fs;
+    var SHORT = 'Für die Eichung mindestens 2 Minuten aufnehmen. Viele Quarzuhren korrigieren ihren Gang nur einmal pro Minute; erst mit zwei solchen Korrekturen in der Aufnahme stimmt die Eichung.';
+    if (duration < 30) return { ok: false, reason: SHORT };
+    var pts = quartzTickTimes(x, fs).pts;
+    if (pts.length < 20) return { ok: false, reason: 'Zu wenige Schritte der Quarzuhr erkannt.' };
+    // Grösse des Zeitrauschens aus den Unterschieden aufeinanderfolgender Reste (unempfindlich für Sägezahn und Sprünge)
+    var f0 = fitQuartzModel(pts, [], null);
+    if (!f0) return { ok: false, reason: 'Die Schritte der Quarzuhr passen nicht zusammen.' };
+    var r0 = pts.map(function (p) { return p.t - stepModel(f0, p); }), dif = [];
+    for (var i = 1; i < r0.length; i++) dif.push(Math.abs(r0[i] - r0[i - 1]));
+    var s0 = Math.max(1.4826 * median(dif) / Math.SQRT2, 0.00001);
+    // Sprünge suchen (Inhibition und Aussetzer sehen gleich aus), Sägezahn wählen, mit ihm als Grundlage nochmals
+    // nach Aussetzern suchen. Das günstigste Modell aus allen Runden gilt.
+    var saw = null, best = null, seen = {};
+    for (var round = 0; round < 3; round++) {
+      var g = findGaps(pts, function (P, ks) { return fitQuartzModel(P, ks, saw); });
+      if (seen[g.join(',')]) break;
+      seen[g.join(',')] = true;
+      var sel = selectQuartzModel(pts, g, s0);
+      if (!sel) break;
+      if (!best || sel.cost < best.cost) best = sel;
+      saw = sel.saw;
+    }
+    var f = best && best.f;
+    if (!f || !(f.T > 0)) return { ok: false, reason: 'Die Schritte der Quarzuhr passen nicht zusammen.' };
+    // Ohne erkannten Sägezahn und kürzer als gut 2 Minuten wäre eine Quarzuhr, die sich jede Minute korrigiert,
+    // nicht sicher zu erkennen: Ihr einzelner Sprung sähe aus wie ein Aussetzer der Aufnahme. Ab 123 Schritten
+    // liegen bei 60 s immer zwei Sprünge in der Aufnahme.
+    if (!f.saw && pts[pts.length - 1].k - pts[0].k + 1 < 123) return { ok: false, reason: SHORT };
+    var inv = invertN(f.A), sigmaT = inv ? Math.sqrt(Math.max(0, inv[1][1] * f.s2)) : NaN;
+    var res = {
+      ok: true, periodS: f.T, ppm: (f.T - 1) * 1e6, sigmaPpm: sigmaT * 1e6, steps: f.used, duration: duration,
+      residualMs: +(Math.sqrt(f.s2) * 1000).toFixed(3),
+      gaps: f.steps.map(function (s) { return { k: s.k, ms: +(s.dt * 1000).toFixed(2) }; }),
+      inhibition: f.saw ? { everyS: f.saw.N, jumpMs: +(-f.saw.E * 1000).toFixed(2) } : null
+    };
+    return res;
   }
 
   var api = {
-    version: '0.2.1',
+    version: '0.2.5',
     analyze: analyze,
     analyzeQuartz: analyzeQuartz,
+    probeQuartz: probeQuartz,
     detectBph: detectBph,
     CANDIDATE_BPH: CANDIDATE_BPH,
     _internal: { fineEnvelope: fineEnvelope, bandEnvelope: bandEnvelope, chooseBand: chooseBand, highpass: highpass, templatePeaks: templatePeaks, trackBeats: trackBeats, movingAverage: movingAverage, approxMedian: approxMedian, buildTemplates: buildTemplates }

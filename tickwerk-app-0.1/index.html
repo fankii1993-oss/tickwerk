@@ -59,7 +59,12 @@
       <div class="scale-labels"><span>−20</span><span>−10</span><span>0</span><span>+10</span><span>+20</span></div>
     </div>
     <p class="verdict-line" id="mVerdict" hidden><span class="dot"></span><span id="mVerdictText"></span></p>
-    <p class="status center-status" id="status" data-kind="">Unterkante des Handys an die Krone halten, dann «Messen» tippen.</p>
+    <p class="status center-status" id="status" data-kind="">«Messen» tippen und die Unterkante des Handys an die Krone halten.</p>
+    <div class="actions center" id="mSearch" hidden><button type="button" class="btn-ghost small" id="mForce">Jetzt messen</button></div>
+    <div class="notice" id="mQuartz" hidden>
+      <p>Das klingt nach einer Quarzuhr: ein Schritt pro Sekunde. Mechanische Uhren ticken 5- bis 10-mal pro Sekunde. Eine Quarzuhr misst Tickwerk nicht als Uhr, aber mit ihr lässt sich die Handy-Uhr eichen.</p>
+      <button type="button" class="btn-ghost small" id="mQuartzGo">Handy-Uhr damit eichen</button>
+    </div>
 
     <div class="notice" id="bphWarn" hidden>
       <p id="bphWarnText"></p>
@@ -249,6 +254,7 @@
       <span class="diff-v" id="lDiff">–</span>
     </div>
     <p class="status" id="lStatus" data-kind=""></p>
+    <div class="actions center" id="lSearch" hidden><button type="button" class="btn-ghost small" id="lForce">Jetzt messen</button></div>
     <button type="button" class="btn-primary btn-big" id="lStart"><span class="prog" id="lProg"></span><span class="btn-label" id="lStartLabel">Messen</span></button>
     <button type="button" class="btn-ghost btn-big" id="lCancel">Abbrechen</button>
   </section>
@@ -287,7 +293,7 @@
       <li><span class="num">3</span><div><span class="step-t">Uhr ruhig liegen lassen</span><span class="step-s">Nicht bewegen, sonst klappert der Rotor. Einen laufenden Chronographen stoppen. Die Uhr vorher voll aufziehen.</span></div></li>
     </ol>
     <div class="card signal-card">
-      <div class="signal-txt"><span class="eyebrow">Signal</span><span>Nach etwa 6 Sekunden zeigt Tickwerk, ob das Ticken gut hörbar ist.</span></div>
+      <div class="signal-txt"><span class="eyebrow">Signal</span><span>Tickwerk hört zuerst nur zu. Sobald das Ticken klar ist, startet die Messung von selbst.</span></div>
       <svg viewBox="0 0 36 24" aria-hidden="true" class="bars-icon"><rect x="0" y="16" width="4" height="8" rx="1"/><rect x="8" y="12" width="4" height="12" rx="1"/><rect x="16" y="8" width="4" height="16" rx="1"/><rect x="24" y="4" width="4" height="20" rx="1" class="off"/><rect x="32" y="0" width="4" height="24" rx="1" class="off"/></svg>
     </div>
     <button type="button" class="btn-primary btn-big" id="gStart">Messung starten</button>
@@ -352,16 +358,26 @@
     <div class="bar"><button type="button" class="back" data-back><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span>Mehr</span></button></div>
     <h1>Einstellungen</h1>
     <div class="card">
+      <label class="switch"><input type="checkbox" id="autoStart"><span>Messung automatisch starten</span></label>
+      <p class="hint">Tickwerk hört nach «Messen» zuerst nur zu. Sobald das Ticken ein paar Sekunden lang klar ist, beginnt die Messung von selbst. So kannst du das Handy in Ruhe an die richtige Stelle halten.</p>
+    </div>
+    <div class="card">
+      <span class="card-title">Handy-Uhr eichen</span>
+      <p class="hint">Die Uhr im Handy geht selbst nicht ganz genau. Eine Quarzuhr mit tickendem Sekundenzeiger zeigt, wie viel: die Unterkante des Handys 2½ Minuten lang an die Quarzuhr halten, in einem ruhigen Raum.</p>
+      <div class="field">
+        <label for="quartzRate">Gang der Quarzuhr</label>
+        <div class="inline"><input type="number" id="quartzRate" value="0" step="0.01" min="-10" max="10" inputmode="decimal"><span class="unit">s/Tag</span></div>
+        <p class="hint">Unbekannt: 0 lassen, dann ist die Eichung auf etwa ±0,5 s/Tag genau. Genauer: die Quarzuhr heute mit time.is vergleichen und nach 1 bis 2 Wochen nochmals. Die Abweichung geteilt durch die Tage hier eintragen (geht sie vor: plus).</p>
+      </div>
+      <div class="actions">
+        <button type="button" class="btn-ghost small" id="quartzRec">Quarzuhr messen (2½ Minuten)</button>
+        <label class="btn-ghost small file-btn">Aufnahme wählen<input type="file" id="quartzFile" accept="audio/*,.wav"></label>
+      </div>
+      <p class="hint" id="quartzOut"></p>
       <div class="field">
         <label for="ppm">Korrektur Handy-Uhr</label>
         <div class="inline"><input type="number" id="ppm" value="0" step="0.1" inputmode="decimal"><span class="unit">ppm</span></div>
-        <p class="hint">Die Uhr im Handy geht selbst nicht ganz genau. Mit einer Quarzuhr-Aufnahme lässt sich der Fehler bestimmen; 1 ppm sind 0,086 s/Tag.</p>
-      </div>
-      <div class="field">
-        <span class="field-t">Quarzuhr-Aufnahme auswerten</span>
-        <p class="hint">1 bis 2 Minuten lang, mit diesem Handy aufgenommen.</p>
-        <div class="actions"><label class="btn-ghost small file-btn">Aufnahme wählen<input type="file" id="quartzFile" accept="audio/*,.wav"></label></div>
-        <p class="hint" id="quartzOut"></p>
+        <p class="hint">Wird mit der Quarzuhr bestimmt; 1 ppm sind 0,086 s/Tag. Von Hand nur ändern, wenn du den Wert kennst.</p>
       </div>
     </div>
     <div class="card">

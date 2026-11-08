@@ -17,7 +17,7 @@
   var UHREN = window.TICKWERK_UHREN || [];
   var CFG = window.TICKWERK_CONFIG || {};
   var FLAVOR = CFG.flavor === 'store' ? 'store' : 'test';
-  var APP_VERSION = '0.4.0';
+  var APP_VERSION = '0.4.2';
   var PREFIX = typeof CFG.storage === 'string' && /^[a-z][a-z0-9.]{2,30}$/.test(CFG.storage) ? CFG.storage : 'tickwerk.v1';
   var KEYS = { watches: PREFIX + '.watches', meas: PREFIX + '.measurements', settings: PREFIX + '.settings', session: PREFIX + '.session', pro: PREFIX + '.pro' };
   var PRO_SKU = typeof CFG.proSku === 'string' && /^[a-z0-9._]{1,40}$/.test(CFG.proSku) ? CFG.proSku : 'tickwerk_pro';
@@ -38,6 +38,8 @@
   var SETS = { 4: ['ZO', 'ZU', 'KU', 'KL'], 6: ['ZO', 'ZU', 'KU', 'KO', 'KL', 'KR'] };
   var C = { lume: '#B8F28A', tock: '#9FD8FF', faint: '#8A95A3', line: '#27303B', line2: '#3A4452', muted: '#AEB7C2', warn: '#F59B5E', text: '#EEF1F4', band: 'rgba(184, 242, 138, 0.10)' };
   var LIVE_FIRST = 6, LIVE_EVERY = 3, LIVE_WINDOW = 10, SETTLE = 5;
+  /* Automatischer Start: zuhören, bis das Ticken in zwei kurzen Fenstern nacheinander klar ist */
+  var SEARCH_WINDOW = 4.5, SEARCH_EVERY = 1.25, SEARCH_NEED = 2, SEARCH_KEEP = 6, SEARCH_MAX = 120, START_SKIP = 0.4;
 
   /* ---------- Speicher ---------- */
   function load(key, def) { try { var v = localStorage.getItem(key); return v ? JSON.parse(v) : def; } catch (e) { return def; } }
@@ -106,6 +108,9 @@
     ppm: Math.abs(finite(S.ppm, 0)) < 500 ? finite(S.ppm, 0) : 0,
     lagenSet: S.lagenSet === 4 ? 4 : 6,
     guideSeen: S.guideSeen === true || meas.length > 0,
+    autoStart: S.autoStart !== false,
+    quartzRate: Math.abs(finite(S.quartzRate, 0)) <= 10 ? finite(S.quartzRate, 0) : 0,
+    quartzRaw: Math.abs(finite(S.quartzRaw, NaN)) < 500 ? S.quartzRaw : null,
     testPro: S.testPro !== false,
     free: cleanFree(S.free)
   };
@@ -424,7 +429,8 @@
     var AC = window.AudioContext || window.webkitAudioContext, ctx = new AC();
     try { await ctx.resume(); } catch (e) { /* egal */ }
     var r = { o: o, owner: o.owner, stream: stream, ctx: ctx, chunks: [], n: 0, fs: ctx.sampleRate, dur: o.dur,
-      settleN: Math.round((o.settle || 0) * ctx.sampleRate), skipped: 0, peak: 0, nextLive: LIVE_FIRST, liveBusy: false };
+      phase: o.search ? 'search' : 'measure', heard: 0, good: 0, nextSearch: SEARCH_WINDOW, searchBusy: false,
+      settleN: o.search ? 0 : Math.round((o.settle || 0) * ctx.sampleRate), skipped: 0, peak: 0, nextLive: LIVE_FIRST, liveBusy: false };
     var src = ctx.createMediaStreamSource(stream);
     var sink = ctx.createGain(); sink.gain.value = 0; sink.connect(ctx.destination);
     r.src = src; r.sink = sink;
@@ -459,6 +465,12 @@
   function onChunk(r, samples, peak) {
     if (rec !== r) return;
     r.peak = Math.max(r.peak * 0.85, peak);
+    if (r.phase === 'search') {   /* nur zuhören: die letzten Sekunden behalten, für die Prüfung des Signals */
+      r.chunks.push(samples); r.n += samples.length; r.heard += samples.length;
+      var keep = Math.round(SEARCH_KEEP * r.fs);
+      while (r.chunks.length > 1 && r.n - r.chunks[0].length >= keep) r.n -= r.chunks.shift().length;
+      return;
+    }
     if (r.skipped < r.settleN) {   /* Beruhigungszeit: die Uhr liegt eben erst, diese Takte nicht verwenden */
       var drop = Math.min(r.settleN - r.skipped, samples.length);
       r.skipped += drop;
@@ -471,17 +483,60 @@
   function tick() {
     var r = rec; if (!r) return;
     var o = r.o;
+    if (r.phase === 'search') { searchTick(r); return; }
     if (r.skipped < r.settleN) { if (o.onSettle) o.onSettle(Math.ceil((r.settleN - r.skipped) / r.fs), r); return; }
     var t = r.n / r.fs;
     if (o.onTick) o.onTick(Math.max(0, Math.ceil(r.dur - t)), t / r.dur, r);
-    if (t >= r.nextLive && !r.liveBusy) {
+    if (!o.noLive && t >= r.nextLive && !r.liveBusy) {
       r.nextLive = t + LIVE_EVERY; r.liveBusy = true;
-      runJob({ samples: tailSamples(r, LIVE_WINDOW), fs: r.fs, opts: o.opts, live: true }).then(function (res) {
+      runJob({ samples: tailSamples(r, LIVE_WINDOW), fs: r.fs, opts: probeOpts(o.opts), live: true }).then(function (res) {
         r.liveBusy = false;
         if (rec === r && o.onLive) o.onLive(res);
       });
     }
   }
+  /* Wirklich Ticken gehört? Im Rauschen findet die schnelle Prüfung manchmal ein Scheinmuster: dann liegen die Schläge
+     um Millisekunden neben dem Raster und heben sich kaum vom Rauschen ab. Echtes Ticken, auch leises: unter 2 ms, über 6 dB. */
+  function heardOf(res) { return !!(res && res.ok && res.quality && res.quality.residualMs <= 2 && res.quality.snrDb >= 6); }
+  function probeOpts(op) {
+    var c = { probe: true };
+    Object.keys(op || {}).forEach(function (k) { c[k] = op[k]; });
+    return c;
+  }
+  function searchTick(r) {
+    var o = r.o, t = r.heard / r.fs;
+    if (o.onSearchTick) o.onSearchTick(t, r);
+    if (t > SEARCH_MAX) { recStop(false); if (o.onTimeout) o.onTimeout(); return; }
+    if (r.searchBusy || t < r.nextSearch || r.n < SEARCH_WINDOW * r.fs) return;
+    r.nextSearch = t + SEARCH_EVERY; r.searchBusy = true;
+    runJob({ samples: tailSamples(r, SEARCH_WINDOW), fs: r.fs, opts: probeOpts(o.opts), live: true }).then(function (res) {
+      r.searchBusy = false;
+      if (rec !== r || r.phase !== 'search') return;
+      var good = heardOf(res) && res.quality.label !== 'schwach' && res.quality.detectedFraction >= 0.85;
+      r.good = good ? r.good + 1 : 0;
+      if (o.onSearch) o.onSearch(res, r.good, t);
+      if (r.good >= SEARCH_NEED) { beginMeasure(r); return; }
+      /* Kein Uhrwerk-Ticken: vielleicht eine Quarzuhr (ein Schritt pro Sekunde)? Zweimal nacheinander erkannt → Hinweis */
+      if (!heardOf(res) && o.onQuartz && t >= 6 && !r.qBusy) {
+        r.qBusy = true;
+        runJob({ kind: 'quartzProbe', samples: tailSamples(r, 6), fs: r.fs }).then(function (qr) {
+          r.qBusy = false;
+          if (rec !== r || r.phase !== 'search') return;
+          r.quartz = qr && qr.quartz ? (r.quartz || 0) + 1 : 0;
+          if (r.quartz >= 2) { recStop(false); o.onQuartz(); }
+        });
+      }
+    });
+  }
+  /* Signal klar: ab jetzt zählt die Messzeit. Kurzes Vibrieren als Zeichen, die ersten 0,4 s danach werden verworfen. */
+  function beginMeasure(r) {
+    if (rec !== r || r.phase !== 'search') return;
+    r.phase = 'measure'; r.chunks = []; r.n = 0; r.skipped = 0; r.settleN = Math.round(START_SKIP * r.fs);
+    r.nextLive = LIVE_FIRST; r.liveBusy = false;
+    try { if (navigator.vibrate) navigator.vibrate(40); } catch (e) { /* egal */ }
+    if (r.o.onMeasureStart) r.o.onMeasureStart(r);
+  }
+  function recForceStart() { if (rec && rec.phase === 'search') beginMeasure(rec); }
   function tailSamples(r, seconds) {
     var want = Math.min(r.n, Math.round(seconds * r.fs));
     var out = new Float32Array(want), pos = want;
@@ -570,7 +625,7 @@
   function clearReadout() {
     lastShown = null; lastRec = null;
     $('mRate').textContent = '–'; $('mRate').classList.remove('live'); $('mSigma').textContent = '';
-    $('mMarker').hidden = true; $('mVerdict').hidden = true; $('bphWarn').hidden = true;
+    $('mMarker').hidden = true; $('mVerdict').hidden = true; $('bphWarn').hidden = true; $('mQuartz').hidden = true;
     $('mBe').textContent = '–'; $('mBeNote').textContent = ''; $('mAmp').textContent = '–'; $('mLift').textContent = '';
     $('mBph').textContent = '–'; $('mBphNote').textContent = 'erkannt';
     setLocks(false); setSignal(0);
@@ -578,6 +633,10 @@
     $('mStartLabel').textContent = 'Messen';
     drawTape($('mTape'), null, 'Der Papierstreifen erscheint während der Messung.');
     drawBeat($('mBeat'), null);
+  }
+  function idleHint() {
+    return settings.autoStart ? '«Messen» tippen und die Unterkante des Handys an die Krone halten. Tickwerk startet, sobald das Ticken klar ist.' :
+      'Unterkante des Handys an die Krone halten, dann «Messen» tippen.';
   }
   function renderMeasure() {
     var w = currentWatch(), k = w ? kalById(w.kaliberId) : null;
@@ -605,16 +664,41 @@
     if (rec) { recStop(true); return; }
     if (busy || opening) return;
     var w = currentWatch();
+    function measuring() {
+      $('mSearch').hidden = true;
+      $('mState').textContent = 'Misst';
+      setStatus('status', 'Messung läuft. Nichts bewegen.', 'busy');
+      drawTape($('mTape'), null, 'Der Papierstreifen erscheint nach ein paar Sekunden.');
+    }
     recStart({
-      owner: 'measure', dur: settings.dur, settle: 0, opts: watchOpts(w),
+      owner: 'measure', dur: settings.dur, search: settings.autoStart, settle: 0, opts: watchOpts(w),
       onOpening: function () { $('mStart').disabled = true; setStatus('status', 'Mikrofon wird geöffnet …', 'busy'); },
       onFail: function (msg) { $('mStart').disabled = false; setStatus('status', msg, 'err'); },
-      onBegin: function () {
+      onBegin: function (r) {
         clearReadout();
         $('mStart').disabled = false; $('mStart').classList.add('running'); setChipsDisabled(true);
-        $('mState').textContent = 'Misst';
-        setStatus('status', 'Aufnahme läuft. Nichts bewegen.', 'busy');
-        drawTape($('mTape'), null, 'Der Papierstreifen erscheint nach ein paar Sekunden.');
+        if (r.phase !== 'search') { measuring(); return; }
+        $('mState').textContent = 'Sucht das Signal';
+        $('mStartLabel').textContent = 'Abbrechen';
+        $('mSearch').hidden = false;
+        setStatus('status', 'Handy-Unterkante an die Krone halten und kurz ruhig bleiben. Sobald das Ticken klar ist, startet die Messung von selbst.', 'busy');
+        drawTape($('mTape'), null, 'Tickwerk hört zu …');
+      },
+      onSearchTick: function (t, r) { bar($('levelFill'), (20 * Math.log10(r.peak + 1e-9) + 80) / 60); },
+      onSearch: function (res, good, t) {
+        var heard = heardOf(res);
+        setSignal(heard ? qLevel(res.quality) : 0);
+        if (heard) { drawTape($('mTape'), res.trace); $('mSigma').textContent = thousands(res.bph) + ' A/h erkannt'; }
+        if (good) setStatus('status', 'Signal gut. Ruhig halten, die Messung startet gleich.', 'ok');
+        else if (heard) setStatus('status', 'Ticken erkannt, aber noch schwach. Das Handy etwas verschieben oder fester an die Krone halten.', 'busy');
+        else setStatus('status', t > 20 ? 'Noch kein klares Ticken. Ist die Uhr aufgezogen und der Raum ruhig? Sonst «Jetzt messen» tippen.' :
+          'Suche das Ticken … Handy-Unterkante an die Krone halten.', 'busy');
+      },
+      onMeasureStart: measuring,
+      onQuartz: function () { measureIdle(); $('mState').textContent = 'Bereit'; showQuartzHint(); },
+      onTimeout: function () {
+        measureIdle(); $('mState').textContent = 'Bereit';
+        setStatus('status', 'Zwei Minuten lang kein klares Ticken. Uhr aufziehen, Handy-Unterkante direkt an die Krone halten und nochmals versuchen.', 'err');
       },
       onTick: function (left, frac, r) {
         $('mStartLabel').textContent = 'Abbrechen · ' + left + ' s';
@@ -623,7 +707,7 @@
         bar($('levelFill'), (db + 80) / 60);
       },
       onLive: function (res) {
-        if (res && res.ok) {
+        if (heardOf(res)) {
           $('mRate').textContent = signed(res.rate, 1); $('mRate').classList.add('live');
           $('mSigma').textContent = 'vorläufig · ' + thousands(res.bph) + ' A/h';
           setMarker(res.rate, true); setSignal(qLevel(res.quality));
@@ -642,8 +726,12 @@
       }
     });
   }
+  function showQuartzHint() {
+    $('mQuartz').hidden = false; setSignal(0);
+    setStatus('status', 'Quarzuhr erkannt. Die Messung ist für mechanische Uhren.', '');
+  }
   function measureIdle() {
-    $('mStart').classList.remove('running'); $('mStart').disabled = false; setChipsDisabled(false);
+    $('mStart').classList.remove('running'); $('mStart').disabled = false; setChipsDisabled(false); $('mSearch').hidden = true;
     bar($('mProg'), 0); bar($('levelFill'), 0);
     $('mStartLabel').textContent = lastShown ? 'Nochmals messen' : 'Messen';
   }
@@ -658,6 +746,9 @@
         clearReadout(); lastRec = keepRec;
         $('shareBtn').hidden = !lastRec;
         setStatus('status', (res && res.reason) || 'Keine Messung möglich.', 'err');
+        runJob({ kind: 'quartzProbe', samples: samples.subarray(0, Math.min(samples.length, Math.round(12 * fs))), fs: fs }).then(function (qr) {
+          if (qr && qr.quartz && !rec && !busy) showQuartzHint();
+        });
         return;
       }
       var m = saveMeasurement(res, source, fs, { watch: w, pos: pos });
@@ -711,6 +802,12 @@
     drawBeat($('mBeat'), r.templates, r.liftTimeMs);
   }
   $('mStart').addEventListener('click', measureStart);
+  $('mForce').addEventListener('click', recForceStart);
+  $('mQuartzGo').addEventListener('click', function () {
+    $('mQuartz').hidden = true;
+    go('settings');
+    $('quartzRec').scrollIntoView({ block: 'center' });
+  });
   $('mPos').addEventListener('change', function () { settings.pos = this.value; saveSettings(); });
   $('mDur').addEventListener('change', function () { settings.dur = parseInt(this.value, 10) || 30; saveSettings(); });
   $('mLagen').addEventListener('click', function () { lagenOpen(settings.watchId); });
@@ -722,7 +819,7 @@
   function setWatch(id) {
     if (settings.watchId === id) return;
     settings.watchId = id; saveSettings();
-    clearReadout(); setStatus('status', 'Unterkante des Handys an die Krone halten, dann «Messen» tippen.', '');
+    clearReadout(); setStatus('status', idleHint(), '');
   }
   function openWatchSheet() {
     if (rec || busy) return;
@@ -842,9 +939,10 @@
     var finished = st.done && !recording;
     $('lBackLabel').textContent = stack.length > 1 && stack[stack.length - 2].s === 'watch' ? (w ? w.name : 'Zurück') : 'Messen';
     $('lStep').textContent = finished ? 'Fertig · ' + set.length + ' Lagen' : 'Lage ' + (idx + 1) + ' von ' + set.length;
-    var mins = Math.max(1, Math.round(set.length * (settings.dur + SETTLE + 15) / 60));
+    var mins = Math.max(1, Math.round(set.length * (settings.dur + (settings.autoStart ? 8 : SETTLE) + 15) / 60));
     $('lLead').textContent = finished ? 'Alle Lagen gemessen. Eine Lage lässt sich mit Tippen auf ihre Kachel wiederholen.' :
-      set.length + ' Lagen nacheinander, je ' + settings.dur + ' s. Vor jeder Messung wartet Tickwerk ' + SETTLE + ' s, bis die Uhr ruhig liegt. Etwa ' + mins + ' Minuten.';
+      set.length + ' Lagen nacheinander, je ' + settings.dur + ' s. ' + (settings.autoStart ? 'Jede Messung startet von selbst, sobald das Ticken klar ist.' :
+      'Vor jeder Messung wartet Tickwerk ' + SETTLE + ' s, bis die Uhr ruhig liegt.') + ' Etwa ' + mins + ' Minuten.';
     Array.prototype.forEach.call($('lSet').children, function (b) {
       b.setAttribute('aria-checked', String(+b.dataset.set === session.set)); b.disabled = recording;
     });
@@ -900,12 +998,31 @@
     if (busy || opening || !session) return;
     var w = lagenWatch(), pos = session.cur, sess = session.id;
     recStart({
-      owner: 'lagen', dur: settings.dur, settle: SETTLE, opts: watchOpts(w),
+      owner: 'lagen', dur: settings.dur, search: settings.autoStart, settle: settings.autoStart ? 0 : SETTLE, opts: watchOpts(w),
       onOpening: function () { $('lStart').disabled = true; setStatus('lStatus', 'Mikrofon wird geöffnet …', 'busy'); },
       onFail: function (msg) { $('lStart').disabled = false; setStatus('lStatus', msg, 'err'); },
-      onBegin: function () {
+      onBegin: function (r) {
         $('lStart').disabled = false; $('lStart').classList.add('running'); renderLagen();
-        setStatus('lStatus', 'Hände weg: Die Uhr soll ruhig liegen.', 'busy');
+        if (r.phase !== 'search') { setStatus('lStatus', 'Hände weg: Die Uhr soll ruhig liegen.', 'busy'); return; }
+        $('lSearch').hidden = false; $('lStartLabel').textContent = 'Abbrechen'; $('lNowTime').textContent = 'Hört zu …';
+        setStatus('lStatus', 'Uhr in die Lage bringen, Handy an die Krone halten. Sobald das Ticken klar ist, startet die Messung von selbst.', 'busy');
+      },
+      onSearch: function (res, good, t) {
+        var heard = heardOf(res);
+        $('lNowTime').textContent = good ? 'Signal gut · gleich geht es los' : heard ? 'Signal schwach · Handy etwas verschieben' : 'Sucht das Ticken …';
+        setStatus('lStatus', good ? 'Signal gut. Ruhig halten.' : heard ? 'Ticken erkannt, aber noch schwach.' :
+          t > 20 ? 'Noch kein klares Ticken. Uhr aufgezogen, Raum ruhig? Sonst «Jetzt messen» tippen.' : 'Suche das Ticken …', good ? 'ok' : 'busy');
+      },
+      onMeasureStart: function () { $('lSearch').hidden = true; setStatus('lStatus', 'Messung läuft. Nichts bewegen.', 'busy'); },
+      onQuartz: function () {
+        $('lStart').classList.remove('running'); $('lSearch').hidden = true;
+        setStatus('lStatus', 'Das klingt nach einer Quarzuhr (ein Schritt pro Sekunde). Den Lagen-Test gibt es nur für mechanische Uhren.', 'err');
+        if (topScreen() === 'lagen') renderLagen();
+      },
+      onTimeout: function () {
+        $('lStart').classList.remove('running'); $('lSearch').hidden = true;
+        setStatus('lStatus', 'Zwei Minuten lang kein klares Ticken. Uhr aufziehen, Handy direkt an die Krone halten und nochmals versuchen.', 'err');
+        if (topScreen() === 'lagen') renderLagen();
       },
       onSettle: function (left) { $('lNowTime').textContent = 'Hände weg · Ruhe ' + left + ' s'; $('lStartLabel').textContent = 'Abbrechen'; },
       onTick: function (left, frac) {
@@ -915,14 +1032,14 @@
       },
       onLive: function (res) {
         var el = $('lt-' + pos);
-        if (res && res.ok) {
+        if (heardOf(res)) {
           if (el) el.textContent = signed(res.rate, 1);
           setStatus('lStatus', 'Ticken erkannt · ' + thousands(res.bph) + ' A/h · vorläufig ' + signed(res.rate, 1) + ' s/Tag', 'ok');
         } else setStatus('lStatus', 'Noch kein klares Ticken. Mikrofon näher an die Krone, ohne die Uhr zu bewegen.', 'err');
       },
-      onCancel: function () { $('lStart').classList.remove('running'); setStatus('lStatus', 'Abgebrochen. Diese Lage nochmals messen.', ''); if (topScreen() === 'lagen') renderLagen(); },
+      onCancel: function () { $('lStart').classList.remove('running'); $('lSearch').hidden = true; setStatus('lStatus', 'Abgebrochen. Diese Lage nochmals messen.', ''); if (topScreen() === 'lagen') renderLagen(); },
       onDone: function (samples, fs) {
-        $('lStart').classList.remove('running'); busy = true; $('lStart').disabled = true;
+        $('lStart').classList.remove('running'); $('lSearch').hidden = true; busy = true; $('lStart').disabled = true;
         $('lStartLabel').textContent = 'Rechnet …'; bar($('lProg'), 0); $('lNowTime').textContent = 'Rechnet …';
         runJob({ samples: samples, fs: fs, opts: watchOpts(w) }).then(function (res) {
           busy = false; $('lStart').disabled = false;
@@ -948,6 +1065,7 @@
     });
   }
   $('lStart').addEventListener('click', lagenMeasure);
+  $('lForce').addEventListener('click', recForceStart);
   $('lBack').addEventListener('click', back);
   $('lCancel').addEventListener('click', function () {
     if (rec || !session) return;
@@ -1352,7 +1470,8 @@
       return { samples: out, sampleRate: ab.sampleRate };
     });
   }
-  function renderSettings() { $('ppm').value = settings.ppm || 0; }
+  function renderSettings() { $('ppm').value = settings.ppm || 0; $('autoStart').checked = settings.autoStart; $('quartzRate').value = settings.quartzRate || 0; }
+  $('autoStart').addEventListener('change', function () { settings.autoStart = this.checked; saveSettings(); if (!rec && !lastShown) setStatus('status', idleHint(), ''); });
   $('fileIn').addEventListener('change', function (e) {
     var f = e.target.files[0]; e.target.value = '';
     if (!f || rec || busy) return;
@@ -1370,7 +1489,40 @@
   });
   $('ppm').addEventListener('change', function () {
     var v = parseFloat(String(this.value).replace(',', '.'));
-    settings.ppm = isFinite(v) && Math.abs(v) < 500 ? v : 0; saveSettings();
+    settings.ppm = isFinite(v) && Math.abs(v) < 500 ? v : 0; settings.quartzRaw = null; saveSettings();
+  });
+  /* Eichung mit einer Quarzuhr: gemessene Abweichung plus eigener Gang der Quarzuhr (geht sie vor, sind ihre Schritte kürzer) */
+  function quartzPpm() { return +(settings.quartzRaw + settings.quartzRate / 0.0864).toFixed(1); }
+  function applyQuartz(q) {
+    if (!q || !q.ok) { $('quartzOut').textContent = (q && q.reason) || 'Keine Auswertung möglich.'; return; }
+    settings.quartzRaw = +q.ppm.toFixed(2);
+    settings.ppm = quartzPpm(); saveSettings(); $('ppm').value = settings.ppm;
+    $('quartzOut').textContent = 'Die Handy-Uhr geht ' + fmt(Math.abs(settings.ppm), 1) + ' ppm ' + (settings.ppm >= 0 ? 'vor' : 'nach') + ' (± ' + fmt(Math.max(0.1, q.sigmaPpm), 1) + ' ppm), das sind ' +
+      fmt(Math.abs(settings.ppm) * 0.0864, 2) + ' s/Tag' + (settings.quartzRate ? ', mit dem Gang der Quarzuhr verrechnet' : '') + '. Tickwerk korrigiert das ab jetzt bei jeder Messung (' + q.steps + ' Schritte erkannt).' +
+      (q.inhibition ? ' Deine Quarzuhr gleicht ihren Gang alle ' + q.inhibition.everyS + ' s mit einem kleinen Sprung aus (' + fmt(Math.abs(q.inhibition.jumpMs), 1) + ' ms); das ist berücksichtigt.' : '');
+  }
+  $('quartzRate').addEventListener('change', function () {
+    var v = parseFloat(String(this.value).replace(',', '.'));
+    settings.quartzRate = isFinite(v) && Math.abs(v) <= 10 ? v : 0; this.value = settings.quartzRate;
+    if (settings.quartzRaw != null) { settings.ppm = quartzPpm(); $('ppm').value = settings.ppm; }
+    saveSettings();
+  });
+  var QUARTZ_LABEL = 'Quarzuhr messen (2½ Minuten)';
+  $('quartzRec').addEventListener('click', function () {
+    if (rec && rec.owner === 'settings') { recStop(true); return; }
+    if (rec || busy || opening) return;
+    recStart({
+      owner: 'settings', dur: 150, settle: 1, noLive: true, opts: {},
+      onOpening: function () { $('quartzRec').disabled = true; $('quartzOut').textContent = 'Mikrofon wird geöffnet …'; },
+      onFail: function (msg) { $('quartzRec').disabled = false; $('quartzOut').textContent = msg; },
+      onBegin: function () { $('quartzRec').disabled = false; $('quartzRec').textContent = 'Abbrechen'; $('quartzOut').textContent = 'Aufnahme läuft. Handy ruhig an die Quarzuhr halten, nicht reden.'; },
+      onTick: function (left) { $('quartzRec').textContent = 'Abbrechen · ' + left + ' s'; },
+      onCancel: function () { $('quartzRec').textContent = QUARTZ_LABEL; $('quartzOut').textContent = 'Abgebrochen.'; },
+      onDone: function (samples, fs) {
+        $('quartzRec').textContent = QUARTZ_LABEL; $('quartzOut').textContent = 'Rechne …';
+        runJob({ kind: 'quartz', samples: samples, fs: fs }).then(applyQuartz);
+      }
+    });
   });
   $('quartzFile').addEventListener('change', function (e) {
     var f = e.target.files[0]; e.target.value = '';
@@ -1379,11 +1531,7 @@
     decodeFile(f).then(function (a) {
       var maxQ = Math.round(300 * a.sampleRate);
       return runJob({ kind: 'quartz', samples: a.samples.length > maxQ ? a.samples.subarray(0, maxQ) : a.samples, fs: a.sampleRate });
-    }).then(function (q) {
-      if (!q.ok) { $('quartzOut').textContent = q.reason; return; }
-      settings.ppm = +q.ppm.toFixed(1); saveSettings(); $('ppm').value = settings.ppm;
-      $('quartzOut').textContent = 'Die Handy-Uhr weicht um ' + fmt(q.ppm, 1) + ' ppm ab (± ' + fmt(q.sigmaPpm, 1) + '), das sind ' + fmt(q.ppm * 0.0864, 2) + ' s/Tag. Wird ab jetzt korrigiert.';
-    }).catch(function () { $('quartzOut').textContent = f.size > MAX_FILE ? f.name + ' ist zu gross (höchstens 150 MB).' : f.name + ' konnte nicht gelesen werden.'; });
+    }).then(applyQuartz).catch(function () { $('quartzOut').textContent = f.size > MAX_FILE ? f.name + ' ist zu gross (höchstens 150 MB).' : f.name + ' konnte nicht gelesen werden.'; });
   });
   $('exportBtn').addEventListener('click', function () {
     var now = new Date(), pad = function (x) { return (x < 10 ? '0' : '') + x; };
@@ -1672,7 +1820,9 @@
     row.className = 'eyebrow-row'; badge.className = 'test-badge'; badge.textContent = 'TEST';
     $('mState').parentNode.insertBefore(row, $('mState')); row.appendChild($('mState')); row.appendChild(badge);
   }
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persisted().then(function (p) { return p || navigator.storage.persist(); }).catch(function () {}); } catch (e) { /* egal */ }
   clearReadout();
+  setStatus('status', idleHint(), '');
   if (location.hash === '#mehr') { stack = [{ s: 'more', p: {} }]; history.replaceState({ tw: 0 }, '', location.pathname + location.search); }
   render();
   if (!settings.guideSeen) go('guide');
