@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="de-CH">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0B0E12">
+<meta name="description" content="Tickwerk misst mit dem Handy-Mikrofon, wie genau eine mechanische Uhr geht: Gangabweichung, Abfallfehler, Amplitude.">
+<title>Tickwerk</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/favicon-48.png" sizes="48x48">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <img src="icons/icon-192.png" alt="" width="28" height="28">
+    <span>Tickwerk</span>
+  </div>
+  <button type="button" class="btn-ghost small" id="installBtn" hidden>Installieren</button>
+</header>
+
+<main>
+  <!-- ======================= MESSEN ======================= -->
+  <section class="screen" id="screen-measure" aria-labelledby="tab-measure">
+    <div class="card">
+      <div class="row2">
+        <div class="field">
+          <label for="watch">Uhr</label>
+          <select id="watch"></select>
+        </div>
+        <div class="field">
+          <label for="position">Lage</label>
+          <select id="position">
+            <option value="ZO">Zifferblatt oben</option>
+            <option value="ZU">Zifferblatt unten</option>
+            <option value="KU">Krone unten</option>
+            <option value="KO">Krone oben</option>
+            <option value="KL">Krone links</option>
+            <option value="KR">Krone rechts</option>
+          </select>
+        </div>
+      </div>
+      <p class="hint" id="watchHint"></p>
+    </div>
+
+    <div class="card measure">
+      <button type="button" class="start" id="startBtn" aria-live="polite">
+        <svg class="ring" viewBox="0 0 120 120" aria-hidden="true">
+          <circle cx="60" cy="60" r="54" class="ring-bg"></circle>
+          <circle cx="60" cy="60" r="54" class="ring-fg" id="ringFg"></circle>
+        </svg>
+        <span class="start-label" id="startLabel">Messen</span>
+        <span class="start-sub" id="startSub">30 Sekunden</span>
+      </button>
+      <div class="seg" role="radiogroup" aria-label="Messdauer">
+        <button type="button" role="radio" data-dur="20">20 s</button>
+        <button type="button" role="radio" data-dur="30">30 s</button>
+        <button type="button" role="radio" data-dur="60">60 s</button>
+      </div>
+      <div class="live">
+        <div class="level" aria-hidden="true"><div class="level-fill" id="levelFill"></div></div>
+        <p class="status" id="status" data-kind="">Unterkante des Handys an die Krone halten, dann «Messen» tippen.</p>
+        <button type="button" class="btn-ghost small share" id="shareBtn" hidden>Aufnahme teilen (WAV)</button>
+      </div>
+      <canvas class="plot" id="liveTape" height="110" aria-label="Papierstreifen live" hidden></canvas>
+    </div>
+
+    <div class="card" id="result" hidden>
+      <h3>Gangabweichung</h3>
+      <div class="readout">
+        <span class="big" id="rate">–</span><span class="big-unit">s/Tag</span>
+      </div>
+      <span class="sigma" id="sigma"></span>
+      <div class="gauge" aria-hidden="true">
+        <div class="band"></div><div class="ticks"></div><div class="marker" id="marker"></div>
+        <div class="labels"><span style="left:0">−20</span><span style="left:50%">0</span><span style="left:100%">+20</span></div>
+      </div>
+      <p class="verdict" id="verdict"></p>
+      <dl class="metrics">
+        <div class="metric"><dt>Abfallfehler</dt><dd id="be">–</dd><small id="beNote"></small></div>
+        <div class="metric"><dt>Amplitude</dt><dd id="amp">–</dd><small id="ampNote"></small></div>
+        <div class="metric"><dt>Schlagzahl</dt><dd id="bphOut">–</dd><small>A/h</small></div>
+        <div class="metric"><dt>Signal</dt><dd id="quality">–</dd><small id="qualityNote"></small></div>
+      </dl>
+      <h3>Papierstreifen</h3>
+      <canvas class="plot" id="tape" height="200" aria-label="Papierstreifen"></canvas>
+      <p class="legend"><span>Tick</span><span class="tock">Tack</span><span class="note">Steigend: Uhr geht vor. Abstand der Linien: Abfallfehler.</span></p>
+      <h3>Ein Schlag im Detail</h3>
+      <canvas class="plot" id="beat" height="160" aria-label="Gemittelter Schlag"></canvas>
+      <div class="actions">
+        <button type="button" class="btn-ghost" id="againBtn">Nochmals messen</button>
+      </div>
+    </div>
+
+    <details class="card tips">
+      <summary>So misst du richtig</summary>
+      <ol>
+        <li>Uhr voll aufziehen und mit dem Zifferblatt nach oben auf ein gefaltetes Tuch legen.</li>
+        <li>Ruhiger Raum: kein Radio, nicht reden, Handy auf «Nicht stören».</li>
+        <li>Die Unterkante des Handys (dort ist das Mikrofon) leicht an die Krone halten.</li>
+        <li>«Messen» tippen und nichts mehr bewegen, bis die Zeit abgelaufen ist.</li>
+        <li>Für einen Lagen-Test die Messung in mehreren Lagen wiederholen.</li>
+      </ol>
+      <p class="hint">Die Aufnahme bleibt auf deinem Handy. Tickwerk schickt nichts ins Internet.</p>
+    </details>
+  </section>
+
+  <!-- ======================= VERLAUF ======================= -->
+  <section class="screen" id="screen-history" aria-labelledby="tab-history" hidden>
+    <div class="card">
+      <div class="row-between">
+        <h2>Verlauf</h2>
+        <select id="historyFilter" aria-label="Uhr auswählen"></select>
+      </div>
+      <canvas class="plot" id="historyChart" height="150" aria-label="Gang über die Zeit"></canvas>
+      <ul class="list" id="historyList"></ul>
+      <p class="hint" id="historyEmpty">Noch keine Messungen.</p>
+    </div>
+  </section>
+
+  <!-- ======================= UHREN ======================= -->
+  <section class="screen" id="screen-watches" aria-labelledby="tab-watches" hidden>
+    <div class="card">
+      <h2>Meine Uhren</h2>
+      <ul class="list" id="watchList"></ul>
+    </div>
+    <form class="card" id="watchForm" autocomplete="off">
+      <h2 id="watchFormTitle">Uhr hinzufügen</h2>
+      <div class="field">
+        <label for="wName">Name</label>
+        <input type="text" id="wName" placeholder="z. B. Omega Seamaster" required maxlength="60">
+      </div>
+      <div class="field">
+        <label for="wCal">Kaliber (Werk)</label>
+        <select id="wCal"></select>
+        <p class="hint" id="wCalNote"></p>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label for="wLift">Hebewinkel</label>
+          <div class="inline"><input type="number" id="wLift" value="52" min="30" max="70" step="0.5" inputmode="decimal"><span class="unit">Grad</span></div>
+        </div>
+        <div class="field">
+          <label for="wBph">Schlagzahl</label>
+          <select id="wBph">
+            <option value="">automatisch</option>
+            <option>12000</option><option>14400</option><option>17280</option><option>18000</option>
+            <option>19800</option><option>21600</option><option>25200</option><option>28800</option>
+            <option>36000</option><option>43200</option>
+          </select>
+        </div>
+      </div>
+      <p class="hint">Der Hebewinkel wirkt nur auf die Amplitude. Unbekannt: 52 Grad lassen.</p>
+      <div class="actions">
+        <button type="submit" class="btn-primary" id="wSave">Speichern</button>
+        <button type="button" class="btn-ghost" id="wCancel" hidden>Abbrechen</button>
+      </div>
+    </form>
+    <details class="card">
+      <summary>Erweitert</summary>
+      <div class="field">
+        <label for="ppm">Korrektur Handy-Uhr</label>
+        <div class="inline"><input type="number" id="ppm" value="0" step="0.1" inputmode="decimal"><span class="unit">ppm</span></div>
+        <p class="hint">Die Uhr im Handy geht selbst nicht ganz genau (meist weniger als 2 s/Tag). Mit einer Quarzuhr-Aufnahme lässt sich der Fehler bestimmen.</p>
+      </div>
+      <div class="field">
+        <label for="quartzFile">Quarzuhr-Aufnahme (1 bis 2 Minuten)</label>
+        <input type="file" id="quartzFile" accept="audio/*,.wav">
+        <p class="hint" id="quartzOut"></p>
+      </div>
+      <div class="field">
+        <label for="fileIn">Aufnahme aus einer Datei auswerten</label>
+        <input type="file" id="fileIn" accept="audio/*,.wav,.m4a,.mp3">
+      </div>
+      <p class="hint" id="versionInfo"></p>
+    </details>
+  </section>
+</main>
+
+<nav class="tabbar" role="tablist" aria-label="Bereiche">
+  <button type="button" role="tab" id="tab-measure" data-screen="screen-measure" aria-selected="true">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>
+    <span>Messen</span>
+  </button>
+  <button type="button" role="tab" id="tab-history" data-screen="screen-history" aria-selected="false">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18l5-6 4 3 7-9"/><path d="M4 21h16"/></svg>
+    <span>Verlauf</span>
+  </button>
+  <button type="button" role="tab" id="tab-watches" data-screen="screen-watches" aria-selected="false">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="5.5"/><path d="M9 6.5L9.8 3h4.4l.8 3.5M9 17.5l.8 3.5h4.4l.8-3.5"/></svg>
+    <span>Uhren</span>
+  </button>
+</nav>
+
+<script src="kaliber.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
