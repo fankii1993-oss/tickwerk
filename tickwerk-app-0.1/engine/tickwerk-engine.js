@@ -1036,6 +1036,11 @@
       points.push({ k: b.k, t: t, parity: b.parity, v: b.v });
     });
     var fit = fitBeats(points, findGaps(points));
+    // Ein Aussetzer der Aufnahme ist mindestens ein Audiopuffer lang (128 Abtastwerte, gut 2,5 ms). Kleinere «Stufen» hat die
+    // Suche aus einem wandernden Gang oder aus einzelnen Ausreissern gemacht; sie verfaelschen den Gang: weglassen, neu rechnen.
+    if (fit && fit.steps && fit.steps.some(function (s) { return Math.abs(s.dt) < 0.0015; })) {
+      fit = fitBeats(points, fit.steps.filter(function (s) { return Math.abs(s.dt) >= 0.0015; }).map(function (s) { return s.k; }));
+    }
     if (!fit || !isFinite(fit.T) || fit.T <= 0) {
       return { ok: false, reason: 'Auswertung nicht stabil. Bitte nochmals aufnehmen.', bph: bph };
     }
@@ -1112,20 +1117,39 @@
     var snrDb = 20 * Math.log10((medPeak + 1e-30) / noiseS);
     var rhoMed = median(okBeats.map(function (b) { return b.rho; }));
     var residualMs = fit.residualS * 1000;
+    // Streuung von Schlag zu Schlag (Jitter): Abstand zweier aufeinanderfolgender gleicher Schlaege (Tick zu Tick,
+    // Tack zu Tack) gegenueber der Geraden. Ein langsam wandernder Gang (Uhr oder Handhaltung) faellt dabei heraus:
+    // er zeigt sich im Rest um die Gerade (wanderMs) und in der Unsicherheit des Gangs, nicht in der Signalqualitaet.
+    var jitterMs = residualMs, resByK = Object.create(null), dif = [];
+    points.forEach(function (p) { resByK[p.k] = p.t - (fit.c + fit.T * p.k + fit.d * p.parity); });
+    points.forEach(function (p) { var q = resByK[p.k - 2]; if (q !== undefined) dif.push(resByK[p.k] - q); });
+    if (dif.length >= 10) {
+      var dMed = median(dif), dLim = Math.max(5 * 1.4826 * median(dif.map(function (v) { return Math.abs(v - dMed); })), 1e-5), sj = 0, nj = 0;
+      dif.forEach(function (v) { if (Math.abs(v - dMed) <= dLim) { sj += (v - dMed) * (v - dMed); nj++; } });
+      if (nj >= 10) jitterMs = Math.min(residualMs, Math.sqrt(sj / nj / 2) * 1000);
+    }
+    var wanderMs = Math.sqrt(Math.max(0, residualMs * residualMs - jitterMs * jitterMs));
     var label = 'schwach';
-    if (rhoMed >= 0.85 && detectedFraction >= 0.95 && residualMs <= 0.15) label = 'stark';
-    else if (rhoMed >= 0.6 && detectedFraction >= 0.8 && residualMs <= 0.4) label = 'mittel';
+    if (rhoMed >= 0.85 && detectedFraction >= 0.95 && jitterMs <= 0.15) label = 'stark';
+    else if (rhoMed >= 0.6 && detectedFraction >= 0.8 && jitterMs <= 0.4) label = 'mittel';
+    // Mehr als 2 ms Abweichung von der Geraden schafft kein echter Gang in einer Minute (das waeren ±25 s/Tag hin und her):
+    // dann springt der Zeitbezug zwischen Geraeuschen eines Schlags oder die Aufnahme hat Luecken. Das Signal gilt als schwach.
+    if (wanderMs > 2) label = 'schwach';
+    var quality = { label: label, snrDb: snrDb, detectedFraction: detectedFraction, residualMs: residualMs, jitterMs: jitterMs, wanderMs: wanderMs, similarity: rhoMed };
     // Die leise Ausloesung geht in schwachen Aufnahmen zuerst unter: dann keine sichere Amplitude
     if (label === 'schwach') amplitudeReliable = false;
 
     // Lieber keine Zahl als eine falsche: zu unsicher -> ablehnen
     // Suchbetrieb (opts.probe): nur fragen, ob das Ticken klar ist; die Gangzahl darf dann ungenau sein
     if (opts.probe ? (detectedFraction < 0.5 || fit.used < 12) : (detectedFraction < 0.5 || fit.used < 20 || !(rateSigma <= 2))) {
+      // Klare Schlaege, aber der Gang wandert zu stark: das ist kein schwaches Signal
+      var wandered = !opts.probe && detectedFraction >= 0.5 && fit.used >= 20 && label !== 'schwach';
       return {
         ok: false,
-        reason: 'Signal zu schwach für eine verlässliche Messung. Mikrofon näher an die Krone, ruhiger Raum.',
+        reason: wandered ? 'Der Gang schwankte während der Messung zu stark für einen verlässlichen Wert. Uhr und Handy ruhig halten, nicht drücken, und nochmals messen, am besten 60 Sekunden lang.'
+          : 'Signal zu schwach für eine verlässliche Messung. Mikrofon näher an die Krone, ruhiger Raum.',
         bph: bph,
-        quality: { label: 'schwach', snrDb: snrDb, detectedFraction: detectedFraction, residualMs: residualMs, similarity: rhoMed }
+        quality: wandered ? quality : { label: 'schwach', snrDb: snrDb, detectedFraction: detectedFraction, residualMs: residualMs, jitterMs: jitterMs, wanderMs: wanderMs, similarity: rhoMed }
       };
     }
 
@@ -1156,7 +1180,7 @@
       liftTimeMs: liftTime != null ? liftTime * 1000 : null,
       liftAngle: liftAngle,
       clockPpm: clockPpm,
-      quality: { label: label, snrDb: snrDb, detectedFraction: detectedFraction, residualMs: residualMs, similarity: rhoMed },
+      quality: quality,
       beatsUsed: fit.used,
       beatsTotal: beats.length,
       gaps: gaps,
@@ -1421,7 +1445,7 @@
   }
 
   var api = {
-    version: '0.2.5',
+    version: '0.2.6',
     analyze: analyze,
     analyzeQuartz: analyzeQuartz,
     probeQuartz: probeQuartz,

@@ -144,6 +144,7 @@ h2 { margin: 0; font-family: var(--display); font-size: 20px; font-weight: 600; 
 .status[data-kind="ok"]::before { background: var(--lume); }
 .status[data-kind="busy"]::before { background: var(--tock); }
 .status[data-kind="err"]::before { background: var(--warn); }
+.status[data-kind="warn"]::before { background: var(--warn); }
 .notice { border: 1px solid rgba(245, 155, 94, 0.45); background: rgba(245, 155, 94, 0.08); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
 .notice p { margin: 0; font-size: 14px; }
 
@@ -272,6 +273,13 @@ input[type="file"] { font-size: 13px; color: var(--muted); max-width: 100%; }
 /* Lagen-Test: eine Lage messen. Oben, wie die Uhr liegt; unten live das Ticken */
 .lp-guide { align-items: center; text-align: center; gap: 4px; padding: 16px; }
 .lp-icon { width: 150px; height: 150px; }
+/* Countdown statt Vibration: vor dem Start 3, 2, 1, im Lagen-Test danach die restlichen Sekunden */
+.count-box, .lp-count { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
+.lp-count { height: 150px; }
+.readout:not(.counting) .count-box, .readout.counting .big-row, .lp-guide:not(.counting) .lp-count, .lp-guide.counting .lp-icon { display: none; }
+.count-n { font-family: var(--display); font-size: 84px; font-weight: 600; line-height: 1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--lume); }
+.lp-count .count-n { font-size: 96px; }
+.count-t { font-size: 14px; color: var(--muted); text-align: center; }
 .lp-guide-txt { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .lp-live { gap: 10px; }
 .lp-rate { justify-content: center; }
@@ -400,3 +408,39 @@ a.back { text-decoration: none; }
 #historyFilter { align-self: flex-start; max-width: 100%; margin-top: 6px; }
 .center-status { justify-content: center; text-align: left; margin-top: -6px; }
 #mVerdict + .center-status { margin-top: -10px; }
+/* Erklärungen */
+.info { position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; margin: -6px -4px -6px 2px; padding: 0; border: 0; border-radius: 13px; background: transparent; color: var(--faint); vertical-align: middle; flex-shrink: 0; }
+.info svg { width: 15px; height: 15px; stroke-width: 1.9; }
+.info:active { color: var(--lume); }
+.ranges { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.ranges li { display: grid; grid-template-columns: minmax(96px, auto) 1fr; gap: 10px; align-items: baseline; padding: 8px 10px 8px 22px; border-radius: 10px; background: var(--inset); border: 1px solid var(--line); position: relative; font-size: 14px; }
+.ranges li::before { content: ""; position: absolute; left: 9px; top: 15px; width: 7px; height: 7px; border-radius: 4px; background: var(--faint); }
+.ranges li.good::before { background: var(--lume); }
+.ranges li.okay::before { background: var(--okay); }
+.ranges li.warn::before { background: var(--warn); }
+.ranges li.plain { padding-left: 10px; }
+.ranges li.plain::before { content: none; }
+.ranges .rg-v { font-family: var(--mono); font-size: 13px; color: var(--text); white-space: nowrap; }
+.ranges .rg-t { color: var(--muted); }
+/* Gang im Alltag, Zeitvergleich */
+.dtime { gap: 10px; }
+.dt-rate { justify-content: flex-start; }
+.dtime .sigma { text-align: left; }
+.zclock { align-items: center; gap: 2px; }
+.zclock-t { font-family: var(--display); font-size: 44px; font-weight: 600; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.ztap { width: 100%; min-height: 128px; border-radius: 28px; font-size: 26px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; margin-top: 12px; touch-action: manipulation; user-select: none; -webkit-user-select: none; }
+.ztap small { font-size: 14px; font-weight: 500; opacity: 0.8; }
+#zStep1, #zStep2 { display: flex; flex-direction: column; gap: 12px; }
+.zpick { display: flex; align-items: center; justify-content: center; gap: 18px; }
+.big-row.center { justify-content: center; }
+/* Werk-Detektiv */
+.qcard { gap: 8px; }
+.qcard .hint { display: block; }
+.seg3, .seg4 { display: grid; align-self: stretch; }
+.seg3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.seg4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.seg3 button, .seg4 button { min-width: 0; padding: 0 6px; }
+.btn-link.left { align-self: flex-start; padding-left: 0; }
+.xrows li { min-height: 58px; }
+.xrows .r-l { font-weight: 500; }
+.xrows .r-r .btn-ghost { font-family: var(--body); }

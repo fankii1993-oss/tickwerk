@@ -1,4 +1,4 @@
-# Tickwerk – Web-App 0.4.3 (Testversion)
+# Tickwerk – Web-App 0.5.1 (Testversion)
 
 Misst mit dem Handy-Mikrofon, wie genau eine mechanische Uhr geht: Gangabweichung, Abfallfehler, Amplitude, Schlagzahl. Die Aufnahme bleibt auf dem Handy; die App schickt nichts ins Internet.
 
@@ -9,6 +9,23 @@ Das ist die **Testversion** für GitHub: Pro lässt sich unter Mehr → Tickwerk
 1. Im Repository den Ordner `tickwerk-app-0.1` öffnen.
 2. **Add file → Upload files**, den ganzen Inhalt dieses Pakets hineinziehen (Dateien und die Ordner `engine`, `fonts`, `icons`), **Commit changes**. Gleichnamige Dateien werden ersetzt; deine Uhren und Messungen bleiben auf dem Handy erhalten.
 3. App auf dem Handy öffnen. Nach ein paar Sekunden erscheint «Neue Version ist bereit»; unter Mehr auf **Neue Version: neu laden** tippen.
+
+## Neu in 0.5.1
+
+- **Keine Vibration mehr beim Messen.** Das Handy liegt an der Krone; das Vibrieren konnte es verschieben, und das Mikrofon nahm es auf. Stattdessen zeigt Tickwerk einen **Countdown**: Sobald das Ticken klar ist, zählt es gross 3, 2, 1 herunter, erst dann beginnt die Messung. Im Lagen-Test steht danach gross, wie viele Sekunden noch fehlen.
+- **«Signal schwach» war oft falsch.** Waren die Klicks klar, schwankte aber der Gang während der Messung (Uhr oder unruhig gehaltenes Handy), meldete Tickwerk «Signal schwach». Jetzt beurteilt die Mess-Engine 0.2.6 das Signal nur noch an den Klicks selbst; ein wandernder Gang heisst «Gang schwankt».
+- **Was zählt:** Eine Messung zählt jetzt bis ±1,5 s/Tag (vorher ±0,5), wenn das Signal nicht schwach ist. Schwankte der Gang während der Messung, steht der Vermerk «Gang schwankt» in der Kachel, in den Listen und im Messprotokoll. Ein Lagen-Test lässt sich so auch mit einer Uhr abschliessen, deren Gang innerhalb einer Minute schwankt.
+- Lage «Krone oben»: Hinweis, das Handy nur leicht an die Krone zu halten und den Arm aufzustützen.
+- Erklärung zum Papierstreifen: neu «Spur wellig».
+
+## Neu in 0.5.0
+
+- **Englisch:** Tickwerk gibt es jetzt auch auf Englisch, samt Messprotokoll (PDF) und Datenschutzerklärung (`privacy.html`). Die Sprache folgt dem Handy (Deutsch bei deutscher Handy-Sprache, sonst Englisch) und lässt sich unter Einstellungen → «Sprache · Language» fest wählen. Zahlen, Daten und Einheiten passen sich an (z. B. «+2.1 s/day», «28,800 bph»).
+- **Erklärung zu jedem Wert:** Das (i) neben Gangabweichung, Abfallfehler, Amplitude, Schlagzahl, Hebewinkel, Papierstreifen, Signal, Lagendifferenz und Gang im Alltag erklärt den Wert und zeigt, welche Bereiche gut sind.
+- **Gang im Alltag:** Auf der Seite einer Uhr «Mit der Atomzeit vergleichen» antippen und tippen, wenn der Sekundenzeiger auf der 12 steht. Nach ein paar Vergleichen über mehrere Tage zeigt Tickwerk, wie viel die Uhr am Handgelenk pro Tag wirklich vor- oder nachgeht. Den Gang zeigt es ab 6 Stunden zwischen dem ersten und dem letzten Vergleich; ein neuer Vergleich innert 10 Minuten ersetzt den vorherigen.
+- **Werk-Detektiv:** Werk unbekannt? Die gemessene Schlagzahl und ein paar Fragen (Automatik, Handaufzug, Sekundenstopp, Datum, Chronograph) grenzen die passenden Werke ein; eines antippen, und Hebewinkel und Schlagzahl sind gesetzt.
+- Das (i) neben «Gangabweichung» liess sich nach einer Messung nicht antippen, weil die grosse Zahl darüber lag. Behoben.
+- Messprotokoll: Bei genau einer nicht gewerteten Messung steht jetzt «1 von 5 Messungen ist nicht gewertet».
 
 ## Neu in 0.4.3
 
@@ -54,7 +71,8 @@ Das ist die **Testversion** für GitHub: Pro lässt sich unter Mehr → Tickwerk
 - `worker.js` + `engine/tickwerk-engine.js` – Auswertung im Hintergrund
 - `kaliber.js` – Werke und Modellkatalog für die Suche
 - `report.js` + `logo.js` – Messprotokoll als PDF
-- `datenschutz.html` – Datenschutzerklärung
+- `en.js` – englische Texte (deutscher Text → englischer Text, gebaut aus `i18n/`)
+- `datenschutz.html`, `privacy.html` – Datenschutzerklärung auf Deutsch und Englisch
 - `sw.js`, `manifest.webmanifest`, `icons/` – Installation und Offline-Betrieb
 - `fonts/` – Schriften (SIL Open Font License, siehe OFL-Dateien)
 
