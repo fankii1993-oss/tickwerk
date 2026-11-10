@@ -1,4 +1,4 @@
-# Tickwerk – Web-App 0.6.1 (Testversion)
+# Tickwerk – Web-App 0.6.2 (Testversion)
 
 Misst mit dem Handy-Mikrofon, wie genau eine mechanische Uhr geht: Gangabweichung, Abfallfehler, Amplitude, Schlagzahl. Die Aufnahme bleibt auf dem Handy; die App schickt nichts ins Internet.
 
@@ -9,6 +9,23 @@ Das ist die **Testversion** für GitHub: Pro lässt sich unter Mehr → Tickwerk
 1. Im Repository den Ordner `tickwerk-app-0.1` öffnen.
 2. **Add file → Upload files**, den ganzen Inhalt dieses Pakets hineinziehen (Dateien und die Ordner `engine`, `fonts`, `icons`), **Commit changes**. Gleichnamige Dateien werden ersetzt; deine Uhren und Messungen bleiben auf dem Handy erhalten.
 3. App auf dem Handy öffnen. Nach ein paar Sekunden erscheint «Neue Version ist bereit»; unter Mehr auf **Neue Version: neu laden** tippen.
+
+## Neu in 0.6.2
+
+Aufgeräumt: Die Funktionen sind dieselben wie in 0.6.1, sie sind aber leichter zu finden und die Seiten sind kürzer.
+
+- **Werkzeuge an einem Ort:** Lagen-Test, Regulieren, Gangreserve-Test, Gang im Alltag, Werk-Detektiv und «Handy-Uhr eichen» stehen in einer Liste: unter «Messen» hinter dem Knopf «Werkzeuge» und unter «Mehr» in der Gruppe «Werkzeuge». Ist etwas fällig (eine Messung des Gangreserve-Tests, ein Zeitvergleich, eine alte Eichung), steht es dort in der Zeile.
+- **Messen passt auf einen Bildschirm:** Lage, Messdauer und «Werkzeuge» stehen in einer Zeile. Während der Messung steht der Papierstreifen direkt unter der grossen Zahl; nach der Messung ist er ohne Scrollen zu sehen. Oben steht dann «Gespeichert» mit der Uhrzeit, die ganze Zeile «Gespeichert bei …» steht unter dem Streifen. Unter dem Namen der Uhr heisst es kurz «geeicht» statt «Handy-Uhr korrigiert».
+- **Seite der Uhr:** Zuoberst steht, was fällig ist, mit einem Knopf direkt zur Messung. Darunter «Jetzt messen» und «Lagen-Test». «Gang im Alltag», «Gangreserve-Test», «Letzter Lagen-Test» und «Letzte Messungen» lassen sich auf- und zuklappen; zugeklappt zeigen sie das Wichtigste in einer Zeile. Tickwerk merkt sich, was offen war. «Uhr bearbeiten» ist der Stift oben rechts.
+- **Handy-Uhr eichen ist eine eigene Seite:** oben der Wert und für welches Mikrofon er gilt, dann drei Schritte und «Quarzuhr messen». «Noch genauer eichen» (Gang der Quarzuhr) und «Korrektur von Hand eintragen» sind aufklappbar. Zu erreichen über die Werkzeuge oder über Einstellungen → «Eichung öffnen».
+- **Eichung mit Datum:** Tickwerk merkt sich, wann geeicht wurde, und zeigt es an. Nach etwa sechs Monaten steht bei der Eichung «am besten neu eichen», und beim Öffnen der App erscheint ein Hinweis, höchstens einmal im Monat. Das Datum steckt auch in der Sicherung. Eichungen aus älteren Versionen haben kein Datum («Datum der Eichung unbekannt») und lösen keinen Hinweis aus. Kommt die Eichung aus einer Sicherung, weist Tickwerk darauf hin: Auf einem anderen Handy gilt sie nicht, dort neu eichen.
+- **Einstellungen sind kürzer:** Sprache, Messung, Mikrofon, Eichung (ein Knopf), Datei auswerten, Daten sichern.
+- Gangreserve-Test: Was nach einer Messung für den Test gilt, steht in einem eigenen Kasten mit dem Knopf «Zum Gangreserve-Test».
+- **Französisch und Italienisch:** 17 Texte, die bisher deutsch blieben, sind übersetzt: die Titel der Hinweise auf der Seite der Uhr («Im Chronometer-Bereich», «Amplitude niedrig» …), «angenommen» und «bestätigt» beim Hebewinkel, «hoch» beim Abfallfehler und einige Fehlermeldungen.
+- Behoben: Der Hinweis in einer leeren Grafik («Der Papierstreifen erscheint während der Messung.») war auf schmalen Handys abgeschnitten; er steht jetzt mittig und bricht um.
+- Behoben: In den Balken «Gangabweichung» konnten «+6» und «−4» auf der Zahl des letzten Balkens liegen, und die gestrichelte Linie lief durch die Zahlen.
+- Behoben: In Kacheln mit langer Beschriftung («Senkrecht − waagrecht») rutschte das (i) allein auf eine neue Zeile.
+- Behoben: Das (i) neben «Signal» war nur ein grauer Punkt.
 
 ## Neu in 0.6.1
 

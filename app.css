@@ -1,4 +1,4 @@
-/* Tickwerk – Web-App 0.4. Dunkel wie das Display einer Zeitwaage, Akzent wie Leuchtmasse. */
+/* Tickwerk – Web-App 0.6. Dunkel wie das Display einer Zeitwaage, Akzent wie Leuchtmasse. */
 @font-face { font-family: 'Inter'; font-weight: 400; font-display: swap; src: url(fonts/inter-latin-400-normal.woff2) format('woff2'); }
 @font-face { font-family: 'Inter'; font-weight: 500; font-display: swap; src: url(fonts/inter-latin-500-normal.woff2) format('woff2'); }
 @font-face { font-family: 'Inter'; font-weight: 600; font-display: swap; src: url(fonts/inter-latin-600-normal.woff2) format('woff2'); }
@@ -94,7 +94,6 @@ h2 { margin: 0; font-family: var(--display); font-size: 20px; font-weight: 600; 
 .chip::after { content: ""; position: absolute; right: 13px; top: 14px; width: 6px; height: 6px; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(45deg); pointer-events: none; }
 .chip-btn { padding: 0 14px; font-weight: 500; }
 .chip-btn::after { content: none; }
-.chip-break { flex-basis: 100%; height: 0; margin-top: -8px; }
 .chip select option { background: var(--surface); color: var(--text); }
 
 /* Anzeige */
@@ -130,7 +129,8 @@ h2 { margin: 0; font-family: var(--display); font-size: 20px; font-weight: 600; 
 .mval.locked { color: var(--dim); }
 .tape-card { padding: 12px 14px; gap: 8px; }
 .signal { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
-.signal svg { width: 16px; height: 14px; fill: var(--line2); stroke: none; }
+.signal > svg { width: 16px; height: 14px; fill: var(--line2); stroke: none; flex-shrink: 0; }
+.signal { white-space: nowrap; }
 .signal[data-level="1"] rect:nth-child(-n+1), .signal[data-level="2"] rect:nth-child(-n+2), .signal[data-level="3"] rect:nth-child(-n+3), .signal[data-level="4"] rect { fill: var(--lume); }
 .plot { width: 100%; display: block; border-radius: 8px; background: var(--inset); }
 .level { height: 4px; border-radius: 2px; background: var(--inset); overflow: hidden; }
@@ -459,3 +459,60 @@ a.back { text-decoration: none; }
 .wcard-due { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--lume); }
 .wcard-due::before { content: ""; width: 7px; height: 7px; border-radius: 4px; background: var(--lume); flex-shrink: 0; }
 .card-head { display: flex; flex-direction: column; gap: 2px; }
+
+/* ---------- 0.6.2 ---------- */
+/* Messen: alles Wichtige ohne Scrollen. Während der Aufnahme rückt der Papierstreifen über die Werte,
+   nach der Messung steht «Gespeichert …» unter dem Papierstreifen. */
+main { padding-top: calc(14px + env(safe-area-inset-top)); }
+#scr-measure { gap: 12px; }
+#scr-measure .mrow { min-height: 42px; }
+#scr-measure .scale-track { height: 34px; }
+#scr-measure .center-status, #scr-measure #mVerdict + .center-status { margin-top: -2px; }
+#mDetails, #mStart, #mActions { order: 2; }
+#scr-measure.is-running .mlist, #scr-measure.is-running #mFree { order: 1; }
+#scr-measure.has-result #status { order: 1; }
+.chip select { padding: 0 28px 0 13px; }
+.chip::after { right: 12px; }
+.chip-btn { padding: 0 13px; }
+.btn-primary.small { min-height: 36px; border-radius: 18px; padding: 0 14px; font-size: 13px; }
+
+/* Seite der Uhr: Fälliges oben, Karten zum Aufklappen */
+.bar-btns { display: flex; gap: 8px; flex-shrink: 0; }
+.actions.grow > * { flex: 1 1 auto; }
+.due { display: flex; flex-direction: column; gap: 8px; }
+.due .notice p { font-size: 14px; font-weight: 600; }
+.tile { position: relative; }
+.tile > .info { position: absolute; right: 2px; top: 25px; margin: 0; }
+.fold { padding: 0; gap: 0; }
+.fold > summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 50px; padding: 0 12px 0 16px; cursor: pointer; list-style: none; border-radius: 16px; }
+.fold > summary::-webkit-details-marker { display: none; }
+.fold-t { display: flex; align-items: center; min-width: 0; }
+.fold-r { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.fold-r .mono-sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chev { width: 18px; height: 18px; color: var(--faint); flex-shrink: 0; transition: transform 0.15s ease; }
+.fold[open] .chev { transform: rotate(180deg); }
+.fold-body { display: flex; flex-direction: column; gap: 10px; padding: 0 16px 14px; min-width: 0; }
+@media (prefers-reduced-motion: reduce) { .chev { transition: none; } }
+
+/* Mehr und Werkzeuge */
+.section.gap { gap: 8px; }
+.menu .pro-tag { vertical-align: 2px; }
+.sheet .menu { background: var(--inset); }
+.menu button[data-due] .menu-s { color: var(--lume); }
+
+/* Handy-Uhr eichen */
+.cal-card { gap: 6px; }
+.sigma.left { text-align: left; }
+.btn-link.file-btn { display: inline-flex; align-items: center; cursor: pointer; }
+.details .field { margin-top: 10px; }
+.fold-body > .actions { align-items: center; }
+.fold-body > .actions > .info { margin: 0 -6px 0 auto; }
+#quartzOut:empty { display: none; }
+
+/* Balken «Gangabweichung»: eigener Rand rechts für «+6» und «−4», damit sie nie auf der Zahl eines Balkens liegen */
+.bars, .bar-labels { padding-right: 22px; }
+
+/* Kacheln mit Wert: Das (i) bleibt neben der Beschriftung, auch wenn diese umbricht (bisher rutschte es allein auf eine neue Zeile) */
+.metric dt { display: flex; align-items: center; }
+/* Zahl über einem Balken: eigener Grund, damit die gestrichelte Linie «+6» nicht durch die Zahl läuft */
+.bar-col b { padding: 0 3px; border-radius: 3px; background: var(--surface); }
