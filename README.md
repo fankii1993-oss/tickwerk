@@ -1,4 +1,4 @@
-# Tickwerk – Web-App 0.5.1 (Testversion)
+# Tickwerk – Web-App 0.6.1 (Testversion)
 
 Misst mit dem Handy-Mikrofon, wie genau eine mechanische Uhr geht: Gangabweichung, Abfallfehler, Amplitude, Schlagzahl. Die Aufnahme bleibt auf dem Handy; die App schickt nichts ins Internet.
 
@@ -10,11 +10,31 @@ Das ist die **Testversion** für GitHub: Pro lässt sich unter Mehr → Tickwerk
 2. **Add file → Upload files**, den ganzen Inhalt dieses Pakets hineinziehen (Dateien und die Ordner `engine`, `fonts`, `icons`), **Commit changes**. Gleichnamige Dateien werden ersetzt; deine Uhren und Messungen bleiben auf dem Handy erhalten.
 3. App auf dem Handy öffnen. Nach ein paar Sekunden erscheint «Neue Version ist bereit»; unter Mehr auf **Neue Version: neu laden** tippen.
 
+## Neu in 0.6.1
+
+- **Eichung je Mikrofon:** Die Korrektur der Handy-Uhr gilt jetzt für das Mikrofon, mit dem geeicht wurde. Wer ein angestecktes Mikrofon wählt und damit «Quarzuhr messen» macht, bekommt einen eigenen Wert; beim Wechsel des Mikrofons wechselt der Wert mit. Ein gewähltes, noch nicht geeichtes Mikrofon wird nicht korrigiert, unter «Messen» steht dann «ungeeicht». Fehlt das gewählte Mikrofon beim Messen, nimmt Tickwerk das eingebaute mit dessen Eichung. Die bisherige Eichung gilt weiter fürs eingebaute Mikrofon.
+
+## Neu in 0.6.0
+
+- **Regulieren (Pro):** Unter «Messen» neben dem Lagen-Test. Tickwerk zeigt den Gang laufend, alle zwei Sekunden neu, dazu Abfallfehler, Amplitude, den Verlauf der letzten Minuten und den Papierstreifen. Gemittelt werden die letzten 6 bis 15 Sekunden. Stört etwas (Arbeit am Werk) oder ändert sich der Gang deutlich, merkt Tickwerk das, sucht die Stelle der Änderung und mittelt ab dort neu. Gespeichert wird nichts; nach 10 Minuten hält Tickwerk von selbst an.
+- **Gangreserve-Test (Pro):** Auf der Seite einer Uhr. Voll aufgezogen messen, die Uhr 24 Stunden liegen lassen und nochmals messen, freiwillig auch nach 36 Stunden. Tickwerk vergleicht Amplitude und Gang und sagt, ob die Zugfeder noch genug Kraft hat. Gemessen wird immer mit dem Zifferblatt oben. «Uhr ist stehen geblieben» schliesst den Test ab.
+- **Erinnerungen:** Für die nächste Messung des Gangreserve-Tests und den nächsten Zeitvergleich (Gang im Alltag) gibt es «Google Kalender» und «Kalenderdatei (.ics)». Ist etwas fällig, steht es bei der Uhr in «Meine Uhren», und beim Öffnen der App erscheint ein Hinweis.
+- **Mikrofon wählen (Pro):** Unter Einstellungen → «Mikrofone suchen», dann eines wählen, zum Beispiel ein angestecktes über USB-C. Ist es beim Messen nicht da, nimmt Tickwerk das Standard-Mikrofon und sagt es.
+- **Ergebnis als Bild teilen (gratis):** Nach einer Messung und beim Lagen-Test «Als Bild teilen»: ein Bild 1080 × 1350 mit Gang, Skala, Wertung, Werten und Papierstreifen. Abfallfehler und Amplitude stehen nur darauf, wenn die Messung sie zeigt.
+- **Französisch und Italienisch:** Die ganze App, das Messprotokoll und die Datenschutzerklärung (`privacy-fr.html`, `privacy-it.html`). «Automatisch» folgt der Sprache des Handys; fest wählbar unter Einstellungen → «Sprache · Language».
+- Messen: «Lagen-Test» und «Regulieren» stehen in einer eigenen Zeile unter Lage und Messdauer.
+- Kleinigkeiten: Beschriftung «Hebezeit» und «Gemessen am» waren auf Englisch noch deutsch.
+
+## Neu in 0.5.2
+
+- **Zählregel angepasst:** Eine Messung zählt wieder bis ±0,5 s/Tag. Nur wenn die Klicks klar sind, der Gang aber während der Messung schwankt, zählt sie bis ±1,5 s/Tag, mit dem Vermerk «Gang könnte schwanken» in der Kachel, in den Listen und im Messprotokoll. Das ersetzt die Regel aus 0.5.1.
+- Lagen-Test: Die Texte in den Kacheln dürfen zwei Zeilen haben und werden nicht mehr abgeschnitten.
+
 ## Neu in 0.5.1
 
 - **Keine Vibration mehr beim Messen.** Das Handy liegt an der Krone; das Vibrieren konnte es verschieben, und das Mikrofon nahm es auf. Stattdessen zeigt Tickwerk einen **Countdown**: Sobald das Ticken klar ist, zählt es gross 3, 2, 1 herunter, erst dann beginnt die Messung. Im Lagen-Test steht danach gross, wie viele Sekunden noch fehlen.
 - **«Signal schwach» war oft falsch.** Waren die Klicks klar, schwankte aber der Gang während der Messung (Uhr oder unruhig gehaltenes Handy), meldete Tickwerk «Signal schwach». Jetzt beurteilt die Mess-Engine 0.2.6 das Signal nur noch an den Klicks selbst; ein wandernder Gang heisst «Gang schwankt».
-- **Was zählt:** Eine Messung zählt jetzt bis ±1,5 s/Tag (vorher ±0,5), wenn das Signal nicht schwach ist. Schwankte der Gang während der Messung, steht der Vermerk «Gang schwankt» in der Kachel, in den Listen und im Messprotokoll. Ein Lagen-Test lässt sich so auch mit einer Uhr abschliessen, deren Gang innerhalb einer Minute schwankt.
+- **Was zählt:** Schwankte der Gang während der Messung, zählt eine Messung mit Vermerk bis ±1,5 s/Tag (in 0.5.2 genauer gefasst, siehe oben). Ein Lagen-Test lässt sich so auch mit einer Uhr abschliessen, deren Gang innerhalb einer Minute schwankt.
 - Lage «Krone oben»: Hinweis, das Handy nur leicht an die Krone zu halten und den Arm aufzustützen.
 - Erklärung zum Papierstreifen: neu «Spur wellig».
 

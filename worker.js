@@ -11,6 +11,9 @@ self.onmessage = function (e) {
   }
   if (d.live && r && r.ok) {
     r = { ok: true, live: true, bph: r.bph, rate: r.rate, rateSigma: r.rateSigma, quality: r.quality, trace: r.trace };
+  } else if (d.reg && r && r.ok) {   /* Regulieren: dazu Abfallfehler, Amplitude und das Frequenzband, ohne die Schlagbilder */
+    r = { ok: true, live: true, bph: r.bph, rate: r.rate, rateSigma: r.rateSigma, quality: r.quality, trace: r.trace, band: r.band,
+      beatErrorMs: r.beatErrorMs, beatErrorReliable: r.beatErrorReliable, amplitude: r.amplitude, amplitudeReliable: r.amplitudeReliable, liftAngle: r.liftAngle };
   }
   self.postMessage({ id: d.id, r: r, version: self.Tickwerk.version });
 };

@@ -94,6 +94,7 @@ h2 { margin: 0; font-family: var(--display); font-size: 20px; font-weight: 600; 
 .chip::after { content: ""; position: absolute; right: 13px; top: 14px; width: 6px; height: 6px; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(45deg); pointer-events: none; }
 .chip-btn { padding: 0 14px; font-weight: 500; }
 .chip-btn::after { content: none; }
+.chip-break { flex-basis: 100%; height: 0; margin-top: -8px; }
 .chip select option { background: var(--surface); color: var(--text); }
 
 /* Anzeige */
@@ -256,7 +257,7 @@ input[type="file"] { font-size: 13px; color: var(--muted); max-width: 100%; }
 .ltile .lt-h { font-size: 13px; line-height: 1.3; color: var(--muted); }
 .ltile .lt-v { font-family: var(--display); font-size: 18px; font-weight: 600; line-height: 1.25; font-variant-numeric: tabular-nums; }
 .ltile .lt-v small { font: 400 11px var(--mono); color: var(--faint); }
-.ltile .lt-s { font: 400 11.5px var(--mono); color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ltile .lt-s { font: 400 11.5px var(--mono); line-height: 1.35; color: var(--faint); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .ltile .lt-check { position: absolute; top: 8px; right: 8px; width: 16px; height: 16px; color: var(--lume); stroke-width: 2.4; }
 .ltile.done .lt-txt { padding-right: 14px; }
 .ltile.next { background: var(--lume-tint); border-color: var(--lume); }
@@ -283,6 +284,8 @@ input[type="file"] { font-size: 13px; color: var(--muted); max-width: 100%; }
 .lp-guide-txt { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .lp-live { gap: 10px; }
 .lp-rate { justify-content: center; }
+.reg-live { gap: 10px; }
+.reg-rate { justify-content: center; }
 .dlagen { gap: 12px; }
 .rows.lrows li { min-height: 42px; }
 /* Werk: Suchfeld mit Vorschlägen */
@@ -444,3 +447,15 @@ a.back { text-decoration: none; }
 .xrows li { min-height: 58px; }
 .xrows .r-l { font-weight: 500; }
 .xrows .r-r .btn-ghost { font-family: var(--body); }
+
+/* Gangreserve-Test und Erinnerungen */
+.remind { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line-soft); }
+.remind-t { font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
+.remind-t.due { color: var(--lume); }
+.btn-a { display: inline-flex; align-items: center; text-decoration: none; }
+.verdict-line.left { justify-content: flex-start; text-align: left; align-items: flex-start; }
+.verdict-line.left .dot { margin-top: 7px; }
+.gr-notice { border-color: rgba(184, 242, 138, 0.45); background: var(--lume-tint); }
+.wcard-due { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--lume); }
+.wcard-due::before { content: ""; width: 7px; height: 7px; border-radius: 4px; background: var(--lume); flex-shrink: 0; }
+.card-head { display: flex; flex-direction: column; gap: 2px; }

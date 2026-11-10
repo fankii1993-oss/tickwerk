@@ -1,28 +1,33 @@
-/* Tickwerk Web-App 0.5: Messen, Lagen-Test, Uhren, Verlauf, Gang im Alltag, Werk-Detektiv, Pro, Deutsch und Englisch. */
+/* Tickwerk Web-App 0.6: Messen, Lagen-Test, Regulieren, Gangreserve-Test, Uhren, Verlauf, Gang im Alltag, Werk-Detektiv, Pro.
+   Deutsch, Englisch, Französisch und Italienisch. */
 (function () {
   'use strict';
 
-  /* ---------- Sprache: Deutsch ist die Quelle, Englisch kommt aus dem Wörterbuch en.js (Schlüssel = deutscher Text).
-     «Automatisch» folgt der Sprache des Handys: Deutsch bei de-*, sonst Englisch. ---------- */
-  var EN = window.TICKWERK_EN || {};
+  /* ---------- Sprache: Deutsch ist die Quelle, die anderen kommen aus den Wörterbüchern en.js, fr.js und it.js
+     (Schlüssel = deutscher Text). «Automatisch» folgt der Sprache des Handys: Deutsch, Französisch oder Italienisch,
+     sonst Englisch. ---------- */
+  var LANGS = ['de', 'en', 'fr', 'it'];
   var LANG = (function () {
     var cfg = window.TICKWERK_CONFIG || {}, v = 'auto';
     var pre = typeof cfg.storage === 'string' && /^[a-z][a-z0-9.]{2,30}$/.test(cfg.storage) ? cfg.storage : 'tickwerk.v1';
-    try { var s0 = JSON.parse(localStorage.getItem(pre + '.settings') || '{}'); if (s0 && (s0.lang === 'de' || s0.lang === 'en')) v = s0.lang; } catch (e) { /* egal */ }
-    if (v === 'auto') v = /^de(\b|-|_|$)/i.test(navigator.language || '') ? 'de' : 'en';
+    try { var s0 = JSON.parse(localStorage.getItem(pre + '.settings') || '{}'); if (s0 && LANGS.indexOf(s0.lang) >= 0) v = s0.lang; } catch (e) { /* egal */ }
+    if (v === 'auto') { var nl = String(navigator.language || '').toLowerCase().slice(0, 2); v = LANGS.indexOf(nl) >= 0 ? nl : 'en'; }
     return v;
   })();
-  var LOC = LANG === 'en' ? 'en-GB' : 'de-CH';
+  var I18N = window.TICKWERK_I18N || {};
+  var EN = LANG !== 'de' && I18N[LANG] ? I18N[LANG] : {};   /* Wörterbuch der gewählten Sprache */
+  var LOC = { de: 'de-CH', en: 'en-GB', fr: 'fr-CH', it: 'it-CH' }[LANG];
+  var PRIVACY = { de: 'datenschutz.html', en: 'privacy.html', fr: 'privacy-fr.html', it: 'privacy-it.html' }[LANG];
   function hasKey(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
   /* T('Text') übersetzt; T('Noch {n} Messungen', { n: 3 }) setzt Werte ein */
   function T(s, v) {
-    var out = LANG === 'en' && typeof s === 'string' && hasKey(EN, s) ? EN[s] : s;
+    var out = typeof s === 'string' && hasKey(EN, s) ? EN[s] : s;
     if (v) out = String(out).replace(/\{(\w+)\}/g, function (m, k) { return hasKey(v, k) ? String(v[k]) : m; });
     return out;
   }
   /* Feste Texte der Seite (Textknoten und Beschriftungen) einmal beim Start übersetzen */
   function translateStatic(root) {
-    if (LANG !== 'en') return;
+    if (LANG === 'de') return;
     var w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null), n, nodes = [];
     while ((n = w.nextNode())) nodes.push(n);
     nodes.forEach(function (node) {
@@ -30,7 +35,7 @@
       if (p === 'SCRIPT' || p === 'STYLE') return;
       var raw = node.nodeValue, key = raw.replace(/\s+/g, ' ').trim();
       if (key && hasKey(EN, key)) node.nodeValue = raw.match(/^\s*/)[0] + EN[key] + raw.match(/\s*$/)[0];
-      else if (/^[\d’]+$/.test(key) && key.indexOf('’') > 0) node.nodeValue = raw.replace(/’/g, ',');   /* Zahlen wie 28’800 -> 28,800 */
+      else if (LANG === 'en' && /^[\d’]+$/.test(key) && key.indexOf('’') > 0) node.nodeValue = raw.replace(/’/g, ',');   /* Zahlen wie 28’800 -> 28,800 */
     });
     Array.prototype.forEach.call(root.querySelectorAll('[placeholder],[aria-label],[title],[alt]'), function (el) {
       ['placeholder', 'aria-label', 'title', 'alt'].forEach(function (a) {
@@ -39,10 +44,10 @@
       });
     });
   }
-  document.documentElement.lang = LANG === 'en' ? 'en' : 'de-CH';
-  if (LANG === 'en') {
+  document.documentElement.lang = { de: 'de-CH', en: 'en', fr: 'fr-CH', it: 'it-CH' }[LANG];
+  if (LANG !== 'de') {
     document.title = T(document.title); translateStatic(document.body);
-    Array.prototype.forEach.call(document.querySelectorAll('a[href="datenschutz.html"]'), function (a) { a.setAttribute('href', 'privacy.html'); });
+    Array.prototype.forEach.call(document.querySelectorAll('a[href="datenschutz.html"]'), function (a) { a.setAttribute('href', PRIVACY); });
   }
 
   /* Nicht eingebettet in fremden Seiten laufen (Schutz vor untergeschobenen Klicks) */
@@ -60,7 +65,7 @@
   var UHREN = window.TICKWERK_UHREN || [];
   var CFG = window.TICKWERK_CONFIG || {};
   var FLAVOR = CFG.flavor === 'store' ? 'store' : 'test';
-  var APP_VERSION = '0.5.1';
+  var APP_VERSION = '0.6.1';
   var PREFIX = typeof CFG.storage === 'string' && /^[a-z][a-z0-9.]{2,30}$/.test(CFG.storage) ? CFG.storage : 'tickwerk.v1';
   var KEYS = { watches: PREFIX + '.watches', meas: PREFIX + '.measurements', settings: PREFIX + '.settings', session: PREFIX + '.session', pro: PREFIX + '.pro' };
   var PRO_SKU = typeof CFG.proSku === 'string' && /^[a-z0-9._]{1,40}$/.test(CFG.proSku) ? CFG.proSku : 'tickwerk_pro';
@@ -85,7 +90,7 @@
   var SEARCH_WINDOW = 4.5, SEARCH_EVERY = 1.25, SEARCH_NEED = 2, SEARCH_KEEP = 6, SEARCH_MAX = 120;
   /* Countdown vor jeder Messung (statt Vibration): so lange hört Tickwerk schon zu, verwendet die Takte aber noch nicht */
   var COUNTDOWN = 3;
-  /* Gezählt wird bis ±1,5 s/Tag; über ±0,5 s/Tag (oder wenn der Gang während der Messung schwankt) mit Vermerk */
+  /* Gezählt wird bis ±0,5 s/Tag. Sind die Klicks klar, schwankt aber der Gang während der Messung, bis ±1,5 s/Tag mit Vermerk */
   var SIGMA_COUNT = 1.5, SIGMA_SURE = 0.5;
 
   /* ---------- Speicher ---------- */
@@ -106,6 +111,12 @@
       return !isNaN(d.getTime()) && isFinite(o) && Math.abs(o) < 86400 ? { t: d.toISOString(), o: Math.round(o * 100) / 100 } : null;
     }).filter(Boolean).sort(function (a, b) { return new Date(a.t) - new Date(b.t); });
     if (tv.length) out.tv = tv;
+    /* Gangreserve-Test: Kennung, Zeitpunkt der ersten Messung (voll aufgezogen), allenfalls «stehen geblieben» */
+    if (w.gr && typeof w.gr === 'object' && typeof w.gr.id === 'string' && /^[A-Za-z0-9]{1,24}$/.test(w.gr.id)) {
+      var g0 = new Date(str(w.gr.t0, 40)), gs = new Date(str(w.gr.stop, 40));
+      out.gr = { id: str(w.gr.id, 24), t0: isNaN(g0.getTime()) ? '' : g0.toISOString() };
+      if (out.gr.t0 && !isNaN(gs.getTime())) out.gr.stop = gs.toISOString();
+    }
     return out;
   }
   function cleanTrace(tr) {
@@ -134,6 +145,7 @@
     if (m.fp === true) out.fp = true;
     if (str(m.sess, 40)) out.sess = str(m.sess, 40);
     if (m.lset === 4 || m.lset === 6) out.lset = m.lset;
+    if (typeof m.gr === 'string' && /^[A-Za-z0-9]{1,24}$/.test(m.gr)) { out.gr = m.gr; out.grs = m.grs === 1 || m.grs === 2 ? m.grs : 0; }
     var tr = cleanTrace(m.tr); if (tr) out.tr = tr;
     return out;
   }
@@ -164,11 +176,13 @@
     lagenSet: S.lagenSet === 4 ? 4 : 6,
     guideSeen: S.guideSeen === true || meas.length > 0,
     autoStart: S.autoStart !== false,
-    lang: S.lang === 'de' || S.lang === 'en' ? S.lang : 'auto',
+    lang: LANGS.indexOf(S.lang) >= 0 ? S.lang : 'auto',
     quartzRate: Math.abs(finite(S.quartzRate, 0)) <= 10 ? finite(S.quartzRate, 0) : 0,
     quartzRaw: Math.abs(finite(S.quartzRaw, NaN)) < 500 ? S.quartzRaw : null,
     testPro: S.testPro !== false,
-    free: cleanFree(S.free)
+    free: cleanFree(S.free),
+    micId: str(S.micId, 200), micLabel: str(S.micLabel, 100),
+    cal: cleanCal(S.cal)   /* Eichung je angestecktem Mikrofon; das eingebaute steht in ppm und quartzRaw */
   };
   var session = cleanSession(load(KEYS.session, null));
   var proState = cleanPro(load(KEYS.pro, null));
@@ -234,27 +248,79 @@
   function currentWatch() { return findWatch(settings.watchId); }
   var UNKNOWN = { id: '', name: T('Unbekannte Uhr'), kaliberId: '', liftAngle: 52, bph: null };
   /* Die Schlagzahl wird immer erkannt; die gespeicherte gilt nur als Erwartung (Hinweis bei Abweichung). */
-  function watchOpts(w) { return { liftAngle: w && w.liftAngle ? w.liftAngle : 52, bph: null, clockPpm: settings.ppm || 0 }; }
+  /* ---------- Eichung der Uhr im Handy, je Mikrofon ----------
+     '' ist das eingebaute (Standard-)Mikrofon, sonst die Kennung des gewählten. Ein angestecktes Mikrofon kann eine eigene
+     Uhr haben; solange es nicht geeicht ist, korrigiert Tickwerk seine Messungen nicht. */
+  var usedMic = '';   /* Mikrofon der laufenden oder letzten Aufnahme */
+  function cleanCal(c) {
+    var out = Object.create(null), n = 0;
+    if (c && typeof c === 'object' && !Array.isArray(c)) Object.keys(c).forEach(function (k) {
+      var v = c[k];
+      if (n >= 8 || k.length > 200 || !/^[\w.+\/=-]+$/.test(k) || k === '__proto__' || k === 'constructor' || k === 'prototype' || !v || typeof v !== 'object') return;
+      var p = finite(v.ppm, NaN), r = finite(v.raw, NaN);
+      if (!(Math.abs(p) < 500)) return;
+      out[k] = { ppm: p, raw: Math.abs(r) < 500 ? r : null }; n++;
+    });
+    return out;
+  }
+  function micKey() { return isPro() && settings.micId ? settings.micId : ''; }
+  function calOf(key) { return key ? settings.cal[key] || null : { ppm: settings.ppm, raw: settings.quartzRaw }; }
+  function ppmOf(key) { var c = calOf(key); return c && c.ppm ? c.ppm : 0; }
+  function setClock(key, ppm, raw) {
+    if (!key) { settings.ppm = ppm; settings.quartzRaw = raw; return; }
+    settings.cal[key] = { ppm: ppm, raw: raw };
+    var ks = Object.keys(settings.cal);
+    if (ks.length > 8) delete settings.cal[ks[0]];   /* höchstens 8 Mikrofone, das älteste fällt weg */
+  }
+  function watchOpts(w, key) { return { liftAngle: w && w.liftAngle ? w.liftAngle : 52, bph: null, clockPpm: ppmOf(key == null ? usedMic : key) }; }
   function kalById(id) { for (var i = 0; i < KAL.length; i++) if (KAL[i].id === id) return KAL[i]; return null; }
   function calName(id) { var k = kalById(id); return k ? kName(k) : ''; }
-  /* Werknamen und Notizen auf Englisch: Namen sind meist Eigennamen, nur einige Wörter werden ersetzt */
-  var KAL_WORDS = [['Basis ', 'based on '], ['Nachbau ', 'clone of '], ['(auch ', '(also '], ['(Handaufzug, 80 h)', '(manual winding, 80 h)'], ['(Handaufzug)', '(manual winding)'],
-    ['Handaufzug', 'manual winding'], ['mechanisch, z. B. ', 'mechanical, e.g. '], ['-Familie', ' family'], ['(aktuell, 72 h)', '(current, 72 h)'], ['(5 Tage)', '(5 days)'],
-    ['Manufakturwerk', 'in-house movement'], ['Manufaktur, 5 Tage', 'in-house, 5 days'], ['Pellaton-Aufzug', 'Pellaton winding'], ['z. B. ', 'e.g. '],
-    ['Chronograph', 'chronograph'], ['(3 Zeiger, ab ca. ', '(3 hands, from about '], ['ab ca. ', 'from about '], ['bis ca. ', 'until about '], ['ohne Datum', 'no date'], [' mit Datum', ' with date'],
-    ['(ab ', '(from '], [', ab ', ', from '], [', bis ', ', until '], ['(aktuell)', '(current)'], ['ältere Ausführung', 'older version'], ['Kaliber ', 'caliber '],
-    ['«', '“'], ['»', '”']];
-  function enName(s) { if (LANG !== 'en' || !s) return s; KAL_WORDS.forEach(function (p) { s = s.split(p[0]).join(p[1]); }); return s; }
+  /* Werknamen in den anderen Sprachen: Namen sind meist Eigennamen, nur einige Wörter werden ersetzt (längere zuerst) */
+  var KAL_WORDS = {
+    en: [['Basis ', 'based on '], ['Nachbau ', 'clone of '], ['(auch ', '(also '], ['(Handaufzug, 80 h)', '(manual winding, 80 h)'], ['(Handaufzug)', '(manual winding)'],
+      ['Handaufzug', 'manual winding'], ['mechanisch, z. B. ', 'mechanical, e.g. '], ['-Familie', ' family'], ['(aktuell, 72 h)', '(current, 72 h)'], ['(5 Tage)', '(5 days)'],
+      ['Manufakturwerk', 'in-house movement'], ['Manufaktur, 5 Tage', 'in-house, 5 days'], ['Pellaton-Aufzug', 'Pellaton winding'], ['z. B. ', 'e.g. '],
+      ['Chronograph', 'chronograph'], ['(3 Zeiger, ab ca. ', '(3 hands, from about '], ['ab ca. ', 'from about '], ['bis ca. ', 'until about '], ['ohne Datum', 'no date'], [' mit Datum', ' with date'],
+      ['(ab ', '(from '], [', ab ', ', from '], [', bis ', ', until '], ['(aktuell)', '(current)'], ['ältere Ausführung', 'older version'], ['Kaliber ', 'caliber '],
+      ['«', '“'], ['»', '”']],
+    fr: [['Basis ', 'base '], ['Nachbau ', 'copie '], ['(auch ', '(aussi '], ['(Handaufzug, 80 h)', '(remontage manuel, 80 h)'], ['(Handaufzug)', '(remontage manuel)'],
+      ['Handaufzug', 'remontage manuel'], ['mechanisch, z. B. ', 'mécanique, p. ex. '], ['-Familie', ' (famille)'], ['(aktuell, 72 h)', '(actuel, 72 h)'], ['(5 Tage)', '(5 jours)'],
+      ['Manufakturwerk', 'mouvement manufacture'], ['Manufaktur, 5 Tage', 'manufacture, 5 jours'], ['Pellaton-Aufzug', 'remontage Pellaton'], ['z. B. ', 'p. ex. '],
+      ['Chronograph', 'chronographe'], ['(3 Zeiger, ab ca. ', '(3 aiguilles, dès env. '], ['ab ca. ', 'dès env. '], ['bis ca. ', 'jusqu’à env. '], ['ohne Datum', 'sans date'], [' mit Datum', ' avec date'],
+      ['(ab ', '(dès '], [', ab ', ', dès '], [', bis ', ', jusqu’à '], ['(aktuell)', '(actuel)'], ['ältere Ausführung', 'ancienne version'], ['Kaliber ', 'calibre ']],
+    it: [['Basis ', 'base '], ['Nachbau ', 'copia '], ['(auch ', '(anche '], ['(Handaufzug, 80 h)', '(carica manuale, 80 h)'], ['(Handaufzug)', '(carica manuale)'],
+      ['Handaufzug', 'carica manuale'], ['mechanisch, z. B. ', 'meccanico, ad es. '], ['-Familie', ' (famiglia)'], ['(aktuell, 72 h)', '(attuale, 72 h)'], ['(5 Tage)', '(5 giorni)'],
+      ['Manufakturwerk', 'movimento di manifattura'], ['Manufaktur, 5 Tage', 'manifattura, 5 giorni'], ['Pellaton-Aufzug', 'carica Pellaton'], ['z. B. ', 'ad es. '],
+      ['Chronograph', 'cronografo'], ['(3 Zeiger, ab ca. ', '(3 lancette, da ca. '], ['ab ca. ', 'da ca. '], ['bis ca. ', 'fino a ca. '], ['ohne Datum', 'senza data'], [' mit Datum', ' con data'],
+      ['(ab ', '(da '], [', ab ', ', da '], [', bis ', ', fino a '], ['(aktuell)', '(attuale)'], ['ältere Ausführung', 'versione precedente'], ['Kaliber ', 'calibro ']]
+  };
+  function enName(s) { if (LANG === 'de' || !s) return s; (KAL_WORDS[LANG] || []).forEach(function (p) { s = s.split(p[0]).join(p[1]); }); return s; }
   function kName(k) { return k ? enName(k.name) : ''; }
   /* Quellenangaben der Werke (nur im Messprotokoll): Fachbegriffe ersetzen, Namen bleiben */
-  var SRC_WORDS = [['ETA Technische Mitteilung', 'ETA technical communication'], ['watchguy.co.uk Hebewinkel-Liste', 'watchguy.co.uk lift angle list'],
-    ['Watchguy-Hebewinkelliste', 'Watchguy lift angle list'], ['(als unbestätigt markiert)', '(marked as unconfirmed)'],
-    ['(laut Forum mit ETA-Dokument)', '(per forum post with ETA document)'], ['Miyota-Datenblatt', 'Miyota data sheet'], ['Omega-Forum', 'Omega forum'],
-    ['Rolex-Forum; Familie 32xx', 'Rolex forum; 32xx family'], [' bei Watchguy', ' at Watchguy'], ['Schlagzahl: ', 'Beat rate: '], ['(Schlagzahl)', '(beat rate)'],
-    ['(Hebewinkel)', '(lift angle)'], ['vom Basiswerk', 'from the base movement'], ['vom verwandten', 'from the related'],
-    ['von Omega 8800 / 2500 übernommen', 'taken from Omega 8800 / 2500'], ['Händlerangaben', 'dealer information'], ['Gangreserve', 'power reserve'],
-    ['Messung Tickwerk', 'Tickwerk measurement'], ["25'200 A/h", '25,200 bph'], ['Basis ', 'based on '], [' bis ', ' to ']];
-  function enSource(s) { if (LANG !== 'en' || !s) return s; SRC_WORDS.forEach(function (p) { s = s.split(p[0]).join(p[1]); }); return s; }
+  var SRC_WORDS = {
+    en: [['ETA Technische Mitteilung', 'ETA technical communication'], ['watchguy.co.uk Hebewinkel-Liste', 'watchguy.co.uk lift angle list'],
+      ['Watchguy-Hebewinkelliste', 'Watchguy lift angle list'], ['(als unbestätigt markiert)', '(marked as unconfirmed)'],
+      ['(laut Forum mit ETA-Dokument)', '(per forum post with ETA document)'], ['Miyota-Datenblatt', 'Miyota data sheet'], ['Omega-Forum', 'Omega forum'],
+      ['Rolex-Forum; Familie 32xx', 'Rolex forum; 32xx family'], [' bei Watchguy', ' at Watchguy'], ['Schlagzahl: ', 'Beat rate: '], ['(Schlagzahl)', '(beat rate)'],
+      ['(Hebewinkel)', '(lift angle)'], ['vom Basiswerk', 'from the base movement'], ['vom verwandten', 'from the related'],
+      ['von Omega 8800 / 2500 übernommen', 'taken from Omega 8800 / 2500'], ['Händlerangaben', 'dealer information'], ['Gangreserve', 'power reserve'],
+      ['Messung Tickwerk', 'Tickwerk measurement'], ["25'200 A/h", '25,200 bph'], ['Basis ', 'based on '], [' bis ', ' to ']],
+    fr: [['ETA Technische Mitteilung', 'communication technique ETA'], ['watchguy.co.uk Hebewinkel-Liste', 'watchguy.co.uk, liste des angles de levée'],
+      ['Watchguy-Hebewinkelliste', 'Watchguy, liste des angles de levée'], ['(als unbestätigt markiert)', '(marqué comme non confirmé)'],
+      ['(laut Forum mit ETA-Dokument)', '(selon un forum, avec document ETA)'], ['Miyota-Datenblatt', 'fiche technique Miyota'], ['Omega-Forum', 'forum Omega'],
+      ['Rolex-Forum; Familie 32xx', 'forum Rolex ; famille 32xx'], [' bei Watchguy', ' chez Watchguy'], ['Schlagzahl: ', 'Fréquence : '], ['(Schlagzahl)', '(fréquence)'],
+      ['(Hebewinkel)', '(angle de levée)'], ['vom Basiswerk', 'du mouvement de base'], ['vom verwandten', 'du mouvement apparenté'],
+      ['von Omega 8800 / 2500 übernommen', 'repris d’Omega 8800 / 2500'], ['Händlerangaben', 'indications du revendeur'], ['Gangreserve', 'réserve de marche'],
+      ['Messung Tickwerk', 'mesure Tickwerk'], ['Basis ', 'base '], [' bis ', ' à ']],
+    it: [['ETA Technische Mitteilung', 'comunicazione tecnica ETA'], ['watchguy.co.uk Hebewinkel-Liste', 'watchguy.co.uk, elenco degli angoli di alzata'],
+      ['Watchguy-Hebewinkelliste', 'Watchguy, elenco degli angoli di alzata'], ['(als unbestätigt markiert)', '(segnato come non confermato)'],
+      ['(laut Forum mit ETA-Dokument)', '(secondo un forum, con documento ETA)'], ['Miyota-Datenblatt', 'scheda tecnica Miyota'], ['Omega-Forum', 'forum Omega'],
+      ['Rolex-Forum; Familie 32xx', 'forum Rolex; famiglia 32xx'], [' bei Watchguy', ' su Watchguy'], ['Schlagzahl: ', 'Frequenza: '], ['(Schlagzahl)', '(frequenza)'],
+      ['(Hebewinkel)', '(angolo di alzata)'], ['vom Basiswerk', 'dal movimento di base'], ['vom verwandten', 'dal movimento affine'],
+      ['von Omega 8800 / 2500 übernommen', 'ripreso da Omega 8800 / 2500'], ['Händlerangaben', 'indicazioni del rivenditore'], ['Gangreserve', 'riserva di carica'],
+      ['Messung Tickwerk', 'misurazione Tickwerk'], ['Basis ', 'base '], [' bis ', ' a ']]
+  };
+  function enSource(s) { if (LANG === 'de' || !s) return s; (SRC_WORDS[LANG] || []).forEach(function (p) { s = s.split(p[0]).join(p[1]); }); return s; }
   /* Woher der Hebewinkel stammt: '' (bestätigt oder eigene Angabe), 'unbestätigt' oder 'angenommen' */
   function liftState(w) {
     var lift = w && w.liftAngle ? w.liftAngle : 52;
@@ -271,10 +337,10 @@
   }
   function measOf(w) { var id = w ? w.id : ''; return meas.filter(function (m) { return m.watchId === id; }); }
   /* Gewertet wird wie im Messprotokoll: gutes Signal, stabiler Gang, kleine Unsicherheit */
-  function counted(m) { return m.q !== 'schwach' && m.sigma <= SIGMA_COUNT; }
-  /* Gezählt, aber ungenauer: der Gang schwankte während der Messung oder das ± liegt über 0,5 s/Tag */
-  function shaky(m) { return counted(m) && (m.stable === false || m.sigma > SIGMA_SURE); }
-  function shakyText(m) { return T(m.stable === false ? 'Gang schwankt' : 'ungenau'); }
+  function counted(m) { return m.q !== 'schwach' && m.sigma <= (m.stable === false ? SIGMA_COUNT : SIGMA_SURE); }
+  /* Gezählt mit Vermerk: klare Klicks, aber der Gang schwankte während der Messung (Uhr oder Handhaltung) */
+  function shaky(m) { return counted(m) && m.stable === false; }
+  function shakyText() { return T('Gang könnte schwanken'); }
   /* Warum eine Messung nicht zählt */
   function whyNot(m) { return m.q === 'schwach' ? T('Signal schwach') : T(m.stable === false ? 'Gang schwankt zu stark' : 'zu unsicher'); }
 
@@ -300,7 +366,10 @@
     watches: T('In der Gratis-Version lässt sich eine Uhr speichern. Mit Pro beliebig viele.'),
     wav: T('Mit Pro lassen sich Aufnahmen als WAV-Datei teilen, zum Beispiel mit einem Uhrmacher.'),
     values: T('Abfallfehler und Amplitude zeigt Tickwerk gratis bei {n} Messungen pro Woche. Mit Pro bei jeder Messung.', { n: FREE_PER_WEEK }),
-    history: T('Gratis siehst du die letzten Messungen. Mit Pro den ganzen Verlauf.')
+    history: T('Gratis siehst du die letzten Messungen. Mit Pro den ganzen Verlauf.'),
+    reg: T('Der Regulier-Modus zeigt den Gang laufend, alle zwei Sekunden neu, während du am Werk einstellst. Mit Abfallfehler, Amplitude und Verlauf.'),
+    mic: T('Mit Pro wählst du das Mikrofon selbst, zum Beispiel ein angestecktes über USB-C.'),
+    gr: T('Der Gangreserve-Test misst die Uhr voll aufgezogen und nach 24 Stunden und zeigt, wie viel Kraft die Zugfeder dann noch hat.')
   };
   function requirePro(feature) {
     if (isPro()) return true;
@@ -399,8 +468,8 @@
   }
 
   /* ---------- Navigation: Bildschirme als Stapel, Android-Zurück schliesst den obersten ---------- */
-  var SCREENS = ['measure', 'watches', 'watch', 'edit', 'lagen', 'lpos', 'zeit', 'detektiv', 'guide', 'more', 'pro', 'history', 'settings'];
-  var NO_TABS = { edit: true, lagen: true, lpos: true, zeit: true, detektiv: true, guide: true };
+  var SCREENS = ['measure', 'watches', 'watch', 'edit', 'lagen', 'lpos', 'reg', 'zeit', 'detektiv', 'guide', 'more', 'pro', 'history', 'settings'];
+  var NO_TABS = { edit: true, lagen: true, lpos: true, reg: true, zeit: true, detektiv: true, guide: true };
   var stack = [{ s: 'measure', p: {} }];
   var sheetOpen = null, afterPop = null, shownScreen = '';
   var tabs = Array.prototype.slice.call(document.querySelectorAll('.tabbar button'));
@@ -506,6 +575,9 @@
     daily: { t: 'Gang im Alltag', s: 'So viel geht die Uhr pro Tag vor oder nach, während du sie trägst: mit allen Lagen, Temperaturen und dem Aufzug durchs Tragen. Dazu vergleichst du die Uhr mit der genauen Zeit des Handys, heute und nach ein paar Tagen.',
       r: [['', 'nach 1 Tag', 'auf etwa ± 0,2 s/Tag genau'], ['', 'nach 7 Tagen', 'auf etwa ± 0,03 s/Tag genau']],
       n: 'Die Messung mit dem Mikrofon zeigt den Gang in einer Lage, in diesem Moment. Beide Werte ergänzen sich; ein Unterschied von ein paar Sekunden ist normal.' },
+    gr: { t: 'Gangreserve-Test', s: 'Die Zugfeder gibt ihre Kraft nicht gleichmässig ab: Wenn sie abläuft, fällt die Amplitude, und der Gang kann sich ändern. Der Test misst die Uhr voll aufgezogen und nach 24 Stunden, freiwillig auch nach 36 Stunden. Dazwischen liegt die Uhr ruhig: nicht tragen, nicht aufziehen.',
+      r: [['good', 'bis 50° weniger', 'kräftige Zugfeder, gute Schmierung'], ['okay', '50° bis 80° weniger', 'üblich bei vielen Uhren'], ['warn', 'über 80° weniger', 'beim nächsten Service ansprechen']],
+      n: 'Faustregel für die Messung nach 24 Stunden. Der Gang sollte sich dabei um weniger als 5 s/Tag ändern. Gemessen wird immer mit dem Zifferblatt oben, damit die Werte vergleichbar sind.' },
     signal: { t: 'Signal', s: 'Wie klar Tickwerk das Ticken hört: wie viele Schläge es erkennt und wie deutlich sie sich vom Rauschen abheben.',
       r: [['good', 'stark', 'alle Werte sicher'], ['okay', 'mittel', 'Gang sicher, Amplitude und Abfallfehler meist auch'], ['warn', 'schwach', 'zählt nicht: Handy fester an die Krone halten, ruhiger Raum']] }
   };
@@ -556,15 +628,23 @@
     }
     opening = true;
     if (o.onOpening) o.onOpening();
-    var stream;
+    var stream, cons = { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 }, pick = isPro() && settings.micId, fell = false;
+    if (pick) cons.deviceId = { exact: settings.micId };   /* Pro: gewähltes Mikrofon, zum Beispiel ein angestecktes */
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 }, video: false
-      });
-    } catch (e) { opening = false; o.onFail(micError(e)); return; }
+      stream = await navigator.mediaDevices.getUserMedia({ audio: cons, video: false });
+    } catch (e) {
+      if (!pick || !e || (e.name !== 'OverconstrainedError' && e.name !== 'NotFoundError')) { opening = false; o.onFail(micError(e)); return; }
+      delete cons.deviceId; fell = true;   /* das gewählte ist nicht da (abgesteckt): das Standard-Mikrofon nehmen */
+      try { stream = await navigator.mediaDevices.getUserMedia({ audio: cons, video: false }); }
+      catch (e2) { opening = false; o.onFail(micError(e2)); return; }
+      toast(T('Das gewählte Mikrofon ist nicht da. Tickwerk nimmt das Standard-Mikrofon.'));
+    }
+    var trk = stream.getAudioTracks()[0], tid = trk && trk.getSettings ? trk.getSettings().deviceId : '';
+    usedMic = pick && !fell && (!tid || tid === settings.micId) ? settings.micId : '';
+    if (o.opts && typeof o.opts.clockPpm === 'number') o.opts.clockPpm = ppmOf(usedMic);   /* Korrektur des Mikrofons, das wirklich aufnimmt */
     var AC = window.AudioContext || window.webkitAudioContext, ctx = new AC();
     try { await ctx.resume(); } catch (e) { /* egal */ }
-    var r = { o: o, owner: o.owner, stream: stream, ctx: ctx, chunks: [], n: 0, fs: ctx.sampleRate, dur: o.dur,
+    var r = { o: o, owner: o.owner, stream: stream, ctx: ctx, chunks: [], n: 0, total: 0, ring: o.ring ? Math.round(o.ring * ctx.sampleRate) : 0, fs: ctx.sampleRate, dur: o.dur,
       phase: o.search ? 'search' : 'measure', heard: 0, good: 0, nextSearch: SEARCH_WINDOW, searchBusy: false,
       settleN: o.search ? 0 : Math.round((o.settle || 0) * ctx.sampleRate), skipped: 0, peak: 0, nextLive: LIVE_FIRST, liveBusy: false };
     var src = ctx.createMediaStreamSource(stream);
@@ -613,8 +693,10 @@
       if (drop >= samples.length) return;
       samples = samples.subarray(drop);
     }
-    r.chunks.push(samples); r.n += samples.length;
-    if (r.n >= r.dur * r.fs) recFinish();
+    r.chunks.push(samples); r.n += samples.length; r.total += samples.length;
+    /* Regulieren: nur die letzten Sekunden behalten, die Aufnahme läuft weiter */
+    if (r.ring) while (r.chunks.length > 1 && r.n - r.chunks[0].length >= r.ring) r.n -= r.chunks.shift().length;
+    if (r.total >= r.dur * r.fs) recFinish();
   }
   function tick() {
     var r = rec; if (!r) return;
@@ -622,8 +704,9 @@
     if (r.phase === 'search') { searchTick(r); return; }
     if (r.skipped < r.settleN) { if (o.onSettle) o.onSettle(Math.ceil((r.settleN - r.skipped) / r.fs), r); return; }
     if (!r.go) { r.go = true; if (o.onGo) o.onGo(r); }   /* Countdown vorbei: ab jetzt zählt die Messzeit */
-    var t = r.n / r.fs;
+    var t = r.total / r.fs;
     if (o.onTick) o.onTick(Math.max(0, Math.ceil(r.dur - t)), t / r.dur, r);
+    if (o.onFrame) o.onFrame(t, r);
     if (!o.noLive && t >= r.nextLive && !r.liveBusy) {
       r.nextLive = t + LIVE_EVERY; r.liveBusy = true;
       runJob({ samples: tailSamples(r, LIVE_WINDOW), fs: r.fs, opts: probeOpts(o.opts), live: true }).then(function (res) {
@@ -669,7 +752,7 @@
      ein Vibrieren würde es verschieben und das Mikrofon nähme es auf. */
   function beginMeasure(r) {
     if (rec !== r || r.phase !== 'search') return;
-    r.phase = 'measure'; r.chunks = []; r.n = 0; r.skipped = 0; r.settleN = Math.round(COUNTDOWN * r.fs); r.go = false;
+    r.phase = 'measure'; r.chunks = []; r.n = 0; r.total = 0; r.skipped = 0; r.settleN = Math.round(COUNTDOWN * r.fs); r.go = false;
     r.nextLive = LIVE_FIRST; r.liveBusy = false;
     if (r.o.onMeasureStart) r.o.onMeasureStart(r);
   }
@@ -740,6 +823,7 @@
       ppm: r.clockPpm || 0, fs: fs || null, eng: engineVersion || '', app: APP_VERSION
     };
     if (c.sess) { m.sess = c.sess; if (c.lset) m.lset = c.lset; }
+    if (c.gr) { m.gr = c.gr.id; m.grs = c.gr.step; }
     if (!isPro() && useFree()) m.fp = true;
     var tr = compactTrace(r.trace); if (tr) m.tr = tr;
     meas.push(m);
@@ -766,7 +850,7 @@
     mk.hidden = false; mk.classList.toggle('live', !!live);
     mk.style.left = ((Math.max(-20, Math.min(20, rate)) + 20) / 40 * 100) + '%';
   }
-  function setChipsDisabled(on) { ['mPos', 'mDur', 'mLagen', 'mWatchPick'].forEach(function (id) { $(id).disabled = on; }); }
+  function setChipsDisabled(on) { ['mPos', 'mDur', 'mLagen', 'mReg', 'mWatchPick'].forEach(function (id) { $(id).disabled = on; }); }
   function setLocks(locked) {
     ['mBe', 'mAmp'].forEach(function (id) { $(id).classList.toggle('locked', locked); });
     $('mBeTag').hidden = true; $('mAmpTag').hidden = true;   /* der Wert selbst zeigt «Pro» */
@@ -778,7 +862,7 @@
     $('mBe').textContent = '–'; $('mBeNote').textContent = ''; $('mAmp').textContent = '–'; $('mLift').textContent = '';
     $('mBph').textContent = '–'; $('mBphNote').textContent = T('erkannt');
     setLocks(false); setSignal(0);
-    $('shareBtn').hidden = true; $('mState').textContent = T('Bereit');
+    $('shareBtn').hidden = true; $('imgBtn').hidden = true; $('mState').textContent = T('Bereit');
     $('mStartLabel').textContent = T('Messen');
     drawTape($('mTape'), null, T('Der Papierstreifen erscheint während der Messung.'));
     drawBeat($('mBeat'), null);
@@ -789,9 +873,10 @@
   }
   function renderMeasure() {
     var w = currentWatch(), k = w ? kalById(w.kaliberId) : null;
+    renderGrNotice();
     if (settings.watchId && !w) { settings.watchId = ''; saveSettings(); }
     $('mWatchName').textContent = w ? w.name : UNKNOWN.name;
-    $('mWatchSub').textContent = watchSub(w) + (settings.ppm ? ' · ' + T('Handy-Uhr korrigiert') : '');
+    $('mWatchSub').textContent = watchSub(w) + (ppmOf(micKey()) ? ' · ' + T('Handy-Uhr korrigiert') : '') + micNote();
     $('mPos').value = settings.pos; $('mDur').value = String(settings.dur);
     if (!rec && !busy && !lastShown && k && k.messbar === false) setStatus('status', T(k.notiz || 'Dieses Werk lässt sich mit dem Mikrofon nicht messen.'), 'err');
     renderFree();
@@ -812,7 +897,7 @@
   function measureStart() {
     if (rec) { recStop(true); return; }
     if (busy || opening) return;
-    var w = currentWatch();
+    var w = currentWatch(), grc = grPending && w && grPending.watchId === w.id ? grPending : null;
     function counting() {
       $('mSearch').hidden = true;
       $('mState').textContent = T('Gleich');
@@ -880,7 +965,7 @@
       onDone: function (samples, fs) {
         measureIdle();
         lastRec = { samples: samples, fs: fs, date: new Date(), watchName: w ? w.name : UNKNOWN.name, pos: settings.pos };
-        analyzeMeasure(samples, fs, 'Mikrofon');
+        analyzeMeasure(samples, fs, 'Mikrofon', grc);
       }
     });
   }
@@ -894,12 +979,12 @@
     bar($('mProg'), 0); bar($('levelFill'), 0);
     $('mStartLabel').textContent = lastShown ? T('Nochmals messen') : T('Messen');
   }
-  function analyzeMeasure(samples, fs, source) {
+  function analyzeMeasure(samples, fs, source, grc) {
     var w = currentWatch(), pos = settings.pos, keepRec = lastRec;
     busy = true;
     $('mStart').disabled = true; $('mStartLabel').textContent = T('Rechnet …'); $('mState').textContent = T('Rechnet');
     setStatus('status', T('Rechne …'), 'busy');
-    runJob({ samples: samples, fs: fs, opts: watchOpts(w) }).then(function (res) {
+    runJob({ samples: samples, fs: fs, opts: watchOpts(w, source === 'Datei' ? '' : usedMic) }).then(function (res) {
       busy = false; $('mStart').disabled = false;
       if (!res || !res.ok) {
         clearReadout(); lastRec = keepRec;
@@ -910,11 +995,24 @@
         });
         return;
       }
-      var m = saveMeasurement(res, source, fs, { watch: w, pos: pos });
+      var m = saveMeasurement(res, source, fs, { watch: w, pos: pos, gr: grc && w && grc.watchId === w.id ? grc : null });
       lastRec = keepRec;
       showResult(res, m);
       renderFree();
+      if (m.gr) grSaved(m);
     });
+  }
+  /* Wertung einer gespeicherten Messung: { kind: good | okay | warn, text } */
+  function rateVerdict(m) {
+    var kind, text, short;
+    if (m.q === 'schwach') { kind = 'warn'; text = 'Nur ein grober Wert: das Signal ist schwach. Handy näher an die Krone und nochmals messen.'; short = 'Nur ein grober Wert: das Signal war schwach.'; }
+    else if (m.stable === false && m.sigma > SIGMA_COUNT) { kind = 'warn'; text = 'Der Gang schwankte während der Messung zu stark. Dieser Wert zählt nicht. Uhr und Handy ruhig halten und nochmals messen, am besten 60 s.'; short = 'Zählt nicht: Der Gang schwankte während der Messung zu stark.'; }
+    else if (m.stable === false) { kind = 'warn'; text = 'Die Klicks waren klar, aber der Gang schwankte während der Messung, darum das grössere ±. Der Wert zählt mit dem Vermerk «Gang könnte schwanken». Genauer wird er mit 60 s und ruhig gehaltenem Handy.'; short = 'Zählt mit dem Vermerk «Gang könnte schwanken».'; }
+    else if (m.sigma > SIGMA_SURE) { kind = 'warn'; text = 'Zu unsicher für eine Wertung (mehr als ±0,5 s/Tag). Länger messen und das Handy ruhig an die Krone halten.'; short = 'Zu unsicher für eine Wertung (mehr als ±0,5 s/Tag).'; }
+    else if (m.rate >= -4 && m.rate <= 6) { kind = 'good'; text = short = 'Im Chronometer-Bereich (−4 bis +6 s/Tag).'; }
+    else if (Math.abs(m.rate) <= 15) { kind = 'okay'; text = short = 'Gut für eine Uhr ohne Chronometer-Zertifikat.'; }
+    else { kind = 'warn'; text = 'Deutlich daneben. In einer anderen Lage nochmals messen; bleibt es so, regulieren lassen.'; short = 'Deutlich daneben: in anderen Lagen prüfen, sonst regulieren lassen.'; }
+    return { kind: kind, text: T(text), short: T(short) };
   }
   function showResult(r, m) {
     lastShown = { r: r, m: m };
@@ -923,15 +1021,8 @@
     $('mSigma').textContent = '± ' + fmt(r.rateSigma, 2) + ' ' + T('s/Tag') + ' · ' + fmt(r.duration, 0) + ' s · ' + T('{n} Schläge', { n: r.beatsUsed }) +
       (r.rateStable === false && r.halves ? ' · ' + T('schwankt') + ' (' + signed(r.halves.rate[0], 1) + ' / ' + signed(r.halves.rate[1], 1) + ')' : '');
     setMarker(r.rate, false);
-    var kind, text, weak = r.quality && r.quality.label === 'schwach';
-    if (weak) { kind = 'warn'; text = 'Nur ein grober Wert: das Signal ist schwach. Handy näher an die Krone und nochmals messen.'; }
-    else if (r.rateSigma > SIGMA_COUNT) { kind = 'warn'; text = 'Der Gang schwankte während der Messung zu stark. Dieser Wert zählt nicht. Uhr und Handy ruhig halten und nochmals messen, am besten 60 s.'; }
-    else if (r.rateStable === false) { kind = 'warn'; text = 'Der Gang schwankte während der Messung, darum das grössere ±. Der Wert zählt mit dem Vermerk «Gang schwankt». Genauer wird er mit 60 s und ruhig gehaltenem Handy.'; }
-    else if (r.rateSigma > SIGMA_SURE) { kind = 'okay'; text = 'Ein ungenauerer Wert, er zählt aber. Mit einer längeren Messung wird er genauer.'; }
-    else if (r.rate >= -4 && r.rate <= 6) { kind = 'good'; text = 'Im Chronometer-Bereich (−4 bis +6 s/Tag).'; }
-    else if (Math.abs(r.rate) <= 15) { kind = 'okay'; text = 'Gut für eine Uhr ohne Chronometer-Zertifikat.'; }
-    else { kind = 'warn'; text = 'Deutlich daneben. In einer anderen Lage nochmals messen; bleibt es so, regulieren lassen.'; }
-    $('mVerdict').hidden = false; $('mVerdict').setAttribute('data-kind', kind); $('mVerdictText').textContent = T(text);
+    var vd = rateVerdict(m);
+    $('mVerdict').hidden = false; $('mVerdict').setAttribute('data-kind', vd.kind); $('mVerdictText').textContent = vd.text;
     var full = showsPro(m);
     setLocks(!full);
     if (full) {
@@ -958,7 +1049,7 @@
     setStatus('status', (m.watchId ? T('Gespeichert bei «{w}»', { w: m.watchName }) : T('Gespeichert unter «Alle Messungen»')) + ', ' + T('Lage {p}', { p: POS[m.pos] }) +
       (r.clockPpm ? '. ' + T('Handy-Uhr korrigiert.') : '.') + (r.gaps && r.gaps.length ? ' ' + T('Ein kurzer Aussetzer der Aufnahme wurde ausgeglichen.') : ''), 'ok');
     $('mStartLabel').textContent = T('Nochmals messen');
-    $('shareBtn').hidden = !lastRec;
+    $('shareBtn').hidden = !lastRec; $('imgBtn').hidden = false;
     drawTape($('mTape'), r.trace);
     drawBeat($('mBeat'), r.templates, r.liftTimeMs);
   }
@@ -972,6 +1063,7 @@
   $('mPos').addEventListener('change', function () { settings.pos = this.value; saveSettings(); });
   $('mDur').addEventListener('change', function () { settings.dur = parseInt(this.value, 10) || 30; saveSettings(); });
   $('mLagen').addEventListener('click', function () { lagenOpen(settings.watchId); });
+  $('mReg').addEventListener('click', function () { if (requirePro('reg')) go('reg'); });
   $('mGuide').addEventListener('click', function () { go('guide'); });
   $('mWatchPick').addEventListener('click', openWatchSheet);
   ['mBe', 'mAmp'].forEach(function (id) {
@@ -980,6 +1072,7 @@
   function setWatch(id) {
     if (settings.watchId === id) return;
     settings.watchId = id; saveSettings();
+    if (grPending && grPending.watchId !== id) { grPending = null; renderGrNotice(); }
     clearReadout(); setStatus('status', idleHint(), '');
   }
   function openWatchSheet() {
@@ -1029,6 +1122,221 @@
     var name = ('tickwerk_' + lastRec.watchName + '_' + lastRec.pos + '_' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' + pad(d.getHours()) + pad(d.getMinutes()))
       .replace(/[^A-Za-z0-9_\-äöüÄÖÜ]+/g, '-') + '.wav';
     shareOrDownload(encodeWav(lastRec.samples, lastRec.fs), name, T('Tickwerk Aufnahme'));
+  });
+
+  /* ---------- Ergebnis als Bild teilen (gratis) ----------
+     1080 × 1350 Pixel (Hochformat 4:5, passt für Chats und Instagram). Gezeichnet mit den Schriften der App, ohne Bilder
+     von aussen. Abfallfehler und Amplitude nur, wenn die Messung sie zeigen darf (Pro oder Gratis-Messung mit allen Werten). */
+  var IMG_W = 1080, IMG_H = 1350, IMG_M = 72;
+  var IC = { bg: '#0B0E12', inset: '#0F1318', surface: '#141920', line: '#27303B', line2: '#3A4452', text: '#EEF1F4', muted: '#AEB7C2', faint: '#8A95A3',
+    lume: '#B8F28A', tock: '#9FD8FF', warn: '#F59B5E', okay: '#D3DAE2', band: 'rgba(184, 242, 138, 0.16)' };
+  var F_DISPLAY = '"Space Grotesk", Inter, sans-serif', F_BODY = 'Inter, system-ui, sans-serif', F_MONO = '"IBM Plex Mono", monospace';
+  function imgFonts() {
+    if (!document.fonts || !document.fonts.load) return Promise.resolve();
+    return Promise.all(['600 80px "Space Grotesk"', '600 40px Inter', '400 30px Inter', '400 28px "IBM Plex Mono"'].map(function (f) {
+      return document.fonts.load(f).catch(function () { return null; });
+    }));
+  }
+  function rrect(ctx, x, y, w, h, r) {
+    ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  }
+  function fitText(ctx, text, maxW) {
+    text = String(text);
+    if (ctx.measureText(text).width <= maxW) return text;
+    while (text.length > 1 && ctx.measureText(text + '…').width > maxW) text = text.slice(0, -1);
+    return text.replace(/\s+$/, '') + '…';
+  }
+  function wrapText(ctx, text, maxW, maxLines) {
+    var words = String(text).split(/\s+/), lines = [], cur = '';
+    words.forEach(function (wd) {
+      var t = cur ? cur + ' ' + wd : wd;
+      if (!cur || ctx.measureText(t).width <= maxW) cur = t; else { lines.push(cur); cur = wd; }
+    });
+    if (cur) lines.push(cur);
+    if (lines.length > maxLines) lines = lines.slice(0, maxLines - 1).concat([fitText(ctx, lines.slice(maxLines - 1).join(' '), maxW)]);
+    return lines;
+  }
+  function imgText(ctx, text, x, y, font, color, align) { ctx.font = font; ctx.fillStyle = color; ctx.textAlign = align || 'left'; ctx.fillText(text, x, y); ctx.textAlign = 'left'; }
+  function imgLogo(ctx, x, y, s) {
+    var L = window.TICKWERK_LOGO;
+    if (!L) { imgText(ctx, 'Tickwerk', x, y + 70 * s, '600 ' + Math.round(64 * s) + 'px ' + F_DISPLAY, IC.text); return; }
+    var pal = L.dark || L.palette;
+    ctx.save(); ctx.translate(x, y); ctx.scale(s, s);
+    L.mark.forEach(function (it) {
+      var p = new Path2D(it.d);
+      if (it.stroke) { ctx.strokeStyle = pal[it.role]; ctx.lineWidth = it.w; ctx.lineCap = it.cap; ctx.lineJoin = it.join; ctx.stroke(p); }
+      else { ctx.fillStyle = pal[it.role]; ctx.fill(p); }
+    });
+    ctx.translate(124, 50 + L.wordmark.capHeight / 2);
+    ctx.fillStyle = pal.text; ctx.fill(new Path2D(L.wordmark.d));
+    ctx.restore();
+  }
+  /* Kopf: Logo, Datum, Uhr und eine Zeile darunter. Gibt die y-Position nach dem Kopf zurück */
+  function imgHead(ctx, date, title, sub) {
+    ctx.fillStyle = IC.bg; ctx.fillRect(0, 0, IMG_W, IMG_H);
+    imgLogo(ctx, IMG_M, 64, 0.9);
+    imgText(ctx, date, IMG_W - IMG_M, 118, '400 28px ' + F_MONO, IC.muted, 'right');
+    ctx.fillStyle = IC.line; ctx.fillRect(IMG_M, 186, IMG_W - 2 * IMG_M, 2);
+    ctx.font = '600 58px ' + F_BODY;
+    imgText(ctx, fitText(ctx, title, IMG_W - 2 * IMG_M), IMG_M, 270, '600 58px ' + F_BODY, IC.text);
+    ctx.font = '400 28px ' + F_MONO;
+    imgText(ctx, fitText(ctx, sub, IMG_W - 2 * IMG_M), IMG_M, 322, '400 28px ' + F_MONO, IC.muted);
+    return 330;
+  }
+  function imgFoot(ctx) {
+    ctx.fillStyle = IC.line; ctx.fillRect(IMG_M, IMG_H - 92, IMG_W - 2 * IMG_M, 2);
+    var txt = T('Gemessen mit Tickwerk · Selbstmessung mit dem Handy-Mikrofon'), size = 24, maxW = IMG_W - 2 * IMG_M;
+    for (; size > 17; size--) { ctx.font = '400 ' + size + 'px ' + F_MONO; if (ctx.measureText(txt).width <= maxW) break; }   /* längere Sprachen: kleiner statt abgeschnitten */
+    ctx.font = '400 ' + size + 'px ' + F_MONO;
+    imgText(ctx, fitText(ctx, txt, maxW), IMG_M, IMG_H - 46, '400 ' + size + 'px ' + F_MONO, IC.faint);
+  }
+  /* Grosse Zahl mit Einheit, waagrecht zentriert */
+  function imgBig(ctx, value, unit, y, size) {
+    ctx.font = '600 ' + size + 'px ' + F_DISPLAY; var w1 = ctx.measureText(value).width;
+    ctx.font = '400 ' + Math.round(size * 0.22) + 'px ' + F_BODY; var w2 = ctx.measureText(unit).width, gap = size * 0.08;
+    var x = (IMG_W - w1 - gap - w2) / 2;
+    imgText(ctx, value, x, y, '600 ' + size + 'px ' + F_DISPLAY, IC.text);
+    imgText(ctx, unit, x + w1 + gap, y, '400 ' + Math.round(size * 0.22) + 'px ' + F_BODY, IC.muted);
+  }
+  /* Skala −20 … +20 s/Tag mit Chronometer-Band (−4 bis +6) und Marke; h: Höhe der Spur */
+  function imgScale(ctx, x, y, w, h, rate, labels) {
+    var X = function (v) { return x + (Math.max(-20, Math.min(20, v)) + 20) / 40 * w; };
+    ctx.fillStyle = IC.band; rrect(ctx, X(-4), y, X(6) - X(-4), h, Math.min(10, h / 4)); ctx.fill();
+    for (var v = -20; v <= 20; v += 2) {
+      var major = v % 10 === 0, th = major ? h * 0.62 : h * 0.3;
+      ctx.fillStyle = major ? IC.faint : IC.line2; ctx.fillRect(Math.round(X(v)) - 1, y + h - th, 2, th);
+    }
+    if (rate != null && isFinite(rate)) {
+      var mx = X(rate);
+      ctx.fillStyle = IC.lume; ctx.fillRect(mx - 2.5, y - h * 0.12, 5, h * 1.12);
+      ctx.beginPath(); ctx.moveTo(mx - h * 0.2, y - h * 0.32); ctx.lineTo(mx + h * 0.2, y - h * 0.32); ctx.lineTo(mx, y - h * 0.06); ctx.closePath(); ctx.fill();
+    }
+    if (labels) [-20, -10, 0, 10, 20].forEach(function (v) { imgText(ctx, v ? signed(v, 0) : '0', X(v), y + h + 40, '400 26px ' + F_MONO, IC.faint, 'center'); });
+  }
+  function imgTape(ctx, x, y, w, h, trace) {
+    imgText(ctx, T('Papierstreifen · Tick und Tack').toUpperCase(), x, y - 14, '500 22px ' + F_MONO, IC.faint);
+    ctx.fillStyle = IC.inset; rrect(ctx, x, y, w, h, 16); ctx.fill();
+    ctx.strokeStyle = IC.line; ctx.lineWidth = 2; ctx.stroke();
+    if (!trace || trace.length < 4) return;
+    var ys = trace.map(function (p) { return p.devMs; }).sort(function (a, b) { return a - b; });
+    var lo = ys[Math.floor(ys.length * 0.02)], hi = ys[Math.ceil(ys.length * 0.98) - 1], mid = (lo + hi) / 2, half = Math.max(0.8, (hi - lo) / 2 * 1.25);
+    var tMax = trace[trace.length - 1].t || 1, P = Math.min(24, h / 5);
+    trace.forEach(function (p) {
+      var px = x + P + p.t / tMax * (w - 2 * P), py = y + h / 2 - (Math.max(mid - half, Math.min(mid + half, p.devMs)) - mid) / half * (h / 2 - P);
+      ctx.fillStyle = p.parity ? IC.tock : IC.lume; ctx.beginPath(); ctx.arc(px, py, 4, 0, Math.PI * 2); ctx.fill();
+    });
+  }
+  function imgTiles(ctx, tiles, y, h) {
+    var gap = 20, n = tiles.length, tw = (IMG_W - 2 * IMG_M - gap * (n - 1)) / n, P = 20;
+    tiles.forEach(function (t, i) {
+      var x = IMG_M + i * (tw + gap);
+      ctx.fillStyle = IC.surface; rrect(ctx, x, y, tw, h, 20); ctx.fill(); ctx.strokeStyle = IC.line; ctx.lineWidth = 2; ctx.stroke();
+      ctx.font = '500 20px ' + F_MONO;
+      imgText(ctx, fitText(ctx, t.label.toUpperCase(), tw - 2 * P), x + P, y + 44, '500 20px ' + F_MONO, IC.faint);
+      ctx.font = '600 50px ' + F_DISPLAY;
+      var vw = ctx.measureText(t.value).width;
+      imgText(ctx, t.value, x + P, y + 104, '600 50px ' + F_DISPLAY, IC.text);
+      if (t.unit) { ctx.font = '400 26px ' + F_BODY; imgText(ctx, fitText(ctx, t.unit, Math.max(20, tw - 2 * P - 10 - vw)), x + P + 10 + vw, y + 104, '400 26px ' + F_BODY, IC.muted); }
+      if (t.note) { ctx.font = '400 20px ' + F_MONO; imgText(ctx, fitText(ctx, t.note, tw - 2 * P), x + P, y + h - 20, '400 20px ' + F_MONO, IC.faint); }
+    });
+  }
+  function imgVerdict(ctx, kind, text, y, maxLines) {
+    ctx.font = '400 32px ' + F_BODY;
+    var lines = wrapText(ctx, text, IMG_W - 2 * IMG_M - 40, maxLines);
+    ctx.fillStyle = kind === 'warn' ? IC.warn : kind === 'okay' ? IC.okay : IC.lume;
+    ctx.beginPath(); ctx.arc(IMG_M + 10, y - 11, 9, 0, Math.PI * 2); ctx.fill();
+    lines.forEach(function (ln, i) { imgText(ctx, ln, IMG_M + 40, y + i * 44, '400 32px ' + F_BODY, IC.text); });
+    return y + lines.length * 44;
+  }
+  function imgName(name, d, suffix) {
+    var pad = function (x) { return (x < 10 ? '0' : '') + x; };
+    return ('Tickwerk_' + String(name).slice(0, 40) + (suffix ? '_' + suffix : '') + '_' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' + pad(d.getHours()) + pad(d.getMinutes()))
+      .replace(/[^A-Za-z0-9_\-äöüÄÖÜàâçéèêëîïôùûÀÉÈ]+/g, '-') + '.png';
+  }
+  function imgShare(draw, name, btn) {
+    if (btn.disabled) return;
+    btn.disabled = true;
+    imgFonts().then(function () {
+      var cv = document.createElement('canvas'); cv.width = IMG_W; cv.height = IMG_H;
+      draw(cv.getContext('2d'));
+      cv.toBlob(function (blob) {
+        btn.disabled = false;
+        if (blob) shareOrDownload(blob, name, T('Tickwerk Messung'));
+        else toast(T('Das Bild konnte nicht erstellt werden.'));
+      }, 'image/png');
+    }).catch(function (e) { btn.disabled = false; toast(T('Das Bild konnte nicht erstellt werden.')); if (window.console) console.error(e); });
+  }
+  function imgTrace(r, m) { return r && r.trace ? r.trace : m && m.tr ? traceOf(m.tr) : null; }
+  function drawMeasureImage(ctx, m, r) {
+    var w = findWatch(m.watchId), k = w ? kalById(w.kaliberId) : null, d = new Date(m.date);
+    imgHead(ctx, dLong(d) + ' · ' + timeStr(d), m.watchName || UNKNOWN.name, [k ? kName(k) : '', thousands(m.bph) + ' ' + T('A/h'), POS[m.pos]].filter(Boolean).join(' · '));
+    imgText(ctx, T('Gangabweichung').toUpperCase(), IMG_W / 2, 396, '500 26px ' + F_MONO, IC.faint, 'center');
+    imgBig(ctx, signed(m.rate, 1), T('s/Tag'), 568, 200);
+    imgText(ctx, '± ' + fmt(m.sigma, 2) + ' ' + T('s/Tag') + ' · ' + T('{n} s gemessen', { n: Math.round(m.dur) }), IMG_W / 2, 630, '400 28px ' + F_MONO, IC.muted, 'center');
+    imgScale(ctx, IMG_M, 690, IMG_W - 2 * IMG_M, 52, m.rate, true);
+    var vd = rateVerdict(m), y = imgVerdict(ctx, vd.kind, vd.short, 850, 2);
+    var tiles = [];
+    if (showsPro(m)) {
+      tiles.push({ label: T('Abfallfehler'), value: m.be != null ? fmt(m.be, 1) : '–', unit: T('ms'), note: m.beOk ? '' : T('unsicher') });
+      tiles.push({ label: T('Amplitude'), value: m.amp ? m.amp + '°' : '–', unit: '', note: !m.amp ? '' : m.ampOk ? T('bei {a}', { a: deg(m.lift || 52) }) : T('unsicher') });
+    }
+    tiles.push({ label: T('Schlagzahl'), value: thousands(m.bph), unit: T('A/h'), note: '' });
+    var ty = Math.max(y + 6, 900);
+    imgTiles(ctx, tiles, ty, 156);
+    imgTape(ctx, IMG_M, ty + 210, IMG_W - 2 * IMG_M, IMG_H - 92 - 26 - (ty + 210), imgTrace(r, m));
+    imgFoot(ctx);
+  }
+  function drawLagenImage(ctx, w, st, setN, started) {
+    var d = new Date(started || Date.now()), k = w ? kalById(w.kaliberId) : null;
+    imgHead(ctx, dLong(d), w ? w.name : UNKNOWN.name, [T('Lagen-Test in {n} Lagen', { n: setN }), k ? kName(k) : ''].filter(Boolean).join(' · '));
+    imgText(ctx, T('Mittel der Lagen').toUpperCase(), IMG_M, 396, '500 26px ' + F_MONO, IC.faint);
+    ctx.font = '600 120px ' + F_DISPLAY;
+    var mv = st.mean == null ? '–' : signed(st.mean, 1), mw = ctx.measureText(mv).width;
+    imgText(ctx, mv, IMG_M, 510, '600 120px ' + F_DISPLAY, IC.text);
+    imgText(ctx, T('s/Tag'), IMG_M + mw + 14, 510, '400 34px ' + F_BODY, IC.muted);
+    imgText(ctx, T('Lagendifferenz').toUpperCase(), IMG_W - IMG_M, 396, '500 26px ' + F_MONO, IC.faint, 'right');
+    ctx.font = '400 34px ' + F_BODY; var uw = ctx.measureText(T('s/Tag')).width;
+    imgText(ctx, T('s/Tag'), IMG_W - IMG_M, 510, '400 34px ' + F_BODY, IC.muted, 'right');
+    imgText(ctx, st.spread == null ? '–' : fmt(st.spread, 1), IMG_W - IMG_M - uw - 14, 510, '600 120px ' + F_DISPLAY, IC.text, 'right');
+    var y = 560, rowH = st.rows.length > 4 ? 66 : 80, nameW = 330, sx = IMG_M + nameW, sw = IMG_W - 2 * IMG_M - nameW - 210;
+    st.rows.forEach(function (row, i) {
+      var yy = y + i * rowH, m = row.m, ok = m && counted(m);
+      if (i) { ctx.fillStyle = IC.line; ctx.fillRect(IMG_M, yy, IMG_W - 2 * IMG_M, 1); }
+      ctx.font = '500 30px ' + F_BODY;
+      imgText(ctx, fitText(ctx, POS[row.pos], nameW - 20), IMG_M, yy + rowH / 2 + 4, '500 30px ' + F_BODY, IC.text);
+      var extra = m && showsPro(m) ? ampBe(m).join(' · ') : '';
+      if (extra) imgText(ctx, extra, IMG_M, yy + rowH / 2 + 30, '400 20px ' + F_MONO, IC.faint);
+      imgScale(ctx, sx, yy + rowH / 2 - 14, sw, 24, ok ? m.rate : null, false);
+      if (m && !ok) { ctx.fillStyle = IC.warn; ctx.beginPath(); ctx.arc(sx + (Math.max(-20, Math.min(20, m.rate)) + 20) / 40 * sw, yy + rowH / 2 - 2, 7, 0, Math.PI * 2); ctx.fill(); }
+      var val = m ? signed(m.rate, 1) : '–';
+      imgText(ctx, val, IMG_W - IMG_M, yy + rowH / 2 + 14, '600 44px ' + F_DISPLAY, ok ? IC.text : IC.faint, 'right');
+    });
+    y += st.rows.length * rowH + 24;
+    var tiles = [{ label: T('Senkrecht − waagrecht'), value: st.hv == null ? '–' : signed(st.hv, 1), unit: T('s/Tag'), note: '' }];
+    var pro = st.ok.some(function (r) { return showsPro(r.m); });
+    if (pro) {
+      tiles.push({ label: T('Abfallfehler'), value: st.be == null ? '–' : fmt(st.be, 1), unit: T('ms'), note: T('Mittel') });
+      tiles.push({ label: T('Amplitude'), value: st.ampH == null ? '–' : Math.round(st.ampH) + '°', unit: st.ampV == null ? '' : '/ ' + Math.round(st.ampV) + '°', note: T('waagrecht / senkrecht') });
+    }
+    imgTiles(ctx, tiles, y, 156);
+    var kind = st.n < 2 ? 'warn' : st.spread <= 10 ? 'good' : st.spread <= 20 ? 'okay' : 'warn';
+    var short = st.n < 2 ? T('Zu wenige sichere Lagen für eine Aussage.') : st.spread <= 10 ? T('Kleine Lagendifferenz: Das Werk läuft in allen Lagen gleichmässig.') :
+      st.spread <= 20 ? T('Eine Lagendifferenz wie bei einer guten Uhr ohne Chronometer-Zertifikat.') : T('Grosse Lagendifferenz: Ein Uhrmacher kann prüfen, ob ein Service nötig ist.');
+    imgVerdict(ctx, kind, short, y + 214, 2);
+    imgFoot(ctx);
+  }
+  $('imgBtn').addEventListener('click', function () {
+    if (!lastShown) return;
+    var m = lastShown.m, r = lastShown.r;
+    imgShare(function (ctx) { drawMeasureImage(ctx, m, r); }, imgName(m.watchName || 'Uhr', new Date(m.date)), this);
+  });
+  function shareLagenImage(w, set, byPos, started, btn) {
+    var st = lagenStats(set, byPos);
+    imgShare(function (ctx) { drawLagenImage(ctx, w, st, set.length, started); }, imgName(w ? w.name : T('Uhr'), new Date(started || Date.now()), T('Lagen')), btn);
+  }
+  $('lgImg').addEventListener('click', function () {
+    if (session) shareLagenImage(lagenWatch(), SETS[session.set], sessByPos(), session.started, this);
   });
 
   /* ---------- Lagen-Test (Pro) ----------
@@ -1140,8 +1448,8 @@
       b.type = 'button'; b.dataset.pos = p;
       if (!m) cls.push(p === next ? 'next' : 'open'); else cls.push(counted(m) ? 'done' : 'weak');
       b.className = cls.join(' ');
-      var sub = !m ? T(p === next ? 'als Nächstes' : 'offen') : !counted(m) ? whyNot(m) + ' · ' + T('nochmals') :
-        shaky(m) ? shakyText(m) + ' · ± ' + fmt(m.sigma, 1) : (ampBe(m).join(' · ') || '± ' + fmt(m.sigma, 2) + ' ' + T('s/Tag'));
+      var sub = !m ? T(p === next ? 'als Nächstes' : 'offen') : !counted(m) ? whyNot(m) :
+        shaky(m) ? shakyText(m) : (ampBe(m).join(' · ') || '± ' + fmt(m.sigma, 2) + ' ' + T('s/Tag'));
       b.innerHTML = '<svg class="pos-icon lt-icon" viewBox="0 0 110 110" aria-hidden="true">' + posIcon(p) + '</svg>' +
         '<span class="lt-txt"><span class="lt-h">' + esc(POS[p]) + '</span>' +
         '<span class="lt-v">' + (m ? esc(signed(m.rate, 1)) + '<small> ' + esc(T('s/Tag')) + '</small>' : '–') + '</span>' +
@@ -1331,13 +1639,14 @@
     $('pBe').textContent = !pro ? 'Pro' : m.beOk ? fmt(m.be, 2) : '–';
     $('pSearch').hidden = true; bar($('pProg'), 0); bar($('pLevel'), 0);
     $('pStart').classList.remove('running'); $('pStart').disabled = false;
-    if (res) drawTape($('pTape'), res.trace); else drawTape($('pTape'), m.tr ? traceOf(m.tr) : null, 'Gemessen am ' + dateStr(m.date));
+    if (res) drawTape($('pTape'), res.trace); else drawTape($('pTape'), m.tr ? traceOf(m.tr) : null, T('Gemessen am {d}', { d: dateStr(m.date) }));
     $('pAlt').hidden = false;
     var swing = res && res.halves ? ' ' + T('In den beiden Hälften der Messung: {a} und {b} s/Tag.', { a: signed(res.halves.rate[0], 1), b: signed(res.halves.rate[1], 1) }) : '';
     if (!ok) {
       $('pStartLabel').textContent = T('Nochmals messen'); $('pAlt').textContent = T('Zur Auswahl'); $('pAlt').dataset.act = 'back';
       if (m.q === 'schwach') setStatus('pStatus', T('Signal schwach (± {s} s/Tag): Diese Lage zählt nicht. Nochmals messen, Handy fester an die Krone.', { s: fmt(m.sigma, 2) }), 'err');
-      else setStatus('pStatus', T('Das Signal war gut, aber der Gang schwankte während der Messung zu stark (± {s} s/Tag). Diese Lage zählt nicht. Nochmals messen: Handy nur leicht an die Krone halten, Arm aufstützen, am besten 60 s.', { s: fmt(m.sigma, 2) }) + swing, 'err');
+      else if (m.stable === false) setStatus('pStatus', T('Das Signal war gut, aber der Gang schwankte während der Messung zu stark (± {s} s/Tag). Diese Lage zählt nicht. Nochmals messen: Handy nur leicht an die Krone halten, Arm aufstützen, am besten 60 s.', { s: fmt(m.sigma, 2) }) + swing, 'err');
+      else setStatus('pStatus', T('Zu unsicher (± {s} s/Tag): Diese Lage zählt nicht. Nochmals messen, am besten 60 s, Handy ruhig an der Krone.', { s: fmt(m.sigma, 2) }), 'err');
       return;
     }
     if (!fresh) {
@@ -1350,8 +1659,7 @@
     var left = RESULT_SECONDS;
     var label = function () { $('pStartLabel').textContent = T('Weiter') + ' · ' + left; };
     label();
-    if (shaky(m)) setStatus('pStatus', T('{p} gemessen. Der Gang schwankte während der Messung, darum ± {s} s/Tag. Die Lage zählt mit dem Vermerk «Gang schwankt».', { p: POS[p.pos], s: fmt(m.sigma, 2) }) +
-      (m.stable === false ? swing : ''), 'warn');
+    if (shaky(m)) setStatus('pStatus', T('{p} gemessen. Die Klicks waren klar, aber der Gang schwankte während der Messung, darum ± {s} s/Tag. Die Lage zählt mit dem Vermerk «Gang könnte schwanken».', { p: POS[p.pos], s: fmt(m.sigma, 2) }) + swing, 'warn');
     else setStatus('pStatus', T('{p} gemessen. Gleich geht es zurück zur Auswahl.', { p: POS[p.pos] }), 'ok');
     lpTimer = setInterval(function () {
       if (top().s !== 'lpos' || top().p !== p) { lpStop(); return; }
@@ -1419,7 +1727,8 @@
         '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></span>' +
         '<span class="wcard-mid"><span class="wcard-rate"><span class="wcard-num"><b>' + (show ? esc(signed(show.rate, 1)) : '–') + '</b><span>' + esc(T('s/Tag')) + '</span></span>' +
         '<span class="pill ' + st.cls + '">' + PILL_ICON[st.cls] + esc(st.text) + '</span></span>' + sparkline(list, st.cls) + '</span>' +
-        '<span class="wcard-foot">' + esc(list.length ? plural(list.length, 'Messung', 'Messungen') + ' · ' + T('zuletzt {d}', { d: ago(list[list.length - 1].date) }) : T('Noch keine Messung')) + '</span>';
+        '<span class="wcard-foot">' + esc(list.length ? plural(list.length, 'Messung', 'Messungen') + ' · ' + T('zuletzt {d}', { d: ago(list[list.length - 1].date) }) : T('Noch keine Messung')) + '</span>' +
+        (dueText(w) ? '<span class="wcard-due">' + esc(dueText(w)) + '</span>' : '');
       b.addEventListener('click', function () { go('watch', { id: w.id }); });
       box.appendChild(b);
     });
@@ -1522,6 +1831,7 @@
     $('dPdfBar').hidden = true;
     renderLagenCard(w, list);
     renderTimeCard(w, list);
+    renderGrCard(w);
   }
   /* Letzter Lagen-Test dieser Uhr: aus den Messungen mit derselben Sitzung */
   function lastLagenOf(list) {
@@ -1557,9 +1867,13 @@
     $('dlNote').hidden = st.done;
     $('dlNote').textContent = st.done ? '' : T(current ? 'Noch nicht fertig: {x}.' : 'Nicht fertig gemessen: {x}.', { x: plural(st.rows.filter(function (r) { return !r.m; }).length, 'Lage fehlt', 'Lagen fehlen') });
     $('dlOpen').hidden = !(current && !st.done);
-    $('dlPdf').disabled = !st.n;
+    $('dlPdf').disabled = !st.n; $('dlImg').disabled = !st.n;
     $('dlPdfBar').hidden = true;
   }
+  $('dlImg').addEventListener('click', function () {
+    var w = detailWatch(); if (!w) return;
+    var L = lastLagenOf(measOf(w)); if (L) shareLagenImage(w, L.set, L.byPos, L.started, this);
+  });
   $('dlPdf').addEventListener('click', function () {
     var w = detailWatch(); if (!w) return;
     var L = lastLagenOf(measOf(w)); if (!L) return;
@@ -1572,6 +1886,173 @@
   $('dMeasure').addEventListener('click', function () { var w = detailWatch(); if (!w) return; setWatch(w.id); switchTab('measure'); });
   $('dEdit').addEventListener('click', function () { var w = detailWatch(); if (w) go('edit', { id: w.id }); });
   $('dLagen').addEventListener('click', function () { var w = detailWatch(); if (w) lagenOpen(w.id); });
+
+  /* ---------- Regulieren (Pro): der Gang laufend, solange am Werk eingestellt wird. Gespeichert wird nichts. ----------
+     Ausgewertet wird ein wachsendes Fenster von 6 bis 15 Sekunden. Stört etwas (kein klares Ticken) oder ändert sich der Gang
+     deutlich, beginnt das Fenster neu: So folgt die Anzeige einer Verstellung schnell und wird in Ruhe genau. */
+  var REG_MIN = 6, REG_MAX = 15, REG_EVERY = 2, REG_LIMIT = 600, REG_SPAN = 180;
+  var reg = null;
+  function mmss(sec) { sec = Math.max(0, Math.floor(sec)); return Math.floor(sec / 60) + ':' + ('0' + sec % 60).slice(-2); }
+  function setRSignal(level) { $('rSignal').setAttribute('data-level', String(level)); $('rSignalText').textContent = LEVEL_TEXT[level]; }
+  function setRMarker(rate) {
+    var mk = $('rMarker');
+    mk.hidden = rate == null;
+    if (rate != null) mk.style.left = ((Math.max(-20, Math.min(20, rate)) + 20) / 40 * 100) + '%';
+  }
+  function regReady() {
+    $('rState').textContent = T('Bereit');
+    $('rRate').textContent = '–'; $('rRate').classList.remove('live'); $('rSub').textContent = ''; setRMarker(null);
+    $('rBe').textContent = '–'; $('rBeNote').textContent = T('ms'); $('rAmp').textContent = '–'; $('rAmpNote').textContent = '';
+    setRSignal(0); bar($('rLevel'), 0); bar($('rProg'), 0);
+    $('rStart').classList.remove('running'); $('rStart').disabled = false; $('rStartLabel').textContent = T('Starten');
+    drawTape($('rTape'), null, T('Der Papierstreifen erscheint nach ein paar Sekunden.'));
+    drawTrend($('rTrend'), [], 0);
+    setStatus('rStatus', T('Uhr hinlegen und die Handy-Unterkante an die Krone halten, dann «Starten» tippen.'), '');
+  }
+  function renderReg(p) {
+    var w = currentWatch();
+    $('rWatch').textContent = (w ? w.name : UNKNOWN.name) + ' · ' + watchSub(w) + micNote();
+    if (rec && rec.owner === 'reg') return;
+    if (!p.init) { p.init = true; reg = null; regReady(); return; }
+    if (reg) { drawTrend($('rTrend'), reg.pts, reg.t); drawTape($('rTape'), reg.last ? reg.last.trace : null, T('Der Papierstreifen erscheint nach ein paar Sekunden.')); }
+  }
+  function regIdle(g, msg) {
+    $('rStart').classList.remove('running'); $('rStart').disabled = false; $('rStartLabel').textContent = T('Starten');
+    bar($('rLevel'), 0); bar($('rProg'), 0);
+    $('rState').textContent = g.last ? T('Angehalten') + ' · ' + mmss(g.t) : T('Bereit');
+    if (g.last) $('rRate').classList.add('live');
+    setStatus('rStatus', msg, '');
+  }
+  function regStart() {
+    if (topScreen() !== 'reg') return;
+    if (rec) { recStop(true); return; }
+    if (busy || opening) return;
+    if (!requirePro('reg')) return;
+    var w = currentWatch(), g = { start: 0, next: REG_MIN, busy: false, band: null, bph: null, miss: 0, pts: [], last: null, t: 0, changed: false };
+    reg = g;
+    regReady();
+    recStart({
+      owner: 'reg', dur: REG_LIMIT, ring: REG_MAX + 1, settle: 0, noLive: true, opts: watchOpts(w),
+      onOpening: function () { $('rStart').disabled = true; setStatus('rStatus', T('Mikrofon wird geöffnet …'), 'busy'); },
+      onFail: function (msg) { $('rStart').disabled = false; setStatus('rStatus', msg, 'err'); },
+      onBegin: function () {
+        $('rStart').disabled = false; $('rStart').classList.add('running'); $('rStartLabel').textContent = T('Stoppen');
+        $('rState').textContent = T('Hört zu');
+        drawTape($('rTape'), null, T('Tickwerk hört zu …'));
+        setStatus('rStatus', T('Tickwerk hört zu. Der erste Wert kommt nach etwa {n} Sekunden.', { n: REG_MIN }), 'busy');
+      },
+      onTick: function (left, frac, r) {
+        var t = r.total / r.fs;
+        if (g.last) $('rState').textContent = T('Live') + ' · ' + mmss(t);
+        bar($('rProg'), frac);
+        bar($('rLevel'), (20 * Math.log10(r.peak + 1e-9) + 80) / 60);
+      },
+      onFrame: function (t, r) { regFrame(g, t, r, w); },
+      onCancel: function () { regIdle(g, T('Angehalten.')); },
+      onDone: function () { regIdle(g, T('Nach 10 Minuten angehalten. «Starten» tippen, um weiterzumachen.')); }
+    });
+  }
+  function regFrame(g, t, r, w) {
+    if (reg !== g || g.busy || t < g.next) return;
+    var win = Math.min(REG_MAX, t - g.start);
+    if (win < REG_MIN) { g.next = g.start + REG_MIN; return; }
+    g.busy = true; g.next = t + REG_EVERY;
+    var op = watchOpts(w);
+    op.probe = true;   /* auch einen unsicheren Wert zeigen (mit grossem ±), statt gar keinen */
+    if (g.band) { op.band = g.band; op.bph = g.bph; }   /* Frequenzband und Schlagzahl sind bekannt: viel schneller */
+    runJob({ samples: tailSamples(r, win), fs: r.fs, opts: op, reg: true }).then(function (res) {
+      g.busy = false;
+      if (rec !== r || reg !== g) return;
+      regResult(g, res, t, win);
+    });
+  }
+  /* Steigung des Papierstreifens in s/Tag, Tick und Tack je für sich zentriert; Ausreisser fallen im zweiten Durchgang weg */
+  function traceRate(pts) {
+    function fit(use) {
+      var c = [{ n: 0, t: 0, d: 0 }, { n: 0, t: 0, d: 0 }];
+      use.forEach(function (p) { var q = c[p.parity ? 1 : 0]; q.n++; q.t += p.t; q.d += p.devMs; });
+      use = use.filter(function (p) { return c[p.parity ? 1 : 0].n >= 3; });
+      if (use.length < 12) return null;
+      var sxy = 0, sxx = 0;
+      use.forEach(function (p) { var q = c[p.parity ? 1 : 0], dt = p.t - q.t / q.n; sxy += dt * (p.devMs - q.d / q.n); sxx += dt * dt; });
+      if (!(sxx > 0)) return null;
+      var b = sxy / sxx, res = use.map(function (p) { var q = c[p.parity ? 1 : 0]; return (p.devMs - q.d / q.n) - b * (p.t - q.t / q.n); });
+      var ss = 0; res.forEach(function (e) { ss += e * e; });
+      return { b: b, se: Math.sqrt(ss / Math.max(1, use.length - 3) / sxx), use: use, res: res };
+    }
+    var f = fit(pts); if (!f) return null;
+    var abs = f.res.map(Math.abs).sort(function (a, b) { return a - b; }), lim = Math.max(0.05, 4 * 1.4826 * abs[abs.length >> 1]);
+    var f2 = fit(f.use.filter(function (p, i) { return Math.abs(f.res[i]) <= lim; }));
+    f = f2 || f;
+    return { rate: f.b * 86.4, se: f.se * 86.4 };
+  }
+  /* Summe der Fehlerquadrate einer Geraden (Tick und Tack je für sich zentriert) */
+  function traceSse(use) {
+    var c = [{ n: 0, t: 0, d: 0 }, { n: 0, t: 0, d: 0 }], sxy = 0, sxx = 0, n = 0, ss = 0;
+    use.forEach(function (p) { var q = c[p.parity ? 1 : 0]; q.n++; q.t += p.t; q.d += p.devMs; });
+    use.forEach(function (p) { var q = c[p.parity ? 1 : 0]; if (q.n < 3) return; var dt = p.t - q.t / q.n; sxy += dt * (p.devMs - q.d / q.n); sxx += dt * dt; n++; });
+    if (n < 6 || !(sxx > 0)) return null;
+    var b = sxy / sxx;
+    use.forEach(function (p) { var q = c[p.parity ? 1 : 0]; if (q.n < 3) return; var e = (p.devMs - q.d / q.n) - b * (p.t - q.t / q.n); ss += e * e; });
+    return ss;
+  }
+  /* Hat sich der Gang in den letzten Sekunden deutlich verändert? Dann: vor wie vielen Sekunden (dort knickt der Papierstreifen).
+     null: keine deutliche Änderung */
+  function regBreak(trace, lastS) {
+    if (!trace || trace.length < 24) return null;
+    var tEnd = trace[trace.length - 1].t;
+    var all = traceRate(trace), now = traceRate(trace.filter(function (p) { return p.t >= tEnd - lastS; }));
+    if (!all || !now || !(Math.abs(now.rate - all.rate) > Math.max(3, 4 * Math.sqrt(now.se * now.se + all.se * all.se)))) return null;
+    var best = null;
+    for (var tau = trace[0].t + 1.5; tau <= tEnd - 1.5; tau += 0.25) {
+      var a = traceSse(trace.filter(function (p) { return p.t < tau; })), b = traceSse(trace.filter(function (p) { return p.t >= tau; }));
+      if (a == null || b == null) continue;
+      if (!best || a + b < best.sse) best = { sse: a + b, tau: tau };
+    }
+    return best ? tEnd - best.tau : lastS;
+  }
+  function regResult(g, res, t, win) {
+    g.t = t;
+    var heard = heardOf(res), ok = heard && res.quality.label !== 'schwach';
+    if (!ok) {   /* gestört, zum Beispiel beim Verstellen: alle 2 s die letzten 6 s prüfen, bis es wieder sauber tickt */
+      g.miss++; g.start = t - REG_MIN + REG_EVERY;
+      if (g.miss >= 3) { g.band = null; g.bph = null; }   /* länger nichts: Frequenzband neu suchen */
+      g.pts.push({ t: t, gap: true });
+      setRSignal(heard ? 1 : 0);
+      if (g.last) $('rRate').classList.add('live');
+      setStatus('rStatus', g.last ? T('Kein klares Ticken. Sobald die Uhr wieder ruhig tickt, zeigt Tickwerk neue Werte.') :
+        T('Noch kein klares Ticken. Handy-Unterkante an die Krone halten, die Uhr nicht berühren.'), 'err');
+      drawTrend($('rTrend'), g.pts, t);
+      return;
+    }
+    g.miss = 0;
+    if (!g.band) { g.band = res.band; g.bph = res.bph; }
+    var since = win >= REG_MIN + REG_EVERY ? regBreak(res.trace, REG_MIN) : null;
+    if (since != null) {   /* der Gang hat sich verändert: ab der Änderung neu mitteln, die alten Sekunden nicht mehr verwenden */
+      g.start = t - since; g.next = g.start + REG_MIN; g.changed = true;
+      if (g.last) $('rRate').classList.add('live');
+      setStatus('rStatus', T('Der Gang hat sich verändert. Tickwerk mittelt ab der Änderung neu …'), 'busy');
+      return;
+    }
+    g.last = res;
+    g.pts.push({ t: t, rate: res.rate, sigma: res.rateSigma });
+    while (g.pts.length && g.pts[0].t < t - REG_SPAN - 5) g.pts.shift();
+    $('rRate').textContent = signed(res.rate, 1); $('rRate').classList.remove('live');
+    $('rSub').textContent = '± ' + fmt(res.rateSigma, 1) + ' ' + T('s/Tag') + ' · ' + T('aus {n} s', { n: Math.round(win) }) + ' · ' + thousands(res.bph) + ' ' + T('A/h');
+    setRMarker(res.rate);
+    $('rBe').textContent = res.beatErrorMs != null ? fmt(res.beatErrorMs, 1) : '–';
+    $('rBeNote').textContent = T('ms') + (res.beatErrorReliable === false ? ' · ' + T('unsicher') : '');
+    $('rAmp').textContent = res.amplitude ? Math.round(res.amplitude) + '°' : '–';
+    $('rAmpNote').textContent = !res.amplitude ? '' : res.amplitudeReliable ? T('bei {a}', { a: deg(res.liftAngle) }) : T('unsicher');
+    setRSignal(qLevel(res.quality));
+    $('rState').textContent = T('Live') + ' · ' + mmss(t);
+    setStatus('rStatus', g.changed ? T('Neuer Gang nach der Änderung. Der Wert wird genauer, solange die Uhr ruhig tickt.') :
+      T('Live. Nach einer Verstellung die Uhr ein paar Sekunden ruhig lassen.'), 'ok');
+    g.changed = false;
+    drawTape($('rTape'), res.trace);
+    drawTrend($('rTrend'), g.pts, t);
+  }
+  $('rStart').addEventListener('click', regStart);
 
   /* ---------- Werk-Detektiv: Schlagzahl und Merkmale grenzen das Werk ein ---------- */
   var DET_Q = ['auto', 'hand', 'stopp', 'datum', 'chrono'];
@@ -1710,6 +2191,9 @@
     });
     $('dtReset').hidden = !tv.length;
     $('dtNow').textContent = T(tv.length ? 'Jetzt nochmals vergleichen' : 'Mit der Atomzeit vergleichen');
+    var zn = zeitNext(w);
+    setRemind('dt', zn ? zn.at : null, zn && zn.due, T('Tickwerk: Zeitvergleich «{w}»', { w: w.name }),
+      T('Die Uhr mit der Atomzeit vergleichen: in Tickwerk unter «Meine Uhren», {w}, «Jetzt nochmals vergleichen».', { w: w.name }));
   }
   $('dtNow').addEventListener('click', function () { var w = detailWatch(); if (w) go('zeit', { id: w.id }); });
   $('dtReset').addEventListener('click', function () {
@@ -1717,6 +2201,185 @@
     if (!window.confirm(T('Neue Reihe beginnen? Das braucht es, wenn du die Uhr gestellt hast oder sie stehen geblieben ist. Die bisherigen Vergleiche werden gelöscht.'))) return;
     delete w.tv; saveWatches(); renderDetail(top().p);
   });
+
+  /* ---------- Erinnerungen: Kalender (Google oder Datei) und Hinweis in der App ---------- */
+  function calStamp(d) { return d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, ''); }
+  function gcalUrl(title, details, at) {
+    var end = new Date(at.getTime() + 15 * 60000);
+    return 'https://calendar.google.com/calendar/render?action=TEMPLATE&text=' + encodeURIComponent(title) + '&dates=' + calStamp(at) + '/' + calStamp(end) +
+      '&details=' + encodeURIComponent(details);
+  }
+  /* Kalenderdatei nach RFC 5545: Steuerzeichen weg, \ ; , und Zeilenumbrüche maskiert, Zeilen nach 75 Byte gefaltet */
+  function icsText(title, details, at) {
+    var clean = function (v) { return String(v).replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,'); };
+    var enc = new TextEncoder();
+    var fold = function (line) {
+      var out = '', cur = '', n = 0;
+      Array.from(line).forEach(function (ch) {
+        var b = enc.encode(ch).length;
+        if (n + b > (out ? 74 : 75)) { out += (out ? '\r\n ' : '') + cur; cur = ''; n = 0; }
+        cur += ch; n += b;
+      });
+      return out ? out + '\r\n ' + cur : cur;
+    };
+    var end = new Date(at.getTime() + 15 * 60000);
+    return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Tickwerk//Tickwerk ' + APP_VERSION + '//DE', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'BEGIN:VEVENT',
+      'UID:' + calStamp(at) + '-' + Math.random().toString(36).slice(2, 10) + '@tickwerk', 'DTSTAMP:' + calStamp(new Date()), 'DTSTART:' + calStamp(at), 'DTEND:' + calStamp(end),
+      'SUMMARY:' + clean(title), 'DESCRIPTION:' + clean(details), 'BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:' + clean(title), 'TRIGGER:PT0M', 'END:VALARM',
+      'END:VEVENT', 'END:VCALENDAR'].map(fold).join('\r\n') + '\r\n';
+  }
+  function whenText(d) { return d.toLocaleDateString(LOC, { weekday: 'short', day: 'numeric', month: 'short' }) + ', ' + timeStr(d); }
+  var remindData = {};
+  function setRemind(prefix, at, due, title, details) {
+    var box = $(prefix + 'Remind');
+    box.hidden = !at;
+    if (!at) { delete remindData[prefix]; return; }
+    $(prefix + 'Due').textContent = due ? T('Jetzt fällig (seit {d})', { d: whenText(at) }) : T('Fällig: {d}. Als Erinnerung eintragen:', { d: whenText(at) });
+    $(prefix + 'Due').classList.toggle('due', !!due);
+    $(prefix + 'Cal').href = gcalUrl(title, details, at);
+    $(prefix + 'Cal').hidden = !!due; $(prefix + 'Ics').hidden = !!due;
+    remindData[prefix] = { title: title, details: details, at: at };
+  }
+  function downloadBlob(blob, name) {
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 10000);
+  }
+  ['dt', 'gr'].forEach(function (prefix) {
+    $(prefix + 'Ics').addEventListener('click', function () {
+      var d = remindData[prefix]; if (!d) return;
+      downloadBlob(new Blob([icsText(d.title, d.details, d.at)], { type: 'text/calendar' }), T('tickwerk-erinnerung') + '.ics');
+    });
+  });
+  /* Nächster Zeitvergleich: einen Tag nach dem letzten, solange die Reihe jünger als eine Woche ist */
+  function zeitNext(w) {
+    var tv = w && w.tv; if (!tv || !tv.length) return null;
+    var first = new Date(tv[0].t).getTime(), last = new Date(tv[tv.length - 1].t).getTime(), now = Date.now(), at = last + 24 * 3600000;
+    if (now - first > 8 * 86400000 || now > at + 3 * 86400000) return null;
+    return { at: new Date(at), due: now >= at - 2 * 3600000 };
+  }
+
+  /* ---------- Gangreserve-Test (Pro) ----------
+     Voll aufgezogen messen, dann die Uhr liegen lassen (nicht tragen, nicht aufziehen) und nach 24 Stunden nochmals messen,
+     freiwillig auch nach 36 Stunden. Verglichen werden Amplitude und Gang, immer mit dem Zifferblatt oben. */
+  var GR_H = [0, 24, 36], GR_EARLY = 0.5, GR_NAMES = [T('voll aufgezogen'), T('nach 24 Stunden'), T('nach 36 Stunden')];
+  var grPending = null;   /* { watchId, id, step }: die nächste Messung gehört zum Test */
+  function grMeas(w) {   /* je Schritt die letzte Messung, die zählt */
+    var out = [null, null, null];
+    if (w && w.gr) measOf(w).forEach(function (m) { if (m.gr === w.gr.id && counted(m)) out[m.grs] = m; });
+    return out;
+  }
+  function grNext(w) {   /* nächster offener Schritt: { step, at, due } */
+    if (!w || !w.gr || !w.gr.t0 || w.gr.stop) return null;
+    var ms = grMeas(w), t0 = new Date(w.gr.t0).getTime(), now = Date.now();
+    for (var st = 1; st < 3; st++) {
+      if (ms[st]) continue;
+      if (st === 2 && now > t0 + 48 * 3600000) return null;   /* der freiwillige Schritt verfällt nach zwei Tagen */
+      var at = t0 + GR_H[st] * 3600000;
+      return { step: st, at: new Date(at), due: now >= at - GR_EARLY * 3600000 };
+    }
+    return null;
+  }
+  function hoursText(h) { return plural(Math.round(h), 'Stunde', 'Stunden'); }
+  function grVerdict(w) {
+    var ms = grMeas(w), a = ms[0];
+    if (!a) return null;
+    if (w.gr.stop) {
+      var hs = (new Date(w.gr.stop) - new Date(w.gr.t0)) / 3600000;
+      return ms[1] ? { kind: 'okay', text: T('Nach 24 Stunden lief die Uhr noch; stehen geblieben ist sie vor {h}.', { h: hoursText(hs) }) } :
+        { kind: 'warn', text: T('Stehen geblieben, bemerkt nach {h}. War die Uhr voll aufgezogen, ist das zu kurz: Die meisten Werke laufen 38 Stunden oder länger. Zugfeder prüfen lassen.', { h: hoursText(hs) }) };
+    }
+    var st = ms[2] ? 2 : ms[1] ? 1 : 0;
+    if (!st) return null;
+    var b = ms[st], h = (new Date(b.date) - new Date(a.date)) / 3600000, dr = b.rate - a.rate;
+    var drop = a.ampOk && b.ampOk && a.amp && b.amp ? a.amp - b.amp : null, f = st === 2 ? 1.4 : 1;
+    var ak = drop == null ? 'good' : drop <= 50 * f ? 'good' : drop <= 80 * f ? 'okay' : 'warn';
+    var rk = Math.abs(dr) <= 5 * f ? 'good' : Math.abs(dr) <= 10 * f ? 'okay' : 'warn';
+    var kind = ak === 'warn' || rk === 'warn' ? 'warn' : ak === 'okay' || rk === 'okay' ? 'okay' : 'good';
+    var head = T('Nach {h}: Amplitude {a}, Gang {r} s/Tag.', { h: hoursText(h), a: drop == null ? T('ohne sicheren Wert') : signed(-drop, 0) + '°', r: signed(dr, 1) });
+    var tail = kind === 'good' ? T('Die Zugfeder hat noch genug Kraft. So soll es sein.') :
+      kind === 'okay' ? T('Die Kraft lässt merklich nach. Das ist bei vielen Uhren üblich; nach einem frischen Service wäre es eher viel.') :
+      ak === 'warn' ? T('Die Amplitude fällt stark. Das deutet auf eine müde Zugfeder oder alte Schmierung: beim nächsten Service ansprechen.') :
+      T('Der Gang ändert sich stark, wenn die Kraft nachlässt. Ein Uhrmacher kann das beim Service verbessern.');
+    return { kind: kind, text: head + ' ' + tail + (drop == null ? ' ' + T('Ohne sichere Amplitude zählt nur der Gang.') : '') };
+  }
+  function renderGrCard(w) {
+    var ms = grMeas(w), nx = grNext(w), vd = grVerdict(w), started = !!(w.gr && w.gr.t0), ul = $('grRows');
+    $('grSub').textContent = !started ? '' : nx ? T('läuft') : T('abgeschlossen');
+    $('grText').textContent = started ? (nx && !nx.due ? T('Die Uhr bis dahin ruhig liegen lassen: nicht tragen, nicht aufziehen.') : '') :
+      T('Wie viel Kraft hat die Zugfeder nach einem Tag noch? Uhr voll aufziehen und gleich messen, dann 24 Stunden liegen lassen und nochmals messen.');
+    $('grText').hidden = !$('grText').textContent;
+    ul.innerHTML = ''; ul.hidden = !started;
+    if (started) {
+      [0, 1, 2].forEach(function (st) {
+        var m = ms[st], li = document.createElement('li'), sub;
+        if (st === 2 && !m && !(nx && nx.step === 2)) return;
+        sub = m ? [dateStr(m.date)].concat(m.ampOk && m.amp ? [m.amp + '°'] : []).join(' · ') : st === 0 ? '' : nx && nx.step === st ? (nx.due ? T('jetzt fällig') : T('ab {d}', { d: whenText(nx.at) })) : '–';
+        li.innerHTML = '<span class="r-l">' + esc(capF(GR_NAMES[st]) + (st === 2 ? ' (' + T('freiwillig') + ')' : '')) + '<small>' + esc(sub) + '</small></span>' +
+          '<span class="r-r' + (m ? '' : ' dim') + '">' + (m ? esc(signed(m.rate, 1) + ' ' + T('s/Tag')) : '–') + '</span>';
+        ul.appendChild(li);
+      });
+    }
+    $('grVerdict').hidden = !vd;
+    if (vd) { $('grVerdict').setAttribute('data-kind', vd.kind); $('grVerdictText').textContent = vd.text; }
+    var go = $('grGo');
+    go.hidden = started && (!nx || !nx.due);
+    go.textContent = !started ? T('Voll aufgezogen: jetzt messen') : nx ? T('Jetzt messen: {s}', { s: GR_NAMES[nx.step] }) : '';
+    $('grStop').hidden = !started || !nx;
+    $('grReset').hidden = !started;
+    setRemind('gr', nx && !nx.due ? nx.at : null, false, T('Tickwerk: Gangreserve-Test «{w}»', { w: w.name }),
+      T('Messung «{s}»: Uhr mit dem Zifferblatt nach oben hinlegen und mit Tickwerk messen.', { s: nx ? GR_NAMES[nx.step] : '' }));
+  }
+  function capF(t) { return t ? t.charAt(0).toUpperCase() + t.slice(1) : t; }
+  function grMeasure(w) {
+    if (!w || rec || busy || !requirePro('gr')) return;
+    var nx = grNext(w), step = w.gr && w.gr.t0 ? (nx && nx.due ? nx.step : -1) : 0;
+    if (step < 0) return;
+    if (step === 0 && !w.gr) { w.gr = { id: 'g' + Date.now().toString(36), t0: '' }; saveWatches(); }
+    grPending = { watchId: w.id, id: w.gr.id, step: step };
+    settings.watchId = w.id; settings.pos = 'ZO'; saveSettings();
+    clearReadout();
+    switchTab('measure');
+    setStatus('status', idleHint(), '');
+    if (settings.autoStart) measureStart();
+  }
+  function renderGrNotice() {
+    var on = !!grPending && grPending.watchId === settings.watchId;
+    $('mGr').hidden = !on;
+    if (on) $('mGrText').textContent = T('Gangreserve-Test, Messung «{s}»: Uhr mit dem Zifferblatt nach oben hinlegen, Handy-Unterkante an die Krone.', { s: GR_NAMES[grPending.step] });
+  }
+  /* Eine Messung des Tests ist gespeichert: zählt sie, ist der Schritt erledigt */
+  function grSaved(m) {
+    var w = findWatch(m.watchId);
+    if (!w || !w.gr || w.gr.id !== m.gr) return;
+    if (!counted(m)) { $('status').textContent += ' ' + T('Für den Gangreserve-Test zählt diese Messung nicht. Nochmals messen.'); return; }
+    if (m.grs === 0) { w.gr.t0 = m.date; delete w.gr.stop; saveWatches(); }
+    grPending = null; renderGrNotice();
+    $('status').textContent += ' ' + (m.grs === 0 ? T('Gangreserve-Test begonnen. Die Uhr jetzt 24 Stunden liegen lassen: nicht tragen, nicht aufziehen.') :
+      T('Gangreserve-Test: Messung «{s}» gespeichert. Das Ergebnis steht bei der Uhr.', { s: GR_NAMES[m.grs] }));
+  }
+  $('grGo').addEventListener('click', function () { grMeasure(detailWatch()); });
+  $('grStop').addEventListener('click', function () {
+    var w = detailWatch(); if (!w || !w.gr || !w.gr.t0) return;
+    if (!window.confirm(T('Ist die Uhr stehen geblieben? Tickwerk schliesst den Test damit ab.'))) return;
+    w.gr.stop = new Date().toISOString(); saveWatches(); renderDetail(top().p);
+  });
+  $('grReset').addEventListener('click', function () {
+    var w = detailWatch(); if (!w || !w.gr) return;
+    if (!window.confirm(T('Neuen Gangreserve-Test beginnen? Die bisherigen Messungen bleiben im Verlauf.'))) return;
+    delete w.gr; saveWatches();
+    if (grPending && grPending.watchId === w.id) grPending = null;
+    renderDetail(top().p);
+  });
+  $('mGrX').addEventListener('click', function () { grPending = null; renderGrNotice(); });
+  /* Kurzer Hinweis für die Uhren-Liste und beim Öffnen der App */
+  function dueText(w) {
+    var g = isPro() ? grNext(w) : null, z = zeitNext(w);
+    if (g && g.due) return T('Gangreserve-Test: Messung «{s}» fällig', { s: GR_NAMES[g.step] });
+    if (z && z.due) return T('Zeitvergleich fällig');
+    return '';
+  }
 
   var zTimer = 0;
   function zStop() { clearInterval(zTimer); zTimer = 0; }
@@ -1995,7 +2658,7 @@
     var lift = parseFloat(String($('wLift').value).replace(',', '.'));
     var editing = t.p.id && findWatch(t.p.id);
     var w = cleanWatch({ id: editing ? editing.id : 'w' + Date.now().toString(36), name: name, kaliberId: $('wCal').value,
-      liftAngle: isFinite(lift) ? lift : 52, bph: $('wBph').value ? parseInt($('wBph').value, 10) : null, tv: editing ? editing.tv : undefined });
+      liftAngle: isFinite(lift) ? lift : 52, bph: $('wBph').value ? parseInt($('wBph').value, 10) : null, tv: editing ? editing.tv : undefined, gr: editing ? editing.gr : undefined });
     if (editing) watches = watches.map(function (x) { return x.id === editing.id ? w : x; });
     else {
       if (!isPro() && watches.length >= 1) { requirePro('watches'); return; }
@@ -2075,7 +2738,62 @@
       return { samples: out, sampleRate: ab.sampleRate };
     });
   }
-  function renderSettings() { $('langSel').value = settings.lang; $('ppm').value = settings.ppm || 0; $('autoStart').checked = settings.autoStart; $('quartzRate').value = settings.quartzRate || 0; }
+  function renderSettings() {
+    $('langSel').value = settings.lang; $('autoStart').checked = settings.autoStart; $('quartzRate').value = settings.quartzRate || 0;
+    renderMic(); renderPpm();
+  }
+  /* ---------- Mikrofon wählen (Pro) ---------- */
+  var micList = null;
+  function micOption(id, label) { var o = document.createElement('option'); o.value = id; o.textContent = label; return o; }
+  function renderMic() {
+    var sel = $('micSel'), seen = Object.create(null), n = 0;
+    sel.innerHTML = '';
+    sel.appendChild(micOption('', T('Standard (vom Handy gewählt)')));
+    (micList || []).forEach(function (d) {
+      if (!d.deviceId || d.deviceId === 'default' || d.deviceId === 'communications' || seen[d.deviceId]) return;
+      seen[d.deviceId] = true; n++;
+      sel.appendChild(micOption(str(d.deviceId, 200), str(d.label, 100) || T('Mikrofon {n}', { n: n })));
+    });
+    if (settings.micId && !seen[settings.micId]) sel.appendChild(micOption(settings.micId, settings.micLabel || T('Gewähltes Mikrofon')));
+    sel.value = isPro() ? settings.micId : '';
+    return n;
+  }
+  $('micScan').addEventListener('click', function () {
+    if (!requirePro('mic') || rec || opening) return;
+    var md = navigator.mediaDevices;
+    if (!md || !md.getUserMedia || !md.enumerateDevices) { $('micOut').textContent = T('Dieser Browser zeigt keine Liste der Mikrofone.'); return; }
+    $('micOut').textContent = T('Suche Mikrofone …');
+    /* Die Namen der Mikrofone gibt der Browser erst nach der Erlaubnis heraus: kurz öffnen, Liste holen, gleich wieder schliessen */
+    md.getUserMedia({ audio: true, video: false }).then(function (st) {
+      return md.enumerateDevices().then(function (devs) {
+        st.getTracks().forEach(function (t) { t.stop(); });
+        micList = devs.filter(function (d) { return d.kind === 'audioinput'; });
+        var n = renderMic();
+        $('micOut').textContent = n > 1 ? T('{n} Mikrofone gefunden. Ein angestecktes erscheint erst, wenn es eingesteckt ist.', { n: n }) :
+          T('Nur das eingebaute Mikrofon gefunden. Ein angestecktes zuerst einstecken, dann nochmals suchen.');
+      }, function (e) { st.getTracks().forEach(function (t) { t.stop(); }); throw e; });
+    }).catch(function (e) { $('micOut').textContent = micError(e); });
+  });
+  $('micSel').addEventListener('change', function () {
+    if (!isPro()) { this.value = ''; requirePro('mic'); return; }
+    settings.micId = str(this.value, 200);
+    settings.micLabel = settings.micId ? str(this.options[this.selectedIndex].textContent, 100) : '';
+    saveSettings();
+    $('micOut').textContent = settings.micId ? T('Tickwerk nimmt ab jetzt «{m}».', { m: settings.micLabel }) : T('Tickwerk nimmt das Standard-Mikrofon des Handys.');
+    renderPpm();
+  });
+  function micNote() {
+    if (!micKey()) return '';
+    var m = settings.micLabel || T('gewählt');
+    return ' · ' + (calOf(micKey()) ? T('Mikrofon: {m}', { m: m }) : T('Mikrofon: {m}, ungeeicht', { m: m }));
+  }
+  /* Feld «Korrektur Handy-Uhr»: Wert und Hinweis für das gewählte Mikrofon */
+  function renderPpm() {
+    var key = micKey(), m = settings.micLabel || T('gewählt');
+    $('ppm').value = ppmOf(key);
+    $('ppmFor').textContent = !key ? T('Gilt für das Standard-Mikrofon.') : calOf(key) ? T('Gilt für das Mikrofon «{m}».', { m: m }) :
+      T('Das Mikrofon «{m}» ist noch nicht geeicht. Tickwerk korrigiert seine Messungen erst nach «Quarzuhr messen» mit diesem Mikrofon.', { m: m });
+  }
   $('autoStart').addEventListener('change', function () { settings.autoStart = this.checked; saveSettings(); if (!rec && !lastShown) setStatus('status', idleHint(), ''); });
   $('fileIn').addEventListener('change', function (e) {
     var f = e.target.files[0]; e.target.value = '';
@@ -2094,28 +2812,31 @@
   });
   $('ppm').addEventListener('change', function () {
     var v = parseFloat(String(this.value).replace(',', '.'));
-    settings.ppm = isFinite(v) && Math.abs(v) < 500 ? v : 0; settings.quartzRaw = null; saveSettings();
+    setClock(micKey(), isFinite(v) && Math.abs(v) < 500 ? v : 0, null); saveSettings(); renderPpm();
   });
-  /* Eichung mit einer Quarzuhr: gemessene Abweichung plus eigener Gang der Quarzuhr (geht sie vor, sind ihre Schritte kürzer) */
-  function quartzPpm() { return +(settings.quartzRaw + settings.quartzRate / 0.0864).toFixed(1); }
-  function applyQuartz(q) {
+  /* Eichung mit einer Quarzuhr: gemessene Abweichung plus eigener Gang der Quarzuhr (geht sie vor, sind ihre Schritte kürzer).
+     Sie gilt für das Mikrofon, das aufgenommen hat (bei einer Datei: das eingebaute). */
+  function quartzPpm(raw) { return +(raw + settings.quartzRate / 0.0864).toFixed(1); }
+  function applyQuartz(q, key) {
     if (!q || !q.ok) { $('quartzOut').textContent = T((q && q.reason) || 'Keine Auswertung möglich.'); return; }
-    settings.quartzRaw = +q.ppm.toFixed(2);
-    settings.ppm = quartzPpm(); saveSettings(); $('ppm').value = settings.ppm;
-    $('quartzOut').textContent = T(settings.ppm >= 0 ? 'Die Handy-Uhr geht {p} ppm vor (± {s} ppm), das sind {d} s/Tag' : 'Die Handy-Uhr geht {p} ppm nach (± {s} ppm), das sind {d} s/Tag',
-      { p: fmt(Math.abs(settings.ppm), 1), s: fmt(Math.max(0.1, q.sigmaPpm), 1), d: fmt(Math.abs(settings.ppm) * 0.0864, 2) }) +
+    var raw = +q.ppm.toFixed(2), ppm = quartzPpm(raw);
+    setClock(key, ppm, raw); saveSettings(); renderPpm();
+    $('quartzOut').textContent = T(ppm >= 0 ? 'Die Handy-Uhr geht {p} ppm vor (± {s} ppm), das sind {d} s/Tag' : 'Die Handy-Uhr geht {p} ppm nach (± {s} ppm), das sind {d} s/Tag',
+      { p: fmt(Math.abs(ppm), 1), s: fmt(Math.max(0.1, q.sigmaPpm), 1), d: fmt(Math.abs(ppm) * 0.0864, 2) }) +
       (settings.quartzRate ? T(', mit dem Gang der Quarzuhr verrechnet') : '') + '. ' + T('Tickwerk korrigiert das ab jetzt bei jeder Messung ({n} Schritte erkannt).', { n: q.steps }) +
-      (q.inhibition ? ' ' + T('Deine Quarzuhr gleicht ihren Gang alle {n} s mit einem kleinen Sprung aus ({j} ms); das ist berücksichtigt.', { n: q.inhibition.everyS, j: fmt(Math.abs(q.inhibition.jumpMs), 1) }) : '');
+      (q.inhibition ? ' ' + T('Deine Quarzuhr gleicht ihren Gang alle {n} s mit einem kleinen Sprung aus ({j} ms); das ist berücksichtigt.', { n: q.inhibition.everyS, j: fmt(Math.abs(q.inhibition.jumpMs), 1) }) : '') +
+      (key ? ' ' + T('Gilt für das Mikrofon «{m}».', { m: settings.micLabel || T('gewählt') }) : '');
   }
   $('langSel').addEventListener('change', function () {
-    settings.lang = this.value === 'de' || this.value === 'en' ? this.value : 'auto'; saveSettings();
+    settings.lang = LANGS.indexOf(this.value) >= 0 ? this.value : 'auto'; saveSettings();
     location.reload();
   });
   $('quartzRate').addEventListener('change', function () {
     var v = parseFloat(String(this.value).replace(',', '.'));
     settings.quartzRate = isFinite(v) && Math.abs(v) <= 10 ? v : 0; this.value = settings.quartzRate;
-    if (settings.quartzRaw != null) { settings.ppm = quartzPpm(); $('ppm').value = settings.ppm; }
-    saveSettings();
+    if (settings.quartzRaw != null) settings.ppm = quartzPpm(settings.quartzRaw);
+    Object.keys(settings.cal).forEach(function (k) { var c = settings.cal[k]; if (c.raw != null) c.ppm = quartzPpm(c.raw); });
+    saveSettings(); renderPpm();
   });
   var QUARTZ_LABEL = T('Quarzuhr messen (2½ Minuten)');
   $('quartzRec').addEventListener('click', function () {
@@ -2130,7 +2851,8 @@
       onCancel: function () { $('quartzRec').textContent = QUARTZ_LABEL; $('quartzOut').textContent = T('Abgebrochen.'); },
       onDone: function (samples, fs) {
         $('quartzRec').textContent = QUARTZ_LABEL; $('quartzOut').textContent = T('Rechne …');
-        runJob({ kind: 'quartz', samples: samples, fs: fs }).then(applyQuartz);
+        var key = usedMic;
+        runJob({ kind: 'quartz', samples: samples, fs: fs }).then(function (q) { applyQuartz(q, key); });
       }
     });
   });
@@ -2141,13 +2863,13 @@
     decodeFile(f).then(function (a) {
       var maxQ = Math.round(300 * a.sampleRate);
       return runJob({ kind: 'quartz', samples: a.samples.length > maxQ ? a.samples.subarray(0, maxQ) : a.samples, fs: a.sampleRate });
-    }).then(applyQuartz).catch(function () { $('quartzOut').textContent = f.size > MAX_FILE ? T('{f} ist zu gross (höchstens 150 MB).', { f: f.name }) : T('{f} konnte nicht gelesen werden.', { f: f.name }); });
+    }).then(function (q) { applyQuartz(q, ''); }).catch(function () { $('quartzOut').textContent = f.size > MAX_FILE ? T('{f} ist zu gross (höchstens 150 MB).', { f: f.name }) : T('{f} konnte nicht gelesen werden.', { f: f.name }); });
   });
   $('exportBtn').addEventListener('click', function () {
     var now = new Date(), pad = function (x) { return (x < 10 ? '0' : '') + x; };
     var data = { app: 'Tickwerk', format: 1, version: APP_VERSION, exported: now.toISOString(), watches: watches, measurements: meas, settings: { ppm: settings.ppm } };
     var blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
-    shareOrDownload(blob, (LANG === 'en' ? 'tickwerk-backup-' : 'tickwerk-sicherung-') + now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate()) + '.json', T('Tickwerk Sicherung'));
+    shareOrDownload(blob, ({ de: 'tickwerk-sicherung-', en: 'tickwerk-backup-', fr: 'tickwerk-sauvegarde-', it: 'tickwerk-backup-' }[LANG]) + now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate()) + '.json', T('Tickwerk Sicherung'));
     $('backupOut').textContent = T('{w} und {m} gesichert. Die Datei liegt bei den Downloads.', { w: plural(watches.length, 'Uhr', 'Uhren'), m: plural(meas.length, 'Messung', 'Messungen') });
   });
   $('importIn').addEventListener('change', function (e) {
@@ -2320,7 +3042,7 @@
     if (lt) ctx.fillText(T('Auslösung'), X(-lt) + 4, TP + 2);
     ctx.fillText(T('Fall'), X(0) + 4, TP + 2);
     ctx.fillStyle = C.faint;
-    if (lt) ctx.fillText('Hebezeit ' + fmt(lt, 2) + ' ms', X(-lt) + 4, h - 7);
+    if (lt) ctx.fillText(T('Hebezeit {v} ms', { v: fmt(lt, 2) }), X(-lt) + 4, h - 7);
     [1, 0].forEach(function (q) {
       var tp = tpls[q];
       ctx.strokeStyle = q ? C.tock : C.lume; ctx.lineWidth = 1.5; ctx.beginPath();
@@ -2357,6 +3079,46 @@
       ctx.moveTo(x, Y(Math.max(lo, m.rate - m.sigma))); ctx.lineTo(x, Y(Math.min(hi, m.rate + m.sigma))); ctx.stroke();
       ctx.fillStyle = counted(m) ? C.lume : C.faint;
       ctx.beginPath(); ctx.arc(x, y, 3.5, 0, Math.PI * 2); ctx.fill();
+    });
+  }
+  /* Verlauf im Regulier-Modus: der Gang der letzten Minuten, Lücken (kein klares Ticken) unterbrechen die Linie */
+  function drawTrend(cv, pts, tNow) {
+    var g = setupCanvas(cv), ctx = g.ctx, w = g.w, h = g.h;
+    var L = 46, R = 10, TP = 10, B = 20;
+    var span = Math.min(REG_SPAN, Math.max(60, tNow)), x0 = Math.max(0, tNow - span);
+    var vis = pts.filter(function (p) { return p.t >= x0 - 0.01; }), ok = vis.filter(function (p) { return !p.gap; });
+    if (!ok.length) { emptyText(g, T('Der Verlauf erscheint, sobald Tickwerk misst.')); return; }
+    var lo = Infinity, hi = -Infinity;
+    ok.forEach(function (p) { var e = Math.min(p.sigma, 5); lo = Math.min(lo, p.rate - e); hi = Math.max(hi, p.rate + e); });
+    var mid = (lo + hi) / 2, half = Math.max(5, (hi - lo) / 2 * 1.15);
+    lo = Math.max(-150, mid - half); hi = Math.min(150, mid + half);
+    var X = function (t) { return L + (t - x0) / span * (w - L - R); };
+    var Y = function (v) { return TP + (1 - (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo)) * (h - TP - B); };
+    if (6 > lo && -4 < hi) { ctx.fillStyle = C.band; ctx.fillRect(L, Y(6), w - L - R, Y(-4) - Y(6)); }
+    ctx.font = '10px "IBM Plex Mono", monospace'; ctx.lineWidth = 1;
+    var st = niceStep(hi - lo, 4);
+    for (var v = Math.ceil(lo / st) * st; v <= hi + 1e-9; v += st) {
+      var yy = Math.round(Y(v)) + 0.5;
+      ctx.strokeStyle = Math.abs(v) < 1e-9 ? C.line2 : C.line; ctx.beginPath(); ctx.moveTo(L, yy); ctx.lineTo(w - R, yy); ctx.stroke();
+      ctx.fillStyle = C.faint; ctx.fillText(axisNum(v, st < 1 ? 1 : 0) + ' s', 2, yy + 3);
+    }
+    var xs = span > 90 ? 60 : 30;
+    for (var s = Math.ceil(x0 / xs) * xs; s <= x0 + span + 1e-9; s += xs) {
+      var xx = X(s), label = mmss(s);
+      ctx.fillStyle = C.faint; ctx.fillText(label, Math.max(L, Math.min(xx - 12, w - R - 28)), h - 5);
+    }
+    ctx.strokeStyle = C.faint;
+    ok.forEach(function (p) { var x = X(p.t); ctx.beginPath(); ctx.moveTo(x, Y(p.rate - p.sigma)); ctx.lineTo(x, Y(p.rate + p.sigma)); ctx.stroke(); });
+    ctx.strokeStyle = C.lume; ctx.lineWidth = 1.5; ctx.beginPath();
+    var pen = false;
+    vis.forEach(function (p) {
+      if (p.gap) { pen = false; return; }
+      if (!pen) { ctx.moveTo(X(p.t), Y(p.rate)); pen = true; } else ctx.lineTo(X(p.t), Y(p.rate));
+    });
+    ctx.stroke();
+    ok.forEach(function (p, i) {
+      var last = i === ok.length - 1;
+      ctx.fillStyle = C.lume; ctx.beginPath(); ctx.arc(X(p.t), Y(p.rate), last ? 4 : 2.2, 0, Math.PI * 2); ctx.fill();
     });
   }
   function drawLagenChart(st) {
@@ -2402,6 +3164,7 @@
       else if (s === 'history') drawHistory(isPro() ? filteredMeas().slice(-40) : filteredMeas().slice(-FREE_HISTORY));
       else if (s === 'lagen' && session && !$('lResult').hidden) drawLagenChart(lagenStats(SETS[session.set], sessByPos()));
       else if (s === 'lpos' && !rec) renderLpos(top().p);
+      else if (s === 'reg' && reg) { drawTrend($('rTrend'), reg.pts, reg.t); if (reg.last) drawTape($('rTape'), reg.last.trace); }
     }, 150);
   });
   $('mDetails').addEventListener('toggle', function () { if (this.open && lastShown) drawBeat($('mBeat'), lastShown.r.templates, lastShown.r.liftTimeMs); });
@@ -2428,7 +3191,7 @@
   }
 
   /* ---------- Start ---------- */
-  var RENDER = { measure: renderMeasure, watches: renderWatches, watch: renderDetail, edit: renderEdit, lagen: renderLagen, lpos: renderLpos, zeit: renderZeit, detektiv: renderDetektiv, guide: function () {},
+  var RENDER = { measure: renderMeasure, watches: renderWatches, watch: renderDetail, edit: renderEdit, lagen: renderLagen, lpos: renderLpos, reg: renderReg, zeit: renderZeit, detektiv: renderDetektiv, guide: function () {},
     more: renderMore, pro: renderPro, history: renderHistory, settings: renderSettings };
   if (FLAVOR === 'test') {
     var row = document.createElement('span'), badge = document.createElement('span');
@@ -2441,6 +3204,12 @@
   if (location.hash === '#mehr') { stack = [{ s: 'more', p: {} }]; history.replaceState({ tw: 0 }, '', location.pathname + location.search); }
   render();
   if (!settings.guideSeen) go('guide');
+  else setTimeout(function () {
+    for (var i = 0; i < watches.length; i++) {
+      var dt = dueText(watches[i]);
+      if (dt) { toast(T('Bei «{w}»: {x}', { w: watches[i].name, x: dt })); break; }
+    }
+  }, 1200);
   if (FLAVOR === 'store') {
     billingInit().then(function () { return restorePurchases(); }).then(function (res) {
       if (res === 'restored') afterProChange();
