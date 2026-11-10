@@ -42,7 +42,7 @@
       <label class="chip"><span class="sr">Messdauer</span>
         <select id="mDur"><option value="20">20 s</option><option value="30">30 s</option><option value="60">60 s</option></select>
       </label>
-      <button type="button" class="chip chip-btn" id="mLagen">Lagen-Test<span class="pro-tag">Pro</span></button>
+      <button type="button" class="chip chip-btn" id="mTools" aria-haspopup="dialog">Werkzeuge</button>
     </div>
 
     <div class="readout" id="mCountBox">
@@ -60,6 +60,11 @@
       <div class="scale-labels"><span>−20</span><span>−10</span><span>0</span><span>+10</span><span>+20</span></div>
     </div>
     <p class="verdict-line" id="mVerdict" hidden><span class="dot"></span><span id="mVerdictText"></span></p>
+    <div class="notice gr-notice" id="mGr" hidden>
+      <p id="mGrText"></p>
+      <button type="button" class="btn-link" id="mGrX">Nicht für den Test</button>
+      <button type="button" class="btn-ghost small" id="mGrOpen" hidden>Zum Gangreserve-Test</button>
+    </div>
     <p class="status center-status" id="status" data-kind="">«Messen» tippen und die Unterkante des Handys an die Krone halten.</p>
     <div class="actions center" id="mSearch" hidden><button type="button" class="btn-ghost small" id="mForce">Jetzt messen</button></div>
     <div class="notice" id="mQuartz" hidden>
@@ -90,7 +95,7 @@
 
     <div class="card tape-card">
       <div class="row-between">
-        <span class="eyebrow">Papierstreifen · Tick und Tack<button type="button" class="info" data-info="tape" aria-label="Erklärung: Papierstreifen"></button></span>
+        <span class="eyebrow">Papierstreifen<button type="button" class="info" data-info="tape" aria-label="Erklärung: Papierstreifen"></button></span>
         <span class="signal" id="mSignal" data-level="0">
           <svg viewBox="0 0 16 14" aria-hidden="true"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="4.3" y="6" width="3" height="8" rx="1"/><rect x="8.6" y="3" width="3" height="11" rx="1"/><rect x="12.9" y="0" width="3" height="14" rx="1"/></svg>
           <span id="mSignalText">kein Signal</span><button type="button" class="info" data-info="signal" aria-label="Erklärung: Signal"></button>
@@ -106,7 +111,8 @@
     </details>
 
     <button type="button" class="btn-primary btn-big" id="mStart"><span class="prog" id="mProg"></span><span class="btn-label" id="mStartLabel">Messen</span></button>
-    <div class="actions center">
+    <div class="actions center" id="mActions">
+      <button type="button" class="btn-ghost small" id="imgBtn" hidden>Als Bild teilen</button>
       <button type="button" class="btn-ghost small" id="shareBtn" hidden>Aufnahme teilen (WAV)<span class="pro-tag">Pro</span></button>
       <button type="button" class="btn-link" id="mGuide">So legst du das Handy an</button>
     </div>
@@ -134,18 +140,29 @@
   <section class="screen" id="scr-watch" aria-label="Uhr mit Verlauf" hidden>
     <div class="bar">
       <button type="button" class="back" data-back><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span>Meine Uhren</span></button>
-      <button type="button" class="round" id="dShare" aria-label="Messprotokoll als PDF teilen">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>
-      </button>
+      <span class="bar-btns">
+        <button type="button" class="round" id="dEdit" aria-label="Uhr bearbeiten">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>
+        </button>
+        <button type="button" class="round" id="dShare" aria-label="Messprotokoll als PDF teilen">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>
+        </button>
+      </span>
     </div>
     <div class="title-block">
       <h1 class="h1-sm" id="dName"></h1>
       <span class="mono-sub" id="dCal"></span>
       <button type="button" class="btn-link left" id="dDetective" hidden>Werk bestimmen mit dem Werk-Detektiv</button>
     </div>
+    <div class="due" id="dDue" hidden></div>
+    <div class="actions grow">
+      <button type="button" class="btn-primary" id="dMeasure">Jetzt messen</button>
+      <button type="button" class="btn-ghost" id="dLagen">Lagen-Test<span class="pro-tag">Pro</span></button>
+    </div>
+    <span class="pdfbar" id="dShareBar" hidden></span>
     <div class="tiles3">
-      <div class="tile"><span class="eyebrow">Schlagzahl<button type="button" class="info" data-info="bph" aria-label="Erklärung: Schlagzahl"></button></span><span class="tile-v" id="dBph">–</span></div>
-      <div class="tile"><span class="eyebrow">Hebewinkel<button type="button" class="info" data-info="lift" aria-label="Erklärung: Hebewinkel"></button></span><span class="tile-v" id="dLift">–</span></div>
+      <div class="tile"><span class="eyebrow">Schlagzahl</span><span class="tile-v" id="dBph">–</span><button type="button" class="info" data-info="bph" aria-label="Erklärung: Schlagzahl"></button></div>
+      <div class="tile"><span class="eyebrow">Hebewinkel</span><span class="tile-v" id="dLift">–</span><button type="button" class="info" data-info="lift" aria-label="Erklärung: Hebewinkel"></button></div>
       <div class="tile"><span class="eyebrow">Messungen</span><span class="tile-v" id="dCount">0</span></div>
     </div>
     <div class="card">
@@ -154,45 +171,71 @@
       <div class="bar-labels" id="dBarLabels" aria-hidden="true"></div>
     </div>
     <div class="insight" id="dInsight" hidden></div>
-    <div class="card dtime" id="dTimeCard">
-      <div class="row-between"><span class="card-title">Gang im Alltag<button type="button" class="info" data-info="daily" aria-label="Erklärung: Gang im Alltag"></button></span><span class="mono-sub" id="dtSub"></span></div>
-      <div class="big-row dt-rate" id="dtRateRow" hidden><span class="big big-md" id="dtRate">–</span><span class="big-unit">s/Tag</span></div>
-      <span class="sigma" id="dtSigma"></span>
-      <p class="hint" id="dtText"></p>
-      <ul class="rows lrows" id="dtRows"></ul>
-      <div class="actions">
-        <button type="button" class="btn-ghost small" id="dtNow">Mit der Atomzeit vergleichen</button>
-        <button type="button" class="btn-link" id="dtReset" hidden>Neue Reihe beginnen</button>
+    <details class="card fold dtime" id="dTimeCard" data-fold="dt">
+      <summary><span class="fold-t"><span class="card-title">Gang im Alltag</span></span><span class="fold-r"><span class="mono-sub" id="dtSub"></span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></span></summary>
+      <div class="fold-body">
+        <div class="big-row dt-rate" id="dtRateRow" hidden><span class="big big-md" id="dtRate">–</span><span class="big-unit">s/Tag</span></div>
+        <span class="sigma" id="dtSigma"></span>
+        <p class="hint" id="dtText"></p>
+        <ul class="rows lrows" id="dtRows"></ul>
+        <div class="actions">
+          <button type="button" class="btn-ghost small" id="dtNow">Mit der Atomzeit vergleichen</button>
+          <button type="button" class="btn-link" id="dtReset" hidden>Neue Reihe beginnen</button>
+          <button type="button" class="info" data-info="daily" aria-label="Erklärung: Gang im Alltag"></button>
+        </div>
+        <div class="remind" id="dtRemind" hidden>
+          <span class="remind-t" id="dtDue"></span>
+          <div class="actions"><a class="btn-ghost small btn-a" id="dtCal" href="#" target="_blank" rel="noopener noreferrer">Google Kalender</a><button type="button" class="btn-ghost small" id="dtIcs">Kalenderdatei (.ics)</button></div>
+        </div>
       </div>
-    </div>
-    <div class="card dlagen" id="dLagenCard" hidden>
-      <div class="row-between"><span class="card-title">Letzter Lagen-Test</span><span class="mono-sub" id="dlDate"></span></div>
-      <dl class="metrics">
-        <div class="metric"><dt>Mittel</dt><dd id="dlMean">–</dd><small>s/Tag</small></div>
-        <div class="metric"><dt>Lagendifferenz<button type="button" class="info" data-info="spread" aria-label="Erklärung: Lagendifferenz"></button></dt><dd id="dlSpread">–</dd><small>s/Tag</small></div>
-        <div class="metric"><dt>Abfallfehler<button type="button" class="info" data-info="be" aria-label="Erklärung: Abfallfehler"></button></dt><dd id="dlBe">–</dd><small>ms, Mittel</small></div>
-        <div class="metric"><dt>Amplitude<button type="button" class="info" data-info="amp" aria-label="Erklärung: Amplitude"></button></dt><dd id="dlAmp">–</dd><small>waagrecht / senkrecht</small></div>
-      </dl>
-      <ul class="rows lrows" id="dlRows"></ul>
-      <p class="hint" id="dlNote" hidden></p>
-      <div class="actions">
-        <button type="button" class="btn-ghost small" id="dlPdf">Protokoll dieses Tests (PDF)</button>
-        <button type="button" class="btn-ghost small" id="dlOpen" hidden>Fortsetzen</button>
+    </details>
+    <details class="card fold dgr" id="dGrCard" data-fold="gr">
+      <summary><span class="fold-t"><span class="card-title">Gangreserve-Test<span class="pro-tag">Pro</span></span></span><span class="fold-r"><span class="mono-sub" id="grSub"></span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></span></summary>
+      <div class="fold-body">
+        <p class="hint" id="grText"></p>
+        <ul class="rows lrows" id="grRows" hidden></ul>
+        <p class="verdict-line left" id="grVerdict" data-kind="" hidden><span class="dot"></span><span id="grVerdictText"></span></p>
+        <div class="actions">
+          <button type="button" class="btn-ghost small" id="grGo">Voll aufgezogen: jetzt messen</button>
+          <button type="button" class="btn-link" id="grStop" hidden>Uhr ist stehen geblieben</button>
+          <button type="button" class="btn-link" id="grReset" hidden>Neuen Test beginnen</button>
+          <button type="button" class="info" data-info="gr" aria-label="Erklärung: Gangreserve-Test"></button>
+        </div>
+        <div class="remind" id="grRemind" hidden>
+          <span class="remind-t" id="grDue"></span>
+          <div class="actions"><a class="btn-ghost small btn-a" id="grCal" href="#" target="_blank" rel="noopener noreferrer">Google Kalender</a><button type="button" class="btn-ghost small" id="grIcs">Kalenderdatei (.ics)</button></div>
+        </div>
       </div>
-      <span class="pdfbar" id="dlPdfBar" hidden></span>
-    </div>
-    <div class="section">
-      <span class="eyebrow">Letzte Messungen</span>
-      <ul class="rows" id="dList"></ul>
-      <p class="hint" id="dMore" hidden></p>
-    </div>
-    <span class="pdfbar" id="dPdfBar" hidden></span>
-    <div class="actions">
-      <button type="button" class="btn-ghost small" id="dPdf">Messprotokoll (PDF)<span class="pro-tag">Pro</span></button>
-      <button type="button" class="btn-ghost small" id="dMeasure">Jetzt messen</button>
-      <button type="button" class="btn-ghost small" id="dEdit">Bearbeiten</button>
-    </div>
-    <button type="button" class="btn-primary btn-big" id="dLagen">Lagen-Test starten</button>
+    </details>
+    <details class="card fold dlagen" id="dLagenCard" data-fold="lg" hidden>
+      <summary><span class="fold-t"><span class="card-title">Letzter Lagen-Test</span></span><span class="fold-r"><span class="mono-sub" id="dlSub"></span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></span></summary>
+      <div class="fold-body">
+        <span class="mono-sub" id="dlDate"></span>
+        <dl class="metrics">
+          <div class="metric"><dt>Mittel</dt><dd id="dlMean">–</dd><small>s/Tag</small></div>
+          <div class="metric"><dt>Lagendifferenz<button type="button" class="info" data-info="spread" aria-label="Erklärung: Lagendifferenz"></button></dt><dd id="dlSpread">–</dd><small>s/Tag</small></div>
+          <div class="metric"><dt>Abfallfehler<button type="button" class="info" data-info="be" aria-label="Erklärung: Abfallfehler"></button></dt><dd id="dlBe">–</dd><small>ms, Mittel</small></div>
+          <div class="metric"><dt>Amplitude<button type="button" class="info" data-info="amp" aria-label="Erklärung: Amplitude"></button></dt><dd id="dlAmp">–</dd><small>waagrecht / senkrecht</small></div>
+        </dl>
+        <ul class="rows lrows" id="dlRows"></ul>
+        <p class="hint" id="dlNote" hidden></p>
+        <div class="actions">
+          <button type="button" class="btn-ghost small" id="dlPdf">Protokoll dieses Tests (PDF)</button>
+          <button type="button" class="btn-ghost small" id="dlImg">Als Bild teilen</button>
+          <button type="button" class="btn-ghost small" id="dlOpen" hidden>Fortsetzen</button>
+        </div>
+        <span class="pdfbar" id="dlPdfBar" hidden></span>
+      </div>
+    </details>
+    <details class="card fold" id="dListCard" data-fold="ms">
+      <summary><span class="fold-t"><span class="card-title">Letzte Messungen</span></span><span class="fold-r"><span class="mono-sub" id="dListSub"></span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></span></summary>
+      <div class="fold-body">
+        <ul class="rows" id="dList"></ul>
+        <p class="hint" id="dMore" hidden></p>
+        <div class="actions"><button type="button" class="btn-ghost small" id="dPdf">Messprotokoll (PDF)<span class="pro-tag">Pro</span></button></div>
+        <span class="pdfbar" id="dPdfBar" hidden></span>
+      </div>
+    </details>
   </section>
 
   <!-- ======================= UHR HINZUFÜGEN / BEARBEITEN ======================= -->
@@ -273,6 +316,7 @@
       <canvas class="plot" id="lagenChart" height="190" aria-label="Gang je Lage"></canvas>
       <p class="verdict" id="lgVerdict"></p>
       <button type="button" class="btn-primary" id="lgPdf">Protokoll dieses Tests (PDF)</button>
+      <button type="button" class="btn-ghost" id="lgImg">Als Bild teilen</button>
       <span class="pdfbar" id="lgPdfBar" hidden></span>
     </div>
     <div class="tiles2" id="lTiles"></div>
@@ -321,6 +365,53 @@
     <div class="actions center" id="pSearch" hidden><button type="button" class="btn-ghost small" id="pForce">Jetzt messen</button></div>
     <button type="button" class="btn-primary btn-big" id="pStart"><span class="prog" id="pProg"></span><span class="btn-label" id="pStartLabel">Messen</span></button>
     <button type="button" class="btn-ghost btn-big" id="pAlt" hidden>Zur Auswahl</button>
+  </section>
+
+  <!-- ======================= REGULIEREN ======================= -->
+  <section class="screen" id="scr-reg" aria-label="Regulieren" hidden>
+    <div class="bar">
+      <button type="button" class="back" data-back><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span>Zurück</span></button>
+    </div>
+    <div class="title-block">
+      <h1>Regulieren</h1>
+      <span class="mono-sub" id="rWatch"></span>
+      <p class="lead">Der Gang laufend, alle zwei Sekunden neu: So siehst du sofort, was eine Verstellung am Werk bewirkt. Gespeichert wird nichts.</p>
+    </div>
+    <div class="card reg-live">
+      <div class="row-between">
+        <span class="eyebrow" id="rState">Bereit</span>
+        <span class="signal" id="rSignal" data-level="0">
+          <svg viewBox="0 0 16 14" aria-hidden="true"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="4.3" y="6" width="3" height="8" rx="1"/><rect x="8.6" y="3" width="3" height="11" rx="1"/><rect x="12.9" y="0" width="3" height="14" rx="1"/></svg>
+          <span id="rSignalText">kein Signal</span><button type="button" class="info" data-info="signal" aria-label="Erklärung: Signal"></button>
+        </span>
+      </div>
+      <div class="big-row reg-rate"><span class="big big-md" id="rRate">–</span><span class="big-unit">s/Tag</span></div>
+      <span class="sigma center" id="rSub"></span>
+      <div class="scale" aria-hidden="true">
+        <div class="scale-track">
+          <div class="scale-band"></div>
+          <div class="scale-ticks"></div>
+          <div class="scale-marker" id="rMarker" hidden><span></span></div>
+        </div>
+        <div class="scale-labels"><span>−20</span><span>−10</span><span>0</span><span>+10</span><span>+20</span></div>
+      </div>
+      <dl class="metrics">
+        <div class="metric"><dt>Abfallfehler<button type="button" class="info" data-info="be" aria-label="Erklärung: Abfallfehler"></button></dt><dd id="rBe">–</dd><small id="rBeNote">ms</small></div>
+        <div class="metric"><dt>Amplitude<button type="button" class="info" data-info="amp" aria-label="Erklärung: Amplitude"></button></dt><dd id="rAmp">–</dd><small id="rAmpNote"></small></div>
+      </dl>
+    </div>
+    <div class="card tape-card">
+      <span class="eyebrow">Verlauf · Gang in s/Tag</span>
+      <canvas class="plot" id="rTrend" height="128" aria-label="Verlauf des Gangs"></canvas>
+    </div>
+    <div class="card tape-card">
+      <span class="eyebrow">Papierstreifen · Tick und Tack<button type="button" class="info" data-info="tape" aria-label="Erklärung: Papierstreifen"></button></span>
+      <canvas class="plot" id="rTape" height="84" aria-label="Papierstreifen"></canvas>
+      <div class="level" aria-hidden="true"><div class="level-fill" id="rLevel"></div></div>
+    </div>
+    <p class="status" id="rStatus" data-kind=""></p>
+    <button type="button" class="btn-primary btn-big" id="rStart"><span class="prog" id="rProg"></span><span class="btn-label" id="rStartLabel">Starten</span></button>
+    <p class="hint">Nach einer Verstellung kurz warten: Ändert sich der Gang, merkt Tickwerk das und mittelt neu. Selbst am Werk arbeiten nur, wenn du die Uhr sicher öffnen kannst. Sonst ist das eine Arbeit für den Uhrmacher.</p>
   </section>
 
   <!-- ======================= WERK-DETEKTIV ======================= -->
@@ -452,11 +543,20 @@
     <div class="title-block"><h1>Mehr</h1><span class="mono-sub" id="moreVersion"></span></div>
     <ul class="menu">
       <li><button type="button" data-go="pro"><span class="menu-t">Tickwerk Pro</span><span class="menu-s" id="moreProState"></span></button></li>
-      <li><button type="button" data-go="guide"><span class="menu-t">Mikrofon anlegen</span><span class="menu-s">So misst du richtig</span></button></li>
-      <li><button type="button" data-go="history"><span class="menu-t">Alle Messungen</span><span class="menu-s" id="moreHistory"></span></button></li>
-      <li><button type="button" data-go="settings"><span class="menu-t">Einstellungen</span><span class="menu-s">Handy-Uhr, Quarzuhr, Datei auswerten, Daten sichern</span></button></li>
-      <li><a href="datenschutz.html"><span class="menu-t">Datenschutz</span><span class="menu-s">Was mit deinen Daten passiert</span></a></li>
     </ul>
+    <div class="section gap">
+      <span class="eyebrow">Werkzeuge</span>
+      <ul class="menu" id="moreTools"></ul>
+    </div>
+    <div class="section gap">
+      <span class="eyebrow">App</span>
+      <ul class="menu">
+        <li><button type="button" data-go="guide"><span class="menu-t">Mikrofon anlegen</span><span class="menu-s">So misst du richtig</span></button></li>
+        <li><button type="button" data-go="history"><span class="menu-t">Alle Messungen</span><span class="menu-s" id="moreHistory"></span></button></li>
+        <li><button type="button" data-go="settings"><span class="menu-t">Einstellungen</span><span class="menu-s">Sprache, Mikrofon, Datei auswerten, Daten sichern</span></button></li>
+        <li><a href="datenschutz.html"><span class="menu-t">Datenschutz</span><span class="menu-s">Was mit deinen Daten passiert</span></a></li>
+      </ul>
+    </div>
     <div class="actions">
       <button type="button" class="btn-ghost small" id="installBtn" hidden>App installieren</button>
       <button type="button" class="btn-ghost small" id="updateBtn" hidden>Neue Version: neu laden</button>
@@ -474,6 +574,9 @@
       <li>Lagen-Test: bis zu sechs Lagen wie beim Uhrmacher</li>
       <li>Messprotokoll als PDF zum Drucken und Teilen</li>
       <li>Ganzer Verlauf und beliebig viele Uhren</li>
+      <li>Regulier-Modus: der Gang laufend, während du am Werk einstellst</li>
+      <li>Gangreserve-Test: voll aufgezogen und nach 24 Stunden</li>
+      <li>Mikrofon wählen, zum Beispiel ein angestecktes</li>
       <li>Aufnahmen als WAV teilen</li>
     </ul>
     <p class="hint" id="proFree"></p>
@@ -512,31 +615,27 @@
           <option value="auto">Automatisch (Sprache des Handys)</option>
           <option value="de">Deutsch</option>
           <option value="en">English</option>
+          <option value="fr">Français</option>
+          <option value="it">Italiano</option>
         </select>
       </div>
     </div>
     <div class="card">
       <label class="switch"><input type="checkbox" id="autoStart"><span>Messung automatisch starten</span></label>
-      <p class="hint">Tickwerk hört nach «Messen» zuerst nur zu. Sobald das Ticken ein paar Sekunden lang klar ist, beginnt die Messung von selbst. So kannst du das Handy in Ruhe an die richtige Stelle halten.</p>
+      <p class="hint">Tickwerk hört nach «Messen» zuerst nur zu und beginnt von selbst, sobald das Ticken klar ist.</p>
+    </div>
+    <div class="card">
+      <div class="field">
+        <label for="micSel">Mikrofon<span class="pro-tag">Pro</span></label>
+        <select id="micSel"><option value="">Standard (vom Handy gewählt)</option></select>
+      </div>
+      <div class="actions"><button type="button" class="btn-ghost small" id="micScan">Mikrofone suchen</button></div>
+      <p class="hint" id="micOut">Für ein angestecktes Mikrofon, zum Beispiel über USB-C. Ohne Wahl nimmt Tickwerk das Standard-Mikrofon des Handys.</p>
     </div>
     <div class="card">
       <span class="card-title">Handy-Uhr eichen</span>
-      <p class="hint">Die Uhr im Handy geht selbst nicht ganz genau. Eine Quarzuhr mit tickendem Sekundenzeiger zeigt, wie viel: die Unterkante des Handys 2½ Minuten lang an die Quarzuhr halten, in einem ruhigen Raum.</p>
-      <div class="field">
-        <label for="quartzRate">Gang der Quarzuhr</label>
-        <div class="inline"><input type="number" id="quartzRate" value="0" step="0.01" min="-10" max="10" inputmode="decimal"><span class="unit">s/Tag</span></div>
-        <p class="hint">Unbekannt: 0 lassen, dann ist die Eichung auf etwa ±0,5 s/Tag genau. Genauer: die Quarzuhr heute mit time.is vergleichen und nach 1 bis 2 Wochen nochmals. Die Abweichung geteilt durch die Tage hier eintragen (geht sie vor: plus).</p>
-      </div>
-      <div class="actions">
-        <button type="button" class="btn-ghost small" id="quartzRec">Quarzuhr messen (2½ Minuten)</button>
-        <label class="btn-ghost small file-btn">Aufnahme wählen<input type="file" id="quartzFile" accept="audio/*,.wav"></label>
-      </div>
-      <p class="hint" id="quartzOut"></p>
-      <div class="field">
-        <label for="ppm">Korrektur Handy-Uhr</label>
-        <div class="inline"><input type="number" id="ppm" value="0" step="0.1" inputmode="decimal"><span class="unit">ppm</span></div>
-        <p class="hint">Wird mit der Quarzuhr bestimmt; 1 ppm sind 0,086 s/Tag. Von Hand nur ändern, wenn du den Wert kennst.</p>
-      </div>
+      <p class="hint" id="setCal"></p>
+      <div class="actions"><button type="button" class="btn-ghost small" data-go="eichen">Eichung öffnen</button></div>
     </div>
     <div class="card">
       <div class="field">
@@ -556,6 +655,57 @@
       <button type="button" class="btn-ghost small danger" id="wipeBtn">Alle Daten löschen</button>
     </div>
   </section>
+
+  <!-- ======================= HANDY-UHR EICHEN ======================= -->
+  <section class="screen" id="scr-eichen" aria-label="Handy-Uhr eichen" hidden>
+    <div class="bar"><button type="button" class="back" data-back><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span>Zurück</span></button></div>
+    <div class="title-block">
+      <h1>Handy-Uhr eichen</h1>
+      <p class="lead">Die Uhr im Handy gibt bei jeder Messung den Takt an, und sie geht selbst nicht ganz genau. Eine Quarzuhr zeigt, um wie viel. Danach korrigiert Tickwerk jede Messung.</p>
+    </div>
+    <div class="card cal-card">
+      <div class="row-between"><span class="eyebrow">Eichung</span><span class="mono-sub" id="calMic"></span></div>
+      <div class="big-row"><span class="big big-md" id="calVal">–</span><span class="big-unit">ppm</span></div>
+      <p class="hint" id="calSub"></p>
+      <p class="hint" id="calAge" data-kind="warn" hidden>Die Eichung ist über sechs Monate alt. Die Uhr im Handy verändert sich mit der Zeit ein wenig: am besten neu eichen.</p>
+    </div>
+    <ol class="steps">
+      <li><span class="num">1</span><div><span class="step-t">Quarzuhr bereitlegen</span><span class="step-s">Eine Quarzuhr, deren Sekundenzeiger jede Sekunde einen Schritt macht, zum Beispiel eine Swatch. Der Raum soll ruhig sein.</span></div></li>
+      <li><span class="num">2</span><div><span class="step-t">Handy anlegen</span><span class="step-s">Die Unterkante des Handys an die Quarzuhr halten, wie bei einer Messung.</span></div></li>
+      <li><span class="num">3</span><div><span class="step-t">2½ Minuten messen</span><span class="step-s">«Quarzuhr messen» tippen und das Handy ruhig halten. Nicht reden, bis die Zeit um ist.</span></div></li>
+    </ol>
+    <button type="button" class="btn-primary btn-big" id="quartzRec"><span class="prog" id="quartzProg"></span><span class="btn-label" id="quartzLabel">Quarzuhr messen (2½ Minuten)</span></button>
+    <p class="status" id="quartzOut" data-kind=""></p>
+    <div class="actions center"><label class="btn-link file-btn">Stattdessen eine Aufnahme wählen<input type="file" id="quartzFile" accept="audio/*,.wav"></label></div>
+    <details class="card details" id="calMore">
+      <summary>Noch genauer eichen</summary>
+      <div class="field">
+        <label for="quartzRate">Gang der Quarzuhr</label>
+        <div class="inline"><input type="number" id="quartzRate" value="0" step="0.01" min="-10" max="10" inputmode="decimal"><span class="unit">s/Tag</span></div>
+        <p class="hint">Unbekannt: 0 lassen, dann ist die Eichung auf etwa ±0,5 s/Tag genau. Genauer: die Quarzuhr heute mit time.is vergleichen und nach 1 bis 2 Wochen nochmals. Die Abweichung geteilt durch die Tage hier eintragen (geht sie vor: plus).</p>
+      </div>
+    </details>
+    <details class="card details" id="calHand">
+      <summary>Korrektur von Hand eintragen</summary>
+      <div class="field">
+        <label for="ppm">Korrektur Handy-Uhr</label>
+        <div class="inline"><input type="number" id="ppm" value="0" step="0.1" inputmode="decimal"><span class="unit">ppm</span></div>
+        <p class="hint" id="ppmFor">Gilt für das Standard-Mikrofon.</p>
+        <p class="hint">Wird mit der Quarzuhr bestimmt; 1 ppm sind 0,086 s/Tag. Von Hand nur ändern, wenn du den Wert kennst.</p>
+      </div>
+    </details>
+  </section>
+
+  <!-- ======================= Werkzeuge ======================= -->
+  <div class="sheet" id="toolSheet" hidden>
+    <div class="sheet-panel" role="dialog" aria-modal="true" aria-labelledby="tsTitle">
+      <div class="row-between">
+        <h2 id="tsTitle">Werkzeuge</h2>
+        <button type="button" class="round" id="tsClose" aria-label="Schliessen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg></button>
+      </div>
+      <ul class="menu" id="tsList"></ul>
+    </div>
+  </div>
 
   <!-- ======================= Auswahl der Uhr ======================= -->
   <div class="sheet" id="watchSheet" hidden>
@@ -614,6 +764,8 @@
 <script src="kaliber.js"></script>
 <script src="logo.js"></script>
 <script src="en.js"></script>
+<script src="fr.js"></script>
+<script src="it.js"></script>
 <script src="report.js"></script>
 <script src="app.js"></script>
 </body>

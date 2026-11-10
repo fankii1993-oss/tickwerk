@@ -1,4 +1,4 @@
-# Tickwerk – Web-App 0.5.1 (Testversion)
+# Tickwerk – Web-App 0.6.2 (Testversion)
 
 Misst mit dem Handy-Mikrofon, wie genau eine mechanische Uhr geht: Gangabweichung, Abfallfehler, Amplitude, Schlagzahl. Die Aufnahme bleibt auf dem Handy; die App schickt nichts ins Internet.
 
@@ -10,11 +10,48 @@ Das ist die **Testversion** für GitHub: Pro lässt sich unter Mehr → Tickwerk
 2. **Add file → Upload files**, den ganzen Inhalt dieses Pakets hineinziehen (Dateien und die Ordner `engine`, `fonts`, `icons`), **Commit changes**. Gleichnamige Dateien werden ersetzt; deine Uhren und Messungen bleiben auf dem Handy erhalten.
 3. App auf dem Handy öffnen. Nach ein paar Sekunden erscheint «Neue Version ist bereit»; unter Mehr auf **Neue Version: neu laden** tippen.
 
+## Neu in 0.6.2
+
+Aufgeräumt: Die Funktionen sind dieselben wie in 0.6.1, sie sind aber leichter zu finden und die Seiten sind kürzer.
+
+- **Werkzeuge an einem Ort:** Lagen-Test, Regulieren, Gangreserve-Test, Gang im Alltag, Werk-Detektiv und «Handy-Uhr eichen» stehen in einer Liste: unter «Messen» hinter dem Knopf «Werkzeuge» und unter «Mehr» in der Gruppe «Werkzeuge». Ist etwas fällig (eine Messung des Gangreserve-Tests, ein Zeitvergleich, eine alte Eichung), steht es dort in der Zeile.
+- **Messen passt auf einen Bildschirm:** Lage, Messdauer und «Werkzeuge» stehen in einer Zeile. Während der Messung steht der Papierstreifen direkt unter der grossen Zahl; nach der Messung ist er ohne Scrollen zu sehen. Oben steht dann «Gespeichert» mit der Uhrzeit, die ganze Zeile «Gespeichert bei …» steht unter dem Streifen. Unter dem Namen der Uhr heisst es kurz «geeicht» statt «Handy-Uhr korrigiert».
+- **Seite der Uhr:** Zuoberst steht, was fällig ist, mit einem Knopf direkt zur Messung. Darunter «Jetzt messen» und «Lagen-Test». «Gang im Alltag», «Gangreserve-Test», «Letzter Lagen-Test» und «Letzte Messungen» lassen sich auf- und zuklappen; zugeklappt zeigen sie das Wichtigste in einer Zeile. Tickwerk merkt sich, was offen war. «Uhr bearbeiten» ist der Stift oben rechts.
+- **Handy-Uhr eichen ist eine eigene Seite:** oben der Wert und für welches Mikrofon er gilt, dann drei Schritte und «Quarzuhr messen». «Noch genauer eichen» (Gang der Quarzuhr) und «Korrektur von Hand eintragen» sind aufklappbar. Zu erreichen über die Werkzeuge oder über Einstellungen → «Eichung öffnen».
+- **Eichung mit Datum:** Tickwerk merkt sich, wann geeicht wurde, und zeigt es an. Nach etwa sechs Monaten steht bei der Eichung «am besten neu eichen», und beim Öffnen der App erscheint ein Hinweis, höchstens einmal im Monat. Das Datum steckt auch in der Sicherung. Eichungen aus älteren Versionen haben kein Datum («Datum der Eichung unbekannt») und lösen keinen Hinweis aus. Kommt die Eichung aus einer Sicherung, weist Tickwerk darauf hin: Auf einem anderen Handy gilt sie nicht, dort neu eichen.
+- **Einstellungen sind kürzer:** Sprache, Messung, Mikrofon, Eichung (ein Knopf), Datei auswerten, Daten sichern.
+- Gangreserve-Test: Was nach einer Messung für den Test gilt, steht in einem eigenen Kasten mit dem Knopf «Zum Gangreserve-Test».
+- **Französisch und Italienisch:** 17 Texte, die bisher deutsch blieben, sind übersetzt: die Titel der Hinweise auf der Seite der Uhr («Im Chronometer-Bereich», «Amplitude niedrig» …), «angenommen» und «bestätigt» beim Hebewinkel, «hoch» beim Abfallfehler und einige Fehlermeldungen.
+- Behoben: Der Hinweis in einer leeren Grafik («Der Papierstreifen erscheint während der Messung.») war auf schmalen Handys abgeschnitten; er steht jetzt mittig und bricht um.
+- Behoben: In den Balken «Gangabweichung» konnten «+6» und «−4» auf der Zahl des letzten Balkens liegen, und die gestrichelte Linie lief durch die Zahlen.
+- Behoben: In Kacheln mit langer Beschriftung («Senkrecht − waagrecht») rutschte das (i) allein auf eine neue Zeile.
+- Behoben: Das (i) neben «Signal» war nur ein grauer Punkt.
+
+## Neu in 0.6.1
+
+- **Eichung je Mikrofon:** Die Korrektur der Handy-Uhr gilt jetzt für das Mikrofon, mit dem geeicht wurde. Wer ein angestecktes Mikrofon wählt und damit «Quarzuhr messen» macht, bekommt einen eigenen Wert; beim Wechsel des Mikrofons wechselt der Wert mit. Ein gewähltes, noch nicht geeichtes Mikrofon wird nicht korrigiert, unter «Messen» steht dann «ungeeicht». Fehlt das gewählte Mikrofon beim Messen, nimmt Tickwerk das eingebaute mit dessen Eichung. Die bisherige Eichung gilt weiter fürs eingebaute Mikrofon.
+
+## Neu in 0.6.0
+
+- **Regulieren (Pro):** Unter «Messen» neben dem Lagen-Test. Tickwerk zeigt den Gang laufend, alle zwei Sekunden neu, dazu Abfallfehler, Amplitude, den Verlauf der letzten Minuten und den Papierstreifen. Gemittelt werden die letzten 6 bis 15 Sekunden. Stört etwas (Arbeit am Werk) oder ändert sich der Gang deutlich, merkt Tickwerk das, sucht die Stelle der Änderung und mittelt ab dort neu. Gespeichert wird nichts; nach 10 Minuten hält Tickwerk von selbst an.
+- **Gangreserve-Test (Pro):** Auf der Seite einer Uhr. Voll aufgezogen messen, die Uhr 24 Stunden liegen lassen und nochmals messen, freiwillig auch nach 36 Stunden. Tickwerk vergleicht Amplitude und Gang und sagt, ob die Zugfeder noch genug Kraft hat. Gemessen wird immer mit dem Zifferblatt oben. «Uhr ist stehen geblieben» schliesst den Test ab.
+- **Erinnerungen:** Für die nächste Messung des Gangreserve-Tests und den nächsten Zeitvergleich (Gang im Alltag) gibt es «Google Kalender» und «Kalenderdatei (.ics)». Ist etwas fällig, steht es bei der Uhr in «Meine Uhren», und beim Öffnen der App erscheint ein Hinweis.
+- **Mikrofon wählen (Pro):** Unter Einstellungen → «Mikrofone suchen», dann eines wählen, zum Beispiel ein angestecktes über USB-C. Ist es beim Messen nicht da, nimmt Tickwerk das Standard-Mikrofon und sagt es.
+- **Ergebnis als Bild teilen (gratis):** Nach einer Messung und beim Lagen-Test «Als Bild teilen»: ein Bild 1080 × 1350 mit Gang, Skala, Wertung, Werten und Papierstreifen. Abfallfehler und Amplitude stehen nur darauf, wenn die Messung sie zeigt.
+- **Französisch und Italienisch:** Die ganze App, das Messprotokoll und die Datenschutzerklärung (`privacy-fr.html`, `privacy-it.html`). «Automatisch» folgt der Sprache des Handys; fest wählbar unter Einstellungen → «Sprache · Language».
+- Messen: «Lagen-Test» und «Regulieren» stehen in einer eigenen Zeile unter Lage und Messdauer.
+- Kleinigkeiten: Beschriftung «Hebezeit» und «Gemessen am» waren auf Englisch noch deutsch.
+
+## Neu in 0.5.2
+
+- **Zählregel angepasst:** Eine Messung zählt wieder bis ±0,5 s/Tag. Nur wenn die Klicks klar sind, der Gang aber während der Messung schwankt, zählt sie bis ±1,5 s/Tag, mit dem Vermerk «Gang könnte schwanken» in der Kachel, in den Listen und im Messprotokoll. Das ersetzt die Regel aus 0.5.1.
+- Lagen-Test: Die Texte in den Kacheln dürfen zwei Zeilen haben und werden nicht mehr abgeschnitten.
+
 ## Neu in 0.5.1
 
 - **Keine Vibration mehr beim Messen.** Das Handy liegt an der Krone; das Vibrieren konnte es verschieben, und das Mikrofon nahm es auf. Stattdessen zeigt Tickwerk einen **Countdown**: Sobald das Ticken klar ist, zählt es gross 3, 2, 1 herunter, erst dann beginnt die Messung. Im Lagen-Test steht danach gross, wie viele Sekunden noch fehlen.
 - **«Signal schwach» war oft falsch.** Waren die Klicks klar, schwankte aber der Gang während der Messung (Uhr oder unruhig gehaltenes Handy), meldete Tickwerk «Signal schwach». Jetzt beurteilt die Mess-Engine 0.2.6 das Signal nur noch an den Klicks selbst; ein wandernder Gang heisst «Gang schwankt».
-- **Was zählt:** Eine Messung zählt jetzt bis ±1,5 s/Tag (vorher ±0,5), wenn das Signal nicht schwach ist. Schwankte der Gang während der Messung, steht der Vermerk «Gang schwankt» in der Kachel, in den Listen und im Messprotokoll. Ein Lagen-Test lässt sich so auch mit einer Uhr abschliessen, deren Gang innerhalb einer Minute schwankt.
+- **Was zählt:** Schwankte der Gang während der Messung, zählt eine Messung mit Vermerk bis ±1,5 s/Tag (in 0.5.2 genauer gefasst, siehe oben). Ein Lagen-Test lässt sich so auch mit einer Uhr abschliessen, deren Gang innerhalb einer Minute schwankt.
 - Lage «Krone oben»: Hinweis, das Handy nur leicht an die Krone zu halten und den Arm aufzustützen.
 - Erklärung zum Papierstreifen: neu «Spur wellig».
 

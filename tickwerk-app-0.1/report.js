@@ -196,8 +196,10 @@
   var HORIZ = { ZO: true, ZU: true };
   var MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
   var MONTHS_EN = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-  /* Sprache: build() setzt sie aus d.lang. Übersetzt wird mit d.tr (T aus app.js: deutscher Text -> Englisch, {Platzhalter}); ohne d.tr Deutsch. */
-  var LG = { en: false, T: fill };
+  var MONTHS_FR = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+  var MONTHS_IT = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
+  /* Sprache: build() setzt sie aus d.lang. Übersetzt wird mit d.tr (T aus app.js: deutscher Text -> gewählte Sprache, {Platzhalter}); ohne d.tr Deutsch. */
+  var LG = { lang: 'de', en: false, T: fill };
   function fill(s, v) {
     return v ? String(s).replace(/\{(\w+)\}/g, function (m, k) { return Object.prototype.hasOwnProperty.call(v, k) ? String(v[k]) : m; }) : s;
   }
@@ -211,11 +213,14 @@
   function p2(v) { return (v < 10 ? '0' : '') + v; }
   function dShort(d) { return p2(d.getDate()) + (LG.en ? '/' : '.') + p2(d.getMonth() + 1) + (LG.en ? '/' : '.') + d.getFullYear(); }
   function dTime(d) { return dShort(d) + ', ' + p2(d.getHours()) + ':' + p2(d.getMinutes()); }
-  function dLong(d) { return LG.en ? d.getDate() + ' ' + MONTHS_EN[d.getMonth()] + ' ' + d.getFullYear() : d.getDate() + '. ' + MONTHS[d.getMonth()] + ' ' + d.getFullYear(); }
+  function dLong(d) {
+    var M = { en: MONTHS_EN, fr: MONTHS_FR, it: MONTHS_IT }[LG.lang];
+    return M ? d.getDate() + ' ' + M[d.getMonth()] + ' ' + d.getFullYear() : d.getDate() + '. ' + MONTHS[d.getMonth()] + ' ' + d.getFullYear();
+  }
   function mean(a) { return a.length ? a.reduce(function (s, v) { return s + v; }, 0) / a.length : null; }
   function deg(v) { return fmt(v, v % 1 ? 1 : 0) + '°'; }
-  /* Wie in der App: gewertet bis ±1,5 s/Tag bei gutem Signal; schwankte der Gang während der Messung, mit Vermerk */
-  function counted(m) { return m.q !== 'schwach' && m.sigma <= 1.5; }
+  /* Wie in der App: gewertet bis ±0,5 s/Tag; sind die Klicks klar, schwankt aber der Gang, bis ±1,5 s/Tag mit Vermerk */
+  function counted(m) { return m.q !== 'schwach' && m.sigma <= (m.stable === false ? 1.5 : 0.5); }
   function reason(m) {
     if (m.q === 'schwach') return T('Signal schwach');
     if (m.stable === false) return T('Gang schwankt zu stark');
@@ -233,7 +238,8 @@
 
   /* ---------- Protokoll ---------- */
   function build(d) {
-    LG.en = d.lang === 'en';
+    LG.lang = ['de', 'en', 'fr', 'it'].indexOf(d.lang) >= 0 ? d.lang : 'de';
+    LG.en = LG.lang === 'en';
     LG.T = typeof d.tr === 'function' ? d.tr : fill;
     var pdf = new Pdf().addPage();
     var W = pdf.W, ML = 50, CW = W - 100, LIMIT = pdf.H - 70;
@@ -313,6 +319,8 @@
     }
     function kvBlock(pairs, x, w, labelW, startY) {
       var yy = startY;
+      /* längere Beschriftungen (Französisch, Italienisch): Wertespalte nach rechts schieben, höchstens bis 45 % */
+      labelW = Math.min(w * 0.45, Math.max(labelW, Math.max.apply(null, pairs.map(function (p) { return textWidth(p[0], 'R', 8); })) + 8));
       pairs.forEach(function (p) {
         var lines = wrap(p[1], p[2] ? 'B' : 'R', 9, w - labelW);
         pdf.text(p[0], x, yy, { size: 8, color: C.muted });
@@ -417,7 +425,7 @@
       pdf.text(c[0].toUpperCase(), x, boxTop + 20, { font: 'B', size: 6.8, spacing: 0.6, color: C.muted });
       pdf.text(c[1], x, boxTop + 42, { font: 'B', size: 19, color: C.ink });
       if (c[2]) pdf.text(c[2], x + textWidth(c[1], 'B', 19) + 3, boxTop + 42, { size: 8.5, color: C.muted });
-      pdf.text(c[3], x, boxTop + 54, { size: 7, color: C.faint });
+      wrap(c[3], 'R', 7, cw4 - 8).slice(0, 2).forEach(function (ln, j) { pdf.text(ln, x, boxTop + 54 + j * 8.4, { size: 7, color: C.faint }); });
     });
     rateScale(ML + 14, boxTop + 70, CW - 28);
     y = boxTop + boxH + 10;
@@ -498,7 +506,7 @@
       meas.map(function (m, i) {
         var dt = new Date(m.date), note = [];
         if (!counted(m)) note.push(T('nicht gewertet: {r}', { r: reason(m) }));
-        else if (m.stable === false) note.push(T('Gang schwankt'));
+        else if (m.stable === false) note.push(T('Gang könnte schwanken'));
         if (m.beOk === false) note.push(T('Abfallfehler unsicher'));
         if (m.amp && !m.ampOk) note.push(T('Amplitude unsicher'));
         if (m.source === 'Datei') note.push(T('aus Datei'));
@@ -565,13 +573,13 @@
     var notes = [];
     var notOk = meas.length - ok.length;
     if (notOk) notes.push(T(notOk === 1
-      ? '{n} von {m} Messungen ist nicht gewertet (schwaches Signal oder Unsicherheit über ±1,5 s/Tag). Sie steht in der Liste, fliesst aber nicht in die Mittelwerte ein.'
-      : '{n} von {m} Messungen sind nicht gewertet (schwaches Signal oder Unsicherheit über ±1,5 s/Tag). Sie stehen in der Liste, fliessen aber nicht in die Mittelwerte ein.',
+      ? '{n} von {m} Messungen ist nicht gewertet (schwaches Signal oder Unsicherheit über ±0,5 s/Tag, bei schwankendem Gang über ±1,5 s/Tag). Sie steht in der Liste, fliesst aber nicht in die Mittelwerte ein.'
+      : '{n} von {m} Messungen sind nicht gewertet (schwaches Signal oder Unsicherheit über ±0,5 s/Tag, bei schwankendem Gang über ±1,5 s/Tag). Sie stehen in der Liste, fliessen aber nicht in die Mittelwerte ein.',
       { n: notOk, m: meas.length }));
     var wob = ok.filter(function (m) { return m.stable === false; }).length;
     if (wob) notes.push(T(wob === 1
-      ? 'Bei einer gewerteten Messung schwankte der Gang während der Messung (Vermerk «Gang schwankt»). Ihr Wert ist ungenauer; das ± zeigt, um wie viel.'
-      : 'Bei {n} gewerteten Messungen schwankte der Gang während der Messung (Vermerk «Gang schwankt»). Ihre Werte sind ungenauer; das ± zeigt, um wie viel.', { n: wob }));
+      ? 'Bei einer gewerteten Messung schwankte der Gang während der Messung (Vermerk «Gang könnte schwanken»). Sie zählt, weil die Klicks klar waren; ihr Wert ist ungenauer, das ± zeigt, um wie viel.'
+      : 'Bei {n} gewerteten Messungen schwankte der Gang während der Messung (Vermerk «Gang könnte schwanken»). Sie zählen, weil die Klicks klar waren; ihre Werte sind ungenauer, das ± zeigt, um wie viel.', { n: wob }));
     if (rows.length === 1) notes.push(T('Gemessen wurde nur in der Lage «{pos}». Eine Uhr geht je nach Lage unterschiedlich; ein vollständiges Bild ergibt sich erst aus mehreren Lagen.', { pos: posName(rows[0].pos) }));
     if (liftState === 'angenommen') notes.push(T('Der Hebewinkel des Werks ist nicht bekannt; gerechnet wurde mit {lift}. Die Amplitude ist deshalb nur ungefähr: 2° Unterschied im Hebewinkel ändern sie um rund 4 %.', { lift: deg(lift) }));
     else if (liftState === 'unbestätigt') notes.push(T('Der Hebewinkel ({lift}) stammt vom Basiswerk und ist nicht vom Hersteller bestätigt. 2° Unterschied ändern die Amplitude um rund 4 %.', { lift: deg(lift) }));
@@ -664,8 +672,10 @@
       pdf.restore();
     }
 
-    var safe = d.watch.name.replace(/[^\wäöüÄÖÜéèàç-]+/g, '-').replace(/^-+|-+$/g, '') || (LG.en ? 'Watch' : 'Uhr');
-    var filename = (d.kind === 'lagen' ? (LG.en ? 'Tickwerk-Position-test_' : 'Tickwerk-Lagentest_') : (LG.en ? 'Tickwerk-Report_' : 'Tickwerk-Messprotokoll_')) +
+    var safe = d.watch.name.replace(/[^\wäöüÄÖÜéèàçùìòâêîôû-]+/g, '-').replace(/^-+|-+$/g, '') || ({ de: 'Uhr', en: 'Watch', fr: 'Montre', it: 'Orologio' }[LG.lang]);
+    var NAMES = { de: ['Tickwerk-Lagentest_', 'Tickwerk-Messprotokoll_'], en: ['Tickwerk-Position-test_', 'Tickwerk-Report_'],
+      fr: ['Tickwerk-Test-positions_', 'Tickwerk-Rapport_'], it: ['Tickwerk-Test-posizioni_', 'Tickwerk-Rapporto_'] }[LG.lang];
+    var filename = NAMES[d.kind === 'lagen' ? 0 : 1] +
       safe + '_' + now.getFullYear() + '-' + p2(now.getMonth() + 1) + '-' + p2(now.getDate()) + '.pdf';
     var bytes = pdf.output({ title: T('Messprotokoll') + ' ' + d.watch.name + ' (' + nr + ')', subject: T(d.kind === 'lagen' ? 'Lagen-Test mit Tickwerk' : 'Gangmessung mit Tickwerk'),
       version: d.appVersion, date: now });
