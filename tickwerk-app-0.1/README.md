@@ -1,4 +1,4 @@
-# Tickwerk – Web-App 0.6.2 (Testversion)
+# Tickwerk – Web-App 0.6.3 (Testversion)
 
 Misst mit dem Handy-Mikrofon, wie genau eine mechanische Uhr geht: Gangabweichung, Abfallfehler, Amplitude, Schlagzahl. Die Aufnahme bleibt auf dem Handy; die App schickt nichts ins Internet.
 
@@ -6,9 +6,25 @@ Das ist die **Testversion** für GitHub: Pro lässt sich unter Mehr → Tickwerk
 
 ## Aktualisieren (bestehender Ordner `tickwerk-app-0.1`)
 
+Seit dem 10.11.2026 legt Claude neue Versionen als Pull Request in den Ordner; «Merge pull request» genügt. Von Hand geht es so:
+
 1. Im Repository den Ordner `tickwerk-app-0.1` öffnen.
 2. **Add file → Upload files**, den ganzen Inhalt dieses Pakets hineinziehen (Dateien und die Ordner `engine`, `fonts`, `icons`), **Commit changes**. Gleichnamige Dateien werden ersetzt; deine Uhren und Messungen bleiben auf dem Handy erhalten.
-3. App auf dem Handy öffnen. Nach ein paar Sekunden erscheint «Neue Version ist bereit»; unter Mehr auf **Neue Version: neu laden** tippen.
+3. App auf dem Handy öffnen. Nach ein paar Sekunden erscheint «Neue Version ist bereit»; unter Mehr auf **Neue Version: neu laden** tippen. Ab 0.6.3 lässt sich die Suche unter Mehr → **Nach Update suchen** auch von Hand anstossen.
+
+## Neu in 0.6.3
+
+- **Kein grober Wert mehr nach einer Lücke:** Fehlt das Ticken vier Sekunden oder länger (Handy verrutscht oder weggenommen, Uhr steht), zeigt Tickwerk keinen Wert und speichert nichts. Die Meldung sagt, wo die Lücke lag: «Nach 18 von 30 Sekunden war das Ticken nicht mehr zu hören», «Zwischen Sekunde 12 und 19 …» oder «In den ersten 6 Sekunden …». Das gilt auch im Lagen-Test. Bisher gab es in diesem Fall einen groben Wert mit «Signal schwach» oder die Meldung «Signal zu schwach».
+- **Datei auswerten:** Hat eine Aufnahme einen Vor- oder Nachlauf ohne Ticken (Handy noch nicht an der Uhr), wertet Tickwerk nur das Stück mit Ticken aus und sagt, welches. Eine Lücke mittendrin wird abgelehnt.
+- **Kurze Störungen:** Ein Rascheln oder ein Stoss von etwa einer Sekunde macht die Messung nicht mehr ungültig. Bisher konnte ein einziges lautes Geräusch in den ersten 20 Sekunden zu «Signal zu schwach» führen.
+- **Unsichere Messung läuft weiter:** Ist das Signal klar, der Wert nach der gewählten Dauer aber unsicherer als ±0,5 s/Tag (meist, weil der Gang schwankt), misst Tickwerk von selbst weiter, bis 60 Sekunden um sind. Auf dem Bildschirm steht zuerst «Prüft den Wert», dann «Tickwerk misst weiter …»; im Ergebnis steht «Verlängert von 30 auf 60 s». Gilt auch im Lagen-Test. Ausschalten: Einstellungen → «Unsichere Messung verlängern». Bei schwachem Signal wird nicht verlängert, weil mehr Zeit dort nicht hilft.
+- **Verlängerung nicht auswertbar:** Wird das Handy in den zusätzlichen Sekunden weggenommen, gilt der Wert der zuerst gewählten Dauer («Die Verlängerung auf 60 s liess sich nicht auswerten. Es gilt der Wert der ersten 30 Sekunden.»). Das gilt auch, wenn die ganze Minute aus einem anderen Grund keinen Wert ergibt. Eine verlängerte Messung ist so nie schlechter als eine ohne.
+- **Tabelle (CSV, Pro):** Auf der Seite der Uhr unter «Letzte Messungen». Alle Messungen der Uhr mit Datum, Zeit, Lage, Gang, Unsicherheit, Wertung, Abfallfehler, Amplitude, Hebewinkel, Schlagzahl, Signal, Dauer, Quelle, Korrektur, Hinweis und Versionen. Für Excel gebaut: UTF-8 mit BOM, Trennzeichen Strichpunkt (auf Englisch Komma), Dezimalzeichen wie auf dem Handy eingestellt. Namen, die mit `=`, `+`, `-` oder `@` beginnen, bekommen ein Hochkomma davor, damit Excel sie nicht als Formel ausführt.
+- **Nach Update suchen:** Unter «Mehr» in der neuen Gruppe «Version». Sagt, ob die neuste Version installiert ist («Tickwerk ist aktuell … geprüft um 07:15»), lädt eine neue und bietet dann «Neue Version: neu laden» an. Ohne Netz: «Keine Verbindung».
+- **Diagnose teilen:** Unter «Mehr». Ein Text mit Version, Gerät, Sprache, Mikrofon und Erlaubnis, Eichung, Einstellungen, den letzten fünf Messungen (ohne Namen der Uhren) und den letzten Fehlern. Er wird zuerst angezeigt und verlässt das Handy nur über «Teilen» oder «Kopieren». Dafür führt die App ein kleines Protokoll der letzten 20 Fehler (Mikrofon, abgelehnte Messungen, unlesbare Dateien, Programmfehler), ohne Namen von Uhren oder Dateien.
+- **Was ist neu:** Nach einem Update erscheint einmal ein Blatt mit den Neuerungen; jederzeit unter «Mehr». Bei einer neuen Installation erscheint es nicht.
+- **Mess-Engine 0.2.7:** erkennt Lücken im Ticken (ein Schlag gilt als «da», wenn er zur Schablone passt und zum übernächsten Schlag den richtigen Abstand hat), kappt laute Störgeräusche bei der Suche nach der Schlagzahl und in der Hüllkurve, und setzt das Raster am ersten Stück mit klarem Takt an statt immer in den ersten 3 Sekunden. Saubere Aufnahmen ergeben dieselben Werte wie mit 0.2.6.
+- **Aussetzer der Aufnahme:** Liefert das Handy unter Last einen Audiopuffer doppelt oder verliert einen, sind alle folgenden Schläge um 10 bis 30 Millisekunden verschoben. Lag das mitten in der Messung, gab es bisher oft keinen oder nur einen groben Wert; ein Sprung von etwa 30 ms konnte sich sogar verstecken und einen falschen Wert ergeben. Jetzt richtet die Engine die Schläge in einem zweiten Versuch an einer scharfen Schablone (aus wenigen Sekunden) neu aus, prüft jedes Ergebnis auf einen versteckten Sprung und misst die Höhe eines Sprungs zusätzlich aus den Schlägen direkt davor und danach. Bei einer Uhr mit schwankendem Gang macht ein Aussetzer den Wert unsicherer; das ± zeigt es. Aufnahmen ohne Aussetzer ergeben dieselben Werte wie vorher.
 
 ## Neu in 0.6.2
 

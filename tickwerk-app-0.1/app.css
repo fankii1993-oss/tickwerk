@@ -516,3 +516,16 @@ main { padding-top: calc(14px + env(safe-area-inset-top)); }
 .metric dt { display: flex; align-items: center; }
 /* Zahl über einem Balken: eigener Grund, damit die gestrichelte Linie «+6» nicht durch die Zahl läuft */
 .bar-col b { padding: 0 3px; border-radius: 3px; background: var(--surface); }
+
+/* ---------- 0.6.3: Was ist neu, Nach Update suchen, Diagnose teilen ---------- */
+.news { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.news li { padding: 10px 12px; border-radius: 12px; background: var(--inset); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 3px; }
+.news-t { font-size: 15px; font-weight: 600; color: var(--text); }
+.news-s { font-size: 13.5px; line-height: 1.4; color: var(--muted); }
+/* Diagnose: fester Zeichenabstand, bricht lange Zeilen um (kein seitliches Scrollen), in der Höhe begrenzt */
+.diag { margin: 0; padding: 10px 12px; max-height: 38vh; overflow-y: auto; border-radius: 12px; background: var(--inset); border: 1px solid var(--line);
+  font-family: var(--mono); font-size: 12px; line-height: 1.5; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
+#dgOut:empty { display: none; }
+/* Zustand der Update-Suche in der Menüzeile */
+.menu-s[data-kind="ok"] { color: var(--lume); }
+.menu-s[data-kind="warn"] { color: var(--warn); }

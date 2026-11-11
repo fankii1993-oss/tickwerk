@@ -232,8 +232,12 @@
       <div class="fold-body">
         <ul class="rows" id="dList"></ul>
         <p class="hint" id="dMore" hidden></p>
-        <div class="actions"><button type="button" class="btn-ghost small" id="dPdf">Messprotokoll (PDF)<span class="pro-tag">Pro</span></button></div>
+        <div class="actions">
+          <button type="button" class="btn-ghost small" id="dPdf">Messprotokoll (PDF)<span class="pro-tag">Pro</span></button>
+          <button type="button" class="btn-ghost small" id="dCsv">Tabelle (CSV)<span class="pro-tag">Pro</span></button>
+        </div>
         <span class="pdfbar" id="dPdfBar" hidden></span>
+        <span class="pdfbar" id="dCsvBar" hidden></span>
       </div>
     </details>
   </section>
@@ -557,6 +561,14 @@
         <li><a href="datenschutz.html"><span class="menu-t">Datenschutz</span><span class="menu-s">Was mit deinen Daten passiert</span></a></li>
       </ul>
     </div>
+    <div class="section gap">
+      <span class="eyebrow">Version</span>
+      <ul class="menu">
+        <li><button type="button" id="newsBtn"><span class="menu-t">Was ist neu</span><span class="menu-s" id="newsSub"></span></button></li>
+        <li><button type="button" id="updCheck"><span class="menu-t">Nach Update suchen</span><span class="menu-s" id="updState" role="status"></span></button></li>
+        <li><button type="button" id="diagBtn"><span class="menu-t">Diagnose teilen</span><span class="menu-s">Version, Handy, Mikrofon und letzte Fehler als Text</span></button></li>
+      </ul>
+    </div>
     <div class="actions">
       <button type="button" class="btn-ghost small" id="installBtn" hidden>App installieren</button>
       <button type="button" class="btn-ghost small" id="updateBtn" hidden>Neue Version: neu laden</button>
@@ -573,6 +585,7 @@
       <li>Abfallfehler und Amplitude bei jeder Messung</li>
       <li>Lagen-Test: bis zu sechs Lagen wie beim Uhrmacher</li>
       <li>Messprotokoll als PDF zum Drucken und Teilen</li>
+      <li>Alle Messungen einer Uhr als Tabelle (CSV) für Excel</li>
       <li>Ganzer Verlauf und beliebig viele Uhren</li>
       <li>Regulier-Modus: der Gang laufend, während du am Werk einstellst</li>
       <li>Gangreserve-Test: voll aufgezogen und nach 24 Stunden</li>
@@ -623,6 +636,8 @@
     <div class="card">
       <label class="switch"><input type="checkbox" id="autoStart"><span>Messung automatisch starten</span></label>
       <p class="hint">Tickwerk hört nach «Messen» zuerst nur zu und beginnt von selbst, sobald das Ticken klar ist.</p>
+      <label class="switch"><input type="checkbox" id="extendOn"><span>Unsichere Messung verlängern</span></label>
+      <p class="hint">Ist der Wert nach der gewählten Dauer unsicherer als ±0,5 s/Tag, misst Tickwerk weiter, höchstens bis 60 Sekunden.</p>
     </div>
     <div class="card">
       <div class="field">
@@ -739,6 +754,33 @@
       <ul class="ranges" id="isRanges"></ul>
       <p class="hint" id="isNote"></p>
       <div class="actions"><button type="button" class="btn-ghost" id="isClose">Schliessen</button></div>
+    </div>
+  </div>
+
+  <!-- ======================= Was ist neu ======================= -->
+  <div class="sheet" id="newsSheet" hidden>
+    <div class="sheet-panel" role="dialog" aria-modal="true" aria-labelledby="nsTitle">
+      <span class="eyebrow">Was ist neu</span>
+      <h2 id="nsTitle"></h2>
+      <ul class="news" id="nsList"></ul>
+      <div class="actions"><button type="button" class="btn-primary" id="nsClose">Verstanden</button></div>
+    </div>
+  </div>
+
+  <!-- ======================= Diagnose teilen ======================= -->
+  <div class="sheet" id="diagSheet" hidden>
+    <div class="sheet-panel" role="dialog" aria-modal="true" aria-labelledby="dgTitle">
+      <div class="row-between">
+        <h2 id="dgTitle">Diagnose teilen</h2>
+        <button type="button" class="round" id="dgClose" aria-label="Schliessen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg></button>
+      </div>
+      <p class="hint">Dieser Text hilft bei der Fehlersuche. Er enthält keine Namen deiner Uhren. Er verlässt das Handy erst, wenn du ihn teilst oder kopierst.</p>
+      <pre class="diag" id="dgText" tabindex="0"></pre>
+      <p class="hint" id="dgOut" role="status"></p>
+      <div class="actions">
+        <button type="button" class="btn-primary" id="dgShare">Teilen</button>
+        <button type="button" class="btn-ghost" id="dgCopy">Kopieren</button>
+      </div>
     </div>
   </div>
 
