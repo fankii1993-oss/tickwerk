@@ -65,12 +65,12 @@
   var UHREN = window.TICKWERK_UHREN || [];
   var CFG = window.TICKWERK_CONFIG || {};
   var FLAVOR = CFG.flavor === 'store' ? 'store' : 'test';
-  var APP_VERSION = '0.6.3';
+  var APP_VERSION = '0.6.4';
   var PREFIX = typeof CFG.storage === 'string' && /^[a-z][a-z0-9.]{2,30}$/.test(CFG.storage) ? CFG.storage : 'tickwerk.v1';
   var KEYS = { watches: PREFIX + '.watches', meas: PREFIX + '.measurements', settings: PREFIX + '.settings', session: PREFIX + '.session', pro: PREFIX + '.pro', log: PREFIX + '.log' };
   var PRO_SKU = typeof CFG.proSku === 'string' && /^[a-z0-9._]{1,40}$/.test(CFG.proSku) ? CFG.proSku : 'tickwerk_pro';
   var BACKEND = typeof CFG.billingBackend === 'string' && /^https:\/\/[A-Za-z0-9.\-]+(:\d+)?(\/[A-Za-z0-9._\-\/]*)?$/.test(CFG.billingBackend) ? CFG.billingBackend : '';
-  var PRICE = typeof CFG.price === 'string' ? CFG.price.slice(0, 20) : 'CHF 9.–';
+  var PRICE = typeof CFG.price === 'string' ? CFG.price.slice(0, 20) : 'CHF 9.99';
   var FREE_PER_WEEK = 3, FREE_HISTORY = 5, FREE_DETAIL = 3, MAX_MEAS = 3000, MAX_WATCHES = 200, TRACE_KEEP = 40;
   var POS = { ZO: T('Zifferblatt oben'), ZU: T('Zifferblatt unten'), KU: T('Krone unten'), KO: T('Krone oben'), KL: T('Krone links'), KR: T('Krone rechts') };
   var POS_HINT = {
@@ -342,44 +342,45 @@
   function watchOpts(w, key) { return { liftAngle: w && w.liftAngle ? w.liftAngle : 52, bph: null, clockPpm: ppmOf(key == null ? usedMic : key) }; }
   function kalById(id) { for (var i = 0; i < KAL.length; i++) if (KAL[i].id === id) return KAL[i]; return null; }
   function calName(id) { var k = kalById(id); return k ? kName(k) : ''; }
-  /* Werknamen in den anderen Sprachen: Namen sind meist Eigennamen, nur einige Wörter werden ersetzt (längere zuerst) */
+  /* Werknamen in den anderen Sprachen: Namen sind meist Eigennamen, nur einige Wörter werden ersetzt (längere zuerst).
+     «Chronograph» nur als Angabe in der Klammer, nicht im Modellnamen («Navitimer B01 Chronograph» bleibt, wie es ist). */
   var KAL_WORDS = {
     en: [['Basis ', 'based on '], ['Nachbau ', 'clone of '], ['(auch ', '(also '], ['(Handaufzug, 80 h)', '(manual winding, 80 h)'], ['(Handaufzug)', '(manual winding)'],
       ['Handaufzug', 'manual winding'], ['mechanisch, z. B. ', 'mechanical, e.g. '], ['-Familie', ' family'], ['(aktuell, 72 h)', '(current, 72 h)'], ['(5 Tage)', '(5 days)'],
       ['Manufakturwerk', 'in-house movement'], ['Manufaktur, 5 Tage', 'in-house, 5 days'], ['Pellaton-Aufzug', 'Pellaton winding'], ['z. B. ', 'e.g. '],
-      ['Chronograph', 'chronograph'], ['(3 Zeiger, ab ca. ', '(3 hands, from about '], ['ab ca. ', 'from about '], ['bis ca. ', 'until about '], ['ohne Datum', 'no date'], [' mit Datum', ' with date'],
+      ['(Chronograph', '(chronograph'], ['-Chronograph)', ' chronograph)'], ['(3 Zeiger, ab ca. ', '(3 hands, from about '], ['ab ca. ', 'from about '], ['bis ca. ', 'until about '], ['ohne Datum', 'no date'], [' mit Datum', ' with date'],
       ['(ab ', '(from '], [', ab ', ', from '], [', bis ', ', until '], ['(aktuell)', '(current)'], ['ältere Ausführung', 'older version'], ['Kaliber ', 'caliber '],
       ['«', '“'], ['»', '”']],
     fr: [['Basis ', 'base '], ['Nachbau ', 'copie '], ['(auch ', '(aussi '], ['(Handaufzug, 80 h)', '(remontage manuel, 80 h)'], ['(Handaufzug)', '(remontage manuel)'],
       ['Handaufzug', 'remontage manuel'], ['mechanisch, z. B. ', 'mécanique, p. ex. '], ['-Familie', ' (famille)'], ['(aktuell, 72 h)', '(actuel, 72 h)'], ['(5 Tage)', '(5 jours)'],
       ['Manufakturwerk', 'mouvement manufacture'], ['Manufaktur, 5 Tage', 'manufacture, 5 jours'], ['Pellaton-Aufzug', 'remontage Pellaton'], ['z. B. ', 'p. ex. '],
-      ['Chronograph', 'chronographe'], ['(3 Zeiger, ab ca. ', '(3 aiguilles, dès env. '], ['ab ca. ', 'dès env. '], ['bis ca. ', 'jusqu’à env. '], ['ohne Datum', 'sans date'], [' mit Datum', ' avec date'],
+      ['(Chronograph', '(chronographe'], ['-Chronograph)', ', chronographe)'], ['(3 Zeiger, ab ca. ', '(3 aiguilles, dès env. '], ['ab ca. ', 'dès env. '], ['bis ca. ', 'jusqu’à env. '], ['ohne Datum', 'sans date'], [' mit Datum', ' avec date'],
       ['(ab ', '(dès '], [', ab ', ', dès '], [', bis ', ', jusqu’à '], ['(aktuell)', '(actuel)'], ['ältere Ausführung', 'ancienne version'], ['Kaliber ', 'calibre ']],
     it: [['Basis ', 'base '], ['Nachbau ', 'copia '], ['(auch ', '(anche '], ['(Handaufzug, 80 h)', '(carica manuale, 80 h)'], ['(Handaufzug)', '(carica manuale)'],
       ['Handaufzug', 'carica manuale'], ['mechanisch, z. B. ', 'meccanico, ad es. '], ['-Familie', ' (famiglia)'], ['(aktuell, 72 h)', '(attuale, 72 h)'], ['(5 Tage)', '(5 giorni)'],
       ['Manufakturwerk', 'movimento di manifattura'], ['Manufaktur, 5 Tage', 'manifattura, 5 giorni'], ['Pellaton-Aufzug', 'carica Pellaton'], ['z. B. ', 'ad es. '],
-      ['Chronograph', 'cronografo'], ['(3 Zeiger, ab ca. ', '(3 lancette, da ca. '], ['ab ca. ', 'da ca. '], ['bis ca. ', 'fino a ca. '], ['ohne Datum', 'senza data'], [' mit Datum', ' con data'],
+      ['(Chronograph', '(cronografo'], ['-Chronograph)', ', cronografo)'], ['(3 Zeiger, ab ca. ', '(3 lancette, da ca. '], ['ab ca. ', 'da ca. '], ['bis ca. ', 'fino a ca. '], ['ohne Datum', 'senza data'], [' mit Datum', ' con data'],
       ['(ab ', '(da '], [', ab ', ', da '], [', bis ', ', fino a '], ['(aktuell)', '(attuale)'], ['ältere Ausführung', 'versione precedente'], ['Kaliber ', 'calibro ']]
   };
   function enName(s) { if (LANG === 'de' || !s) return s; (KAL_WORDS[LANG] || []).forEach(function (p) { s = s.split(p[0]).join(p[1]); }); return s; }
   function kName(k) { return k ? enName(k.name) : ''; }
   /* Quellenangaben der Werke (nur im Messprotokoll): Fachbegriffe ersetzen, Namen bleiben */
   var SRC_WORDS = {
-    en: [['ETA Technische Mitteilung', 'ETA technical communication'], ['watchguy.co.uk Hebewinkel-Liste', 'watchguy.co.uk lift angle list'],
+    en: [['ETA Technische Mitteilung', 'ETA technical communication'], ['Omega Technische Anleitung', 'Omega technical guide'], ['watchguy.co.uk Hebewinkel-Liste', 'watchguy.co.uk lift angle list'],
       ['Watchguy-Hebewinkelliste', 'Watchguy lift angle list'], ['(als unbestätigt markiert)', '(marked as unconfirmed)'],
       ['(laut Forum mit ETA-Dokument)', '(per forum post with ETA document)'], ['Miyota-Datenblatt', 'Miyota data sheet'], ['Omega-Forum', 'Omega forum'],
       ['Rolex-Forum; Familie 32xx', 'Rolex forum; 32xx family'], [' bei Watchguy', ' at Watchguy'], ['Schlagzahl: ', 'Beat rate: '], ['(Schlagzahl)', '(beat rate)'],
       ['(Hebewinkel)', '(lift angle)'], ['vom Basiswerk', 'from the base movement'], ['vom verwandten', 'from the related'],
       ['von Omega 8800 / 2500 übernommen', 'taken from Omega 8800 / 2500'], ['Händlerangaben', 'dealer information'], ['Gangreserve', 'power reserve'],
       ['Messung Tickwerk', 'Tickwerk measurement'], ["25'200 A/h", '25,200 bph'], ['Basis ', 'based on '], [' bis ', ' to ']],
-    fr: [['ETA Technische Mitteilung', 'communication technique ETA'], ['watchguy.co.uk Hebewinkel-Liste', 'watchguy.co.uk, liste des angles de levée'],
+    fr: [['ETA Technische Mitteilung', 'communication technique ETA'], ['Omega Technische Anleitung', 'guide technique Omega'], ['watchguy.co.uk Hebewinkel-Liste', 'watchguy.co.uk, liste des angles de levée'],
       ['Watchguy-Hebewinkelliste', 'Watchguy, liste des angles de levée'], ['(als unbestätigt markiert)', '(marqué comme non confirmé)'],
       ['(laut Forum mit ETA-Dokument)', '(selon un forum, avec document ETA)'], ['Miyota-Datenblatt', 'fiche technique Miyota'], ['Omega-Forum', 'forum Omega'],
       ['Rolex-Forum; Familie 32xx', 'forum Rolex ; famille 32xx'], [' bei Watchguy', ' chez Watchguy'], ['Schlagzahl: ', 'Fréquence : '], ['(Schlagzahl)', '(fréquence)'],
       ['(Hebewinkel)', '(angle de levée)'], ['vom Basiswerk', 'du mouvement de base'], ['vom verwandten', 'du mouvement apparenté'],
       ['von Omega 8800 / 2500 übernommen', 'repris d’Omega 8800 / 2500'], ['Händlerangaben', 'indications du revendeur'], ['Gangreserve', 'réserve de marche'],
       ['Messung Tickwerk', 'mesure Tickwerk'], ['Basis ', 'base '], [' bis ', ' à ']],
-    it: [['ETA Technische Mitteilung', 'comunicazione tecnica ETA'], ['watchguy.co.uk Hebewinkel-Liste', 'watchguy.co.uk, elenco degli angoli di alzata'],
+    it: [['ETA Technische Mitteilung', 'comunicazione tecnica ETA'], ['Omega Technische Anleitung', 'guida tecnica Omega'], ['watchguy.co.uk Hebewinkel-Liste', 'watchguy.co.uk, elenco degli angoli di alzata'],
       ['Watchguy-Hebewinkelliste', 'Watchguy, elenco degli angoli di alzata'], ['(als unbestätigt markiert)', '(segnato come non confermato)'],
       ['(laut Forum mit ETA-Dokument)', '(secondo un forum, con documento ETA)'], ['Miyota-Datenblatt', 'scheda tecnica Miyota'], ['Omega-Forum', 'forum Omega'],
       ['Rolex-Forum; Familie 32xx', 'forum Rolex; famiglia 32xx'], [' bei Watchguy', ' su Watchguy'], ['Schlagzahl: ', 'Frequenza: '], ['(Schlagzahl)', '(frequenza)'],
@@ -619,7 +620,8 @@
   /* ---------- Erklärungen: (i) neben einem Wert öffnet ein kurzes Blatt mit Richtwerten ---------- */
   var INFO = {
     rate: { t: 'Gangabweichung', s: 'So viele Sekunden geht die Uhr pro Tag vor (+) oder nach (−), hochgerechnet aus der Messung. Der Wert gilt für die gemessene Lage und den jetzigen Aufzug. Im Alltag wechseln beide; darum lohnt sich der Lagen-Test.',
-      r: [['good', '−4 bis +6 s/Tag', 'Chronometer-Bereich (Norm der COSC)'], ['okay', 'bis ±30 s/Tag', 'in Ordnung; viele Werke sind ab Werk nur auf etwa ±10 bis ±40 s/Tag eingestellt'], ['warn', 'über ±30 s/Tag', 'regulieren lassen; bei sehr grossen Werten auf Magnetismus prüfen lassen']],
+      r: [['good', '−4 bis +6 s/Tag', 'Chronometer-Bereich (Norm der COSC)'], ['okay', 'bis ±30 s/Tag', 'in Ordnung; viele Werke sind ab Werk nur auf etwa ±10 bis ±40 s/Tag eingestellt'], ['warn', 'über ±30 s/Tag', 'regulieren lassen; bei sehr grossen Werten auf Magnetismus prüfen lassen'],
+        ['', '±4 / ±7 / ±12 s/Tag', 'Vorgaben von ETA für die Stufen Top, Elaboré und Standard, als Mittel mehrerer Lagen. Den Vergleich zeigt der Lagen-Test.']],
       n: 'Das ± hinter dem Wert zeigt, wie genau die Messung selbst ist. Längere Messungen sind genauer.' },
     be: { t: 'Abfallfehler', s: 'Der Unterschied zwischen Tick und Tack in Millisekunden. Bei einer gut eingestellten Uhr schwingt die Unruh nach beiden Seiten gleich weit aus der Ruhelage; dann sind Tick und Tack gleich lang.',
       r: [['good', 'bis 0,5 ms', 'sehr gut'], ['okay', '0,5 bis 1,0 ms', 'in Ordnung'], ['warn', 'über 1,0 ms', 'hoch: beim nächsten Service einstellen lassen']],
@@ -633,6 +635,8 @@
     lift: { t: 'Hebewinkel', s: 'Der Winkel, um den sich die Unruh weiterdreht, während der Anker sie antreibt. Er ist eine Angabe des Herstellers. Tickwerk misst, wie lange dieser Antrieb dauert, und rechnet daraus die Amplitude.',
       r: [['', '50° bis 53°', 'viele Schweizer Werke (ETA, Sellita) und Seiko NH35'], ['', 'unbekannt', '52° lassen; die Amplitude ist dann ein Richtwert']],
       n: 'Ein falscher Hebewinkel verschiebt nur die Amplitude, nicht den Gang und nicht den Abfallfehler.' },
+    grade: { t: 'ETA-Stufen', s: 'ETA liefert seine Werke in den Stufen Standard, Elaboré, Top und Chronomètre aus. Je Stufe ist vorgegeben, in wie vielen Lagen das Werk eingestellt wird und wie gross das Mittel der Gänge und die grösste Differenz zwischen diesen Lagen sein dürfen. Tickwerk vergleicht deinen Lagen-Test mit diesen Vorgaben.',
+      n: 'Ein Vergleich, kein Zertifikat. Die Vorgaben gelten für Werke von ETA, wie sie das Werk verlassen; eine getragene Uhr kann anders laufen. Bei anderen Werken sind sie ein Massstab zum Einordnen. Gerechnet wird in den Lagen von ETA: Standard mit Zifferblatt oben und Krone links, Elaboré dazu mit Krone unten, Top dazu mit Zifferblatt unten und Krone oben.' },
     spread: { t: 'Lagendifferenz', s: 'Der Unterschied zwischen der schnellsten und der langsamsten Lage. Er zeigt, wie gleichmässig die Uhr in allen Lagen läuft.',
       r: [['good', 'bis 10 s/Tag', 'sehr gleichmässig (Chronometer-Norm)'], ['okay', '10 bis 20 s/Tag', 'üblich für eine Uhr ohne Zertifikat'], ['warn', 'über 20 s/Tag', 'ein Uhrmacher kann prüfen, ob ein Service nötig ist']] },
     hv: { t: 'Senkrecht − waagrecht', s: 'Der mittlere Gang der senkrechten Lagen minus das Mittel der waagrechten. So siehst du, wie sich die Uhr am Arm (eher senkrecht) gegenüber flach auf dem Tisch verhält.',
@@ -644,25 +648,28 @@
       r: [['', 'nach 1 Tag', 'auf etwa ± 0,2 s/Tag genau'], ['', 'nach 7 Tagen', 'auf etwa ± 0,03 s/Tag genau']],
       n: 'Die Messung mit dem Mikrofon zeigt den Gang in einer Lage, in diesem Moment. Beide Werte ergänzen sich; ein Unterschied von ein paar Sekunden ist normal.' },
     gr: { t: 'Gangreserve-Test', s: 'Die Zugfeder gibt ihre Kraft nicht gleichmässig ab: Wenn sie abläuft, fällt die Amplitude, und der Gang kann sich ändern. Der Test misst die Uhr voll aufgezogen und nach 24 Stunden, freiwillig auch nach 36 Stunden. Dazwischen liegt die Uhr ruhig: nicht tragen, nicht aufziehen.',
-      r: [['good', 'bis 50° weniger', 'kräftige Zugfeder, gute Schmierung'], ['okay', '50° bis 80° weniger', 'üblich bei vielen Uhren'], ['warn', 'über 80° weniger', 'beim nächsten Service ansprechen']],
+      r: [['good', 'bis 50° weniger', 'kräftige Zugfeder, gute Schmierung'], ['okay', '50° bis 80° weniger', 'üblich bei vielen Uhren'], ['warn', 'über 80° weniger', 'beim nächsten Service ansprechen'],
+        ['', '±10 / ±15 / ±20 s/Tag', 'so viel darf sich der Gang in 24 Stunden ändern: Vorgaben von ETA für die Stufen Top, Elaboré und Standard (Isochronismus)']],
       n: 'Faustregel für die Messung nach 24 Stunden. Der Gang sollte sich dabei um weniger als 5 s/Tag ändern. Gemessen wird immer mit dem Zifferblatt oben, damit die Werte vergleichbar sind.' },
     signal: { t: 'Signal', s: 'Wie klar Tickwerk das Ticken hört: wie viele Schläge es erkennt und wie deutlich sie sich vom Rauschen abheben.',
       r: [['good', 'stark', 'alle Werte sicher'], ['okay', 'mittel', 'Gang sicher, Amplitude und Abfallfehler meist auch'], ['warn', 'schwach', 'zählt nicht: Handy fester an die Krone halten, ruhiger Raum']] }
   };
   var INFO_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.6h.01"/></svg>';
   Array.prototype.forEach.call(document.querySelectorAll('button.info[data-info]'), function (b) { b.innerHTML = INFO_ICON; });
-  function openInfo(key) {
+  function openInfo(key, rows) {
     var d = own(INFO, key) ? INFO[key] : null;
     if (!d) return;
     $('isTitle').textContent = T(d.t); $('isText').textContent = T(d.s);
     var ul = $('isRanges'); ul.innerHTML = '';
-    (d.r || []).forEach(function (r) {
+    ul.className = 'ranges' + (rows ? ' even' : '');   /* eigene Zeilen: erste Spalte überall gleich breit */
+    rows = rows || d.r || [];   /* eigene Zeilen sind schon übersetzt; T() lässt sie dann unverändert */
+    rows.forEach(function (r) {
       var li = document.createElement('li'); li.className = r[0] || 'plain';
       var a = document.createElement('span'); a.className = 'rg-v'; a.textContent = T(r[1]);
       var b = document.createElement('span'); b.className = 'rg-t'; b.textContent = T(r[2]);
       li.appendChild(a); li.appendChild(b); ul.appendChild(li);
     });
-    ul.hidden = !(d.r && d.r.length);
+    ul.hidden = !rows.length;
     $('isNote').textContent = d.n ? T(d.n) : ''; $('isNote').hidden = !d.n;
     openSheet('infoSheet');
   }
@@ -670,8 +677,17 @@
     var b = e.target && e.target.closest ? e.target.closest('button.info[data-info]') : null;
     if (!b) return;
     e.preventDefault(); e.stopPropagation();
+    if (b.dataset.info === 'grade') { openInfo('grade', gradeRows(gradeFor(b))); return; }
     openInfo(b.dataset.info);
   }, true);
+  /* Welcher Lagen-Test gemeint ist: auf der Seite der Uhr der letzte dieser Uhr, sonst der laufende */
+  function gradeFor(btn) {
+    if (btn.closest('#dLagenCard')) {
+      var w = detailWatch(), L = w ? lastLagenOf(measOf(w)) : null;
+      if (L) return etaGrade(L.set, L.byPos);
+    } else if (session) return etaGrade(SETS[session.set], sessByPos());
+    return etaGrade([], {});
+  }
   $('isClose').addEventListener('click', function () { closeSheet(); });
 
   /* ---------- Aufnahme ---------- */
@@ -1591,6 +1607,56 @@
     return out;
   }
   function sessByPos() { return byPosOf(sessMeas()); }
+  /* ---------- Vergleich mit den Qualitätsstufen von ETA (0.6.4) ----------
+     ETA liefert seine Werke in Stufen aus. Je Stufe ist vorgegeben, in welchen Lagen eingestellt wird, wie gross das Mittel
+     der Gänge und wie gross die grösste Differenz zwischen diesen Lagen sein dürfen:
+       Standard  CH, 6H              Mittel ±12 s/Tag, Differenz höchstens 30 s/Tag
+       Elaboré   CH, 6H, 9H          Mittel ±7 s/Tag,  Differenz höchstens 20 s/Tag
+       Top       CH, FH, 6H, 9H, 3H  Mittel ±4 s/Tag,  Differenz höchstens 15 s/Tag
+     (CH = Zifferblatt oben, FH = Zifferblatt unten, 6H = Krone links, 9H = Krone unten, 3H = Krone oben.)
+     Tickwerk rechnet je Stufe genau in deren Lagen, mit den Werten, wie sie angezeigt werden (auf 0,1 s/Tag gerundet).
+     Die vierte Stufe «Chronomètre» braucht das Zertifikat der COSC und wird nicht vergeben. Ein Vergleich, kein Zertifikat. */
+  var ETA_GRADES = [
+    { name: 'Top', pos: ['ZO', 'ZU', 'KL', 'KU', 'KO'], mean: 4, spread: 15 },
+    { name: 'Elaboré', pos: ['ZO', 'KL', 'KU'], mean: 7, spread: 20 },
+    { name: 'Standard', pos: ['ZO', 'KL'], mean: 12, spread: 30 }
+  ];
+  function etaGrade(set, byPos) {
+    var out = { grade: null, rows: [], any: false };
+    ETA_GRADES.forEach(function (g) {
+      var miss = g.pos.filter(function (p) { var m = byPos[p]; return set.indexOf(p) < 0 || !(m && counted(m)); });
+      var row = { g: g, miss: miss, mean: null, spread: null, ok: false };
+      if (!miss.length) {
+        var rates = g.pos.map(function (p) { return byPos[p].rate; });
+        row.mean = Math.round(avg(rates) * 10) / 10;
+        row.spread = Math.round((Math.max.apply(null, rates) - Math.min.apply(null, rates)) * 10) / 10;
+        row.ok = Math.abs(row.mean) <= g.mean && row.spread <= g.spread;
+        out.any = true;
+        if (row.ok && !out.grade) out.grade = g;
+      }
+      out.rows.push(row);
+    });
+    return out;
+  }
+  /* Kachel «ETA-Stufe zum Vergleich»: Wert und kleine Zeile darunter */
+  function gradeTile(set, eta, dd, small) {
+    var top = eta.rows[0];
+    dd.textContent = eta.grade ? eta.grade.name : eta.any ? T('keine Stufe') : '–';
+    small.textContent = !eta.any ? T('nicht prüfbar: Lagen fehlen oder zählen nicht') :
+      (eta.grade ? T('Vorgabe von ETA in {n} Lagen erfüllt', { n: eta.grade.pos.length }) : T('Vorgaben von ETA nicht erfüllt')) +
+      (eta.grade !== top.g && top.miss.length && set.indexOf('KO') < 0 ? ' · ' + T('«Top» nicht prüfbar: Test mit 6 Lagen nötig.') : '');
+  }
+  /* Zeilen für das Erklärblatt: je Stufe die Vorgabe und was gemessen wurde */
+  function gradeRows(eta) {
+    var rows = eta.rows.map(function (r) {
+      var txt = T('{n} Lagen: Mittel innerhalb ±{a} s/Tag, Differenz höchstens {b} s/Tag.', { n: r.g.pos.length, a: r.g.mean, b: r.g.spread }) + ' ' +
+        (r.miss.length ? T('Nicht prüfbar, es fehlt: {p}.', { p: r.miss.map(function (p) { return POS[p]; }).join(', ') }) :
+          T(r.ok ? 'Erfüllt: Mittel {m}, Differenz {d}.' : 'Nicht erfüllt: Mittel {m}, Differenz {d}.', { m: signed(r.mean, 1), d: fmt(r.spread, 1) }));
+      return [r.miss.length ? 'plain' : r.ok ? 'good' : 'warn', r.g.name, txt];
+    });
+    rows.push(['plain', 'Chronomètre', T('Wie Top, dazu geprüft und zertifiziert von der COSC. Das kann Tickwerk nicht ersetzen.')]);
+    return rows;
+  }
   function lagenStats(set, byPos) {
     var rows = set.map(function (p) { return { pos: p, m: byPos[p] || null }; });
     var ok = rows.filter(function (r) { return r.m && counted(r.m); });
@@ -1609,6 +1675,7 @@
       st.spread = st.hi.m.rate - st.lo.m.rate;
     }
     if (h.length && v.length) st.hv = avg(v.map(rate)) - avg(h.map(rate));
+    st.eta = etaGrade(set, byPos);
     return st;
   }
   /* Nächste Lage: zuerst eine offene, sonst eine schwache zum Wiederholen */
@@ -1697,6 +1764,7 @@
       $('lgHV').textContent = st.hv == null ? '–' : signed(st.hv, 1);
       $('lgBe').textContent = st.be == null ? '–' : fmt(st.be, 2);
       $('lgAmp').textContent = st.ampH == null && st.ampV == null ? '–' : (st.ampH != null ? Math.round(st.ampH) + '°' : '–') + ' / ' + (st.ampV != null ? Math.round(st.ampV) + '°' : '–');
+      gradeTile(set, st.eta, $('lgGrade'), $('lgGradeSub'));
       $('lgVerdict').textContent = lagenVerdict(st);
       drawLagenChart(st);
     }
@@ -2135,6 +2203,7 @@
     $('dlSpread').textContent = st.spread == null ? '–' : fmt(st.spread, 1);
     $('dlBe').textContent = !pro ? 'Pro' : st.be == null ? '–' : fmt(st.be, 2);
     $('dlAmp').textContent = !pro ? 'Pro' : st.ampH == null && st.ampV == null ? '–' : (st.ampH != null ? Math.round(st.ampH) + '°' : '–') + ' / ' + (st.ampV != null ? Math.round(st.ampV) + '°' : '–');
+    gradeTile(L.set, st.eta, $('dlGrade'), $('dlGradeSub'));
     var ul = $('dlRows'); ul.innerHTML = '';
     st.rows.forEach(function (r) {
       var li = document.createElement('li'), m = r.m;
@@ -2586,6 +2655,17 @@
       T('Der Gang ändert sich stark, wenn die Kraft nachlässt. Ein Uhrmacher kann das beim Service verbessern.');
     return { kind: kind, text: head + ' ' + tail + (drop == null ? ' ' + T('Ohne sichere Amplitude zählt nur der Gang.') : '') };
   }
+  /* Isochronismus (0.6.4): ETA gibt je Stufe vor, wie stark sich der Gang zwischen voll aufgezogen und 24 Stunden später
+     ändern darf (Top ±10, Elaboré ±15, Standard ±20 s/Tag). Der Test misst genau diese beiden Zeitpunkte. Ein Vergleich:
+     Tickwerk misst nur mit dem Zifferblatt oben. Nicht, wenn die Uhr stehen geblieben ist. */
+  var ETA_ISO = [['Top', 10], ['Elaboré', 15], ['Standard', 20]];
+  function grIso(w) {
+    var ms = grMeas(w);
+    if (!ms[0] || !ms[1] || (w.gr && w.gr.stop)) return '';
+    var d = Math.round((ms[1].rate - ms[0].rate) * 10) / 10, g = ETA_ISO.filter(function (x) { return Math.abs(d) <= x[1]; })[0];
+    return g ? T('Zum Vergleich: Der Gang hat sich in 24 Stunden um {v} s/Tag geändert. Das erfüllt die Vorgabe von ETA für die Stufe «{g}» (±{x} s/Tag).', { v: signed(d, 1), g: g[0], x: g[1] }) :
+      T('Zum Vergleich: Der Gang hat sich in 24 Stunden um {v} s/Tag geändert. Das liegt ausserhalb der Vorgaben von ETA (Standard: ±20 s/Tag).', { v: signed(d, 1) });
+  }
   function renderGrCard(w) {
     var ms = grMeas(w), nx = grNext(w), vd = grVerdict(w), started = !!(w.gr && w.gr.t0), ul = $('grRows');
     $('grSub').textContent = !started ? '' : nx ? T('läuft') : T('abgeschlossen');
@@ -2605,6 +2685,8 @@
     }
     $('grVerdict').hidden = !vd;
     if (vd) { $('grVerdict').setAttribute('data-kind', vd.kind); $('grVerdictText').textContent = vd.text; }
+    var iso = started ? grIso(w) : '';
+    $('grIso').textContent = iso; $('grIso').hidden = !iso;
     var go = $('grGo');
     go.hidden = started && (!nx || !nx.due);
     go.textContent = !started ? T('Voll aufgezogen: jetzt messen') : nx ? T('Jetzt messen: {s}', { s: GR_NAMES[nx.step] }) : '';
@@ -3632,7 +3714,15 @@
   /* ---------- Was ist neu ----------
      Einmal nach einem Update zeigen, was dazugekommen ist und wo es zu finden ist; jederzeit unter «Mehr». Bei einer
      neuen Installation nicht (dort erklärt die Anleitung den Einstieg). settings.seenVersion merkt sich die Version. */
+  var NEWS_ORDER = ['0.6.4', '0.6.3'];   /* neuste zuerst; die älteren stehen im Blatt darunter, falls ein Update übersprungen wurde */
   var NEWS = {
+    '0.6.4': [
+      { t: T('Viel mehr Uhren und Werke'), s: T('Die Suche kennt jetzt {u} Modelle von {m} Marken und {k} Werke, darunter viele ältere. Aufgenommen ist nur, wofür eine Quelle das verbaute Werk nennt.',
+        { u: UHREN.length, m: UHREN.map(function (u) { return u.marke; }).filter(function (m, i, a) { return a.indexOf(m) === i; }).length, k: KAL.length }) },
+      { t: T('Vergleich mit den ETA-Stufen'), s: T('Der Lagen-Test zeigt jetzt, welche Qualitätsstufe von ETA dein Ergebnis erfüllt: Standard, Elaboré oder Top. Für «Top» den Test mit 6 Lagen machen. Der Gangreserve-Test vergleicht dazu, wie stark sich der Gang in 24 Stunden ändert. Ein Vergleich, kein Zertifikat.') },
+      { t: T('Markenkaliber finden'), s: T('Die Suche findet jetzt auch Markenkaliber wie Tudor T600, Oris 798 oder Alpina AL-525 und zeigt das Werk, auf dem sie beruhen.') },
+      { t: T('Hebewinkel: bestätigt oder unbestätigt'), s: T('Wo sich zwei Quellen widersprechen, steht der Hebewinkel jetzt als «unbestätigt» da. Einige Werte sind neu, zum Beispiel 36° für das Omega 8800. Gespeicherte Uhren behalten ihren Wert. Zum Übernehmen bei der Uhr das Werk neu wählen.') }
+    ],
     '0.6.3': [
       { t: T('Kein grober Wert mehr nach einer Lücke'), s: T('Fehlt das Ticken vier Sekunden oder länger, zum Beispiel weil das Handy verrutscht ist, zeigt Tickwerk keinen Wert mehr, sondern sagt, wann die Lücke war.') },
       { t: T('Unsichere Messung läuft von selbst weiter'), s: T('Ist der Wert nach der gewählten Messdauer noch zu unsicher, misst Tickwerk weiter, höchstens bis 60 Sekunden. Ausschalten unter Einstellungen.') },
@@ -3645,10 +3735,13 @@
     var ul = $('nsList');
     $('nsTitle').textContent = T('Version') + ' ' + APP_VERSION;
     ul.innerHTML = '';
-    (NEWS[APP_VERSION] || []).forEach(function (it) {
-      var li = document.createElement('li'), a = document.createElement('span'), b = document.createElement('span');
-      a.className = 'news-t'; a.textContent = it.t; b.className = 'news-s'; b.textContent = it.s;
-      li.appendChild(a); li.appendChild(b); ul.appendChild(li);
+    NEWS_ORDER.forEach(function (v, i) {
+      if (i) { var h = document.createElement('li'); h.className = 'news-v'; h.textContent = T('Version') + ' ' + v; ul.appendChild(h); }
+      (NEWS[v] || []).forEach(function (it) {
+        var li = document.createElement('li'), a = document.createElement('span'), b = document.createElement('span');
+        a.className = 'news-t'; a.textContent = it.t; b.className = 'news-s'; b.textContent = it.s;
+        li.appendChild(a); li.appendChild(b); ul.appendChild(li);
+      });
     });
     openSheet('newsSheet');
   }

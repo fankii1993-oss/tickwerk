@@ -305,6 +305,8 @@ input[type="file"] { font-size: 13px; color: var(--muted); max-width: 100%; }
 .metric dt { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); }
 .metric dd { margin: 0; font-family: var(--display); font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .metric small { color: var(--faint); font-size: 12px; }
+/* 0.6.4: Kachel über die ganze Breite (ETA-Stufe zum Vergleich) */
+.metric.wide { grid-column: 1 / -1; }
 .verdict { margin: 0; font-size: 14px; }
 
 /* Mikrofon anlegen */
@@ -425,6 +427,8 @@ a.back { text-decoration: none; }
 .ranges li.plain::before { content: none; }
 .ranges .rg-v { font-family: var(--mono); font-size: 13px; color: var(--text); white-space: nowrap; }
 .ranges .rg-t { color: var(--muted); }
+/* 0.6.4: Blatt «ETA-Stufen»: Zeilen mit und ohne Punkt beginnen auf gleicher Höhe */
+.ranges.even li { grid-template-columns: 104px 1fr; padding-left: 22px; }
 /* Gang im Alltag, Zeitvergleich */
 .dtime { gap: 10px; }
 .dt-rate { justify-content: flex-start; }
@@ -522,6 +526,8 @@ main { padding-top: calc(14px + env(safe-area-inset-top)); }
 .news li { padding: 10px 12px; border-radius: 12px; background: var(--inset); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 3px; }
 .news-t { font-size: 15px; font-weight: 600; color: var(--text); }
 .news-s { font-size: 13.5px; line-height: 1.4; color: var(--muted); }
+/* 0.6.4: ältere Versionen stehen im selben Blatt unter einer kleinen Überschrift */
+.news li.news-v { padding: 8px 2px 0; background: none; border: 0; border-radius: 0; font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); }
 /* Diagnose: fester Zeichenabstand, bricht lange Zeilen um (kein seitliches Scrollen), in der Höhe begrenzt */
 .diag { margin: 0; padding: 10px 12px; max-height: 38vh; overflow-y: auto; border-radius: 12px; background: var(--inset); border: 1px solid var(--line);
   font-family: var(--mono); font-size: 12px; line-height: 1.5; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
