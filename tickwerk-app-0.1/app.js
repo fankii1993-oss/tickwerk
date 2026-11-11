@@ -65,9 +65,9 @@
   var UHREN = window.TICKWERK_UHREN || [];
   var CFG = window.TICKWERK_CONFIG || {};
   var FLAVOR = CFG.flavor === 'store' ? 'store' : 'test';
-  var APP_VERSION = '0.6.2';
+  var APP_VERSION = '0.6.3';
   var PREFIX = typeof CFG.storage === 'string' && /^[a-z][a-z0-9.]{2,30}$/.test(CFG.storage) ? CFG.storage : 'tickwerk.v1';
-  var KEYS = { watches: PREFIX + '.watches', meas: PREFIX + '.measurements', settings: PREFIX + '.settings', session: PREFIX + '.session', pro: PREFIX + '.pro' };
+  var KEYS = { watches: PREFIX + '.watches', meas: PREFIX + '.measurements', settings: PREFIX + '.settings', session: PREFIX + '.session', pro: PREFIX + '.pro', log: PREFIX + '.log' };
   var PRO_SKU = typeof CFG.proSku === 'string' && /^[a-z0-9._]{1,40}$/.test(CFG.proSku) ? CFG.proSku : 'tickwerk_pro';
   var BACKEND = typeof CFG.billingBackend === 'string' && /^https:\/\/[A-Za-z0-9.\-]+(:\d+)?(\/[A-Za-z0-9._\-\/]*)?$/.test(CFG.billingBackend) ? CFG.billingBackend : '';
   var PRICE = typeof CFG.price === 'string' ? CFG.price.slice(0, 20) : 'CHF 9.–';
@@ -92,6 +92,12 @@
   var COUNTDOWN = 3;
   /* Gezählt wird bis ±0,5 s/Tag. Sind die Klicks klar, schwankt aber der Gang während der Messung, bis ±1,5 s/Tag mit Vermerk */
   var SIGMA_COUNT = 1.5, SIGMA_SURE = 0.5;
+  /* Unsichere Messung verlängern: Ist das Signal klar, der Wert nach der gewählten Dauer aber unsicherer als ±0,5 s/Tag
+     (so viel verträgt eine Wertung), läuft die Aufnahme bis 60 s weiter. Die Unsicherheit sinkt mit der Dauer stark
+     (bei doppelter Zeit auf etwa einen Drittel), und ein schwankender Gang mittelt sich besser. Bewusst einfach: eine
+     Verlängerung auf die längste wählbare Dauer, statt in Schritten nachzurechnen. Bei schwachem Signal hilft mehr Zeit
+     nicht (die Messung zählt dann ohnehin nicht): dort wird nicht verlängert, sondern gleich das Ergebnis gezeigt. */
+  var EXTEND_TO = 60;
 
   /* ---------- Speicher ---------- */
   function load(key, def) { try { var v = localStorage.getItem(key); return v ? JSON.parse(v) : def; } catch (e) { return def; } }
@@ -192,7 +198,9 @@
     micId: str(S.micId, 200), micLabel: str(S.micLabel, 100),
     cal: cleanCal(S.cal),   /* Eichung je angestecktem Mikrofon; das eingebaute steht in ppm, quartzRaw und calAt */
     calAt: isoDate(S.calAt), calNag: isoDate(S.calNag),   /* wann geeicht; wann zuletzt an eine alte Eichung erinnert */
-    fold: cleanFold(S.fold)   /* welche Karten auf der Seite der Uhr aufgeklappt sind */
+    fold: cleanFold(S.fold),   /* welche Karten auf der Seite der Uhr aufgeklappt sind */
+    extend: S.extend !== false,   /* unsichere Messung von selbst verlängern (bis 60 s) */
+    seenVersion: /^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(str(S.seenVersion, 12)) ? S.seenVersion : ''   /* bis zu welcher Version «Was ist neu» gezeigt wurde */
   };
   var session = cleanSession(load(KEYS.session, null));
   var proState = cleanPro(load(KEYS.pro, null));
@@ -207,6 +215,38 @@
     for (var i = meas.length - 1; i >= 0; i--) { if (meas[i].tr && ++kept > 5) delete meas[i].tr; }
     if (!store(KEYS.meas, meas)) toast(T('Der Speicher ist voll. Alte Messungen löschen oder unter Einstellungen eine Sicherung speichern.'));
   }
+
+  /* ---------- Fehlerprotokoll für «Diagnose teilen» ----------
+     Die letzten 20 Fehler: Zeit, Art, fester Text der App (m, wird beim Anzeigen übersetzt) und allenfalls eine technische
+     Angabe des Browsers oder Zahlen dazu (x). Nie Namen von Uhren oder Dateien. Das Protokoll bleibt im Handy, bis man
+     die Diagnose selbst teilt. */
+  var LOG_MAX = 20, LOG_KINDS = { js: 1, mikro: 1, mess: 1, eichen: 1, datei: 1 };
+  function logLine(v, max) { return String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, max || 160); }
+  function cleanLog(v) {
+    return (Array.isArray(v) ? v : []).slice(-LOG_MAX).map(function (e) {
+      if (!e || typeof e !== 'object' || !own(LOG_KINDS, e.k)) return null;
+      var d = new Date(str(e.t, 40)), m = logLine(str(e.m, 160)), x = logLine(str(e.x, 120), 120);
+      if (isNaN(d.getTime()) || !m) return null;
+      return x ? { t: d.toISOString(), k: e.k, m: m, x: x } : { t: d.toISOString(), k: e.k, m: m };
+    }).filter(Boolean);
+  }
+  var errLog = cleanLog(load(KEYS.log, []));
+  function logErr(kind, msg, extra) {
+    var m = logLine(msg), x = logLine(extra, 120), last = errLog[errLog.length - 1];
+    if (!own(LOG_KINDS, kind) || !m) return;
+    if (last && last.k === kind && last.m === m && (last.x || '') === x && Date.now() - new Date(last.t).getTime() < 60000) return;   /* derselbe Fehler in Serie: einmal genügt */
+    errLog.push(x ? { t: new Date().toISOString(), k: kind, m: m, x: x } : { t: new Date().toISOString(), k: kind, m: m });
+    if (errLog.length > LOG_MAX) errLog = errLog.slice(-LOG_MAX);
+    store(KEYS.log, errLog);
+  }
+  window.addEventListener('error', function (e) {
+    var f = String((e && e.filename) || '').split('/').pop().split('?')[0].slice(0, 40);
+    logErr('js', 'Fehler im Programm', ((e && e.message) || '?') + (f ? ' (' + f + ':' + (e.lineno || 0) + ')' : ''));
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    var r = e && e.reason;
+    logErr('js', 'Fehler im Programm', 'Promise: ' + (r && r.message ? r.message : String(r)));
+  });
 
   /* ---------- Format ---------- */
   function fmt(v, d) { var s = v.toFixed(d); return LANG === 'en' ? s : s.replace('.', ','); }
@@ -248,7 +288,7 @@
     var cb = jobs[e.data.id]; delete jobs[e.data.id];
     if (cb) cb(e.data.r);
   };
-  worker.onerror = function () { setStatus('status', T('Die Auswertung konnte nicht starten. Seite neu laden.'), 'err'); };
+  worker.onerror = function (e) { logErr('js', 'Die Auswertung konnte nicht starten. Seite neu laden.', e && e.message); setStatus('status', T('Die Auswertung konnte nicht starten. Seite neu laden.'), 'err'); };
   function runJob(payload) {
     return new Promise(function (resolve) { var id = ++jobSeq; jobs[id] = resolve; payload.id = id; worker.postMessage(payload); });
   }
@@ -390,6 +430,7 @@
   var PRO_WHY = {
     lagen: T('Der Lagen-Test misst die Uhr in bis zu sechs Lagen nacheinander, wie beim Uhrmacher, und zeigt die Lagendifferenz.'),
     pdf: T('Das Messprotokoll fasst alle Messungen einer Uhr als PDF zusammen, zum Drucken, Sammeln oder für den Uhrmacher.'),
+    csv: T('Mit Pro lassen sich alle Messungen einer Uhr als Tabelle (CSV) speichern, zum Beispiel für Excel.'),
     watches: T('In der Gratis-Version lässt sich eine Uhr speichern. Mit Pro beliebig viele.'),
     wav: T('Mit Pro lassen sich Aufnahmen als WAV-Datei teilen, zum Beispiel mit einem Uhrmacher.'),
     values: T('Abfallfehler und Amplitude zeigt Tickwerk gratis bei {n} Messungen pro Woche. Mit Pro bei jeder Messung.', { n: FREE_PER_WEEK }),
@@ -637,6 +678,7 @@
   var rec = null, opening = false, wakeLock = null;
   function micError(e) {
     var n = e && e.name;
+    logErr('mikro', 'Mikrofon konnte nicht geöffnet werden', n);
     if (n === 'NotAllowedError' || n === 'SecurityError') {
       return T('Mikrofon blockiert. In Chrome: Menü ⋮ → Einstellungen → Website-Einstellungen → Mikrofon → {host} auf «Zulassen» stellen, dann neu laden. Hilft das nicht: Android-Einstellungen → Apps → Chrome (oder Tickwerk) → Berechtigungen → Mikrofon.',
         { host: location.host || T('diese Seite') });
@@ -647,7 +689,10 @@
     }
     return T('Mikrofon konnte nicht geöffnet werden') + (n ? ' (' + n + ')' : '') + '.';
   }
-  /* o: { owner, dur, settle, opts, onOpening, onFail, onBegin, onSettle, onTick, onLive, onCancel, onDone } */
+  /* o: { owner, dur, settle, opts, onOpening, onFail, onBegin, onSettle, onTick, onLive, onCancel, onDone, extend }
+     extend: { opts(), onChecking(r), onExtended(res, r) } erlaubt, eine unsichere Messung zu verlängern (siehe recCheck).
+     onDone(samples, fs, res, extFrom, first): res ist das schon gerechnete Ergebnis (nach der Prüfung ohne Verlängerung),
+     extFrom die ursprünglich gewählte Dauer, wenn verlängert wurde, first dann { samples, res } der Prüfung (siehe extFallback). */
   async function recStart(o) {
     if (rec || opening) return;
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -694,6 +739,7 @@
       }
     } catch (e) {
       opening = false; teardown(r);
+      logErr('mikro', 'Aufnahme konnte nicht starten', e && e.message);
       o.onFail(T('Aufnahme konnte nicht starten') + (e && e.message ? ': ' + e.message : '.')); return;
     }
     opening = false;
@@ -723,7 +769,57 @@
     r.chunks.push(samples); r.n += samples.length; r.total += samples.length;
     /* Regulieren: nur die letzten Sekunden behalten, die Aufnahme läuft weiter */
     if (r.ring) while (r.chunks.length > 1 && r.n - r.chunks[0].length >= r.ring) r.n -= r.chunks.shift().length;
-    if (r.total >= r.dur * r.fs) recFinish();
+    if (r.total < r.dur * r.fs) return;
+    if (r.o.extend && !r.ext && settings.extend && r.dur < EXTEND_TO) recCheck(r);
+    else recFinish();
+  }
+  /* Lohnt sich mehr Zeit? Ja bei klarem Signal und einem ± über 0,5 s/Tag, und wenn die Engine den Wert ablehnt, weil der
+     Gang schwankte (code 'wander': Die Klicks sind klar, ihr eigener Rat lautet «am besten 60 Sekunden»). */
+  function needsMore(res) {
+    if (!res) return false;
+    if (!res.ok) return res.code === 'wander';
+    return !!(res.quality && res.quality.label !== 'schwach' && res.rateSigma > SIGMA_SURE);
+  }
+  function extendText(res) {
+    return res.ok ? T('Noch zu unsicher (± {s} s/Tag). Tickwerk misst weiter, bis 60 Sekunden um sind. Nichts bewegen.', { s: fmt(res.rateSigma, 1) }) :
+      T('Der Gang schwankt noch zu stark für einen Wert. Tickwerk misst weiter, bis 60 Sekunden um sind. Nichts bewegen.');
+  }
+  /* f: { from, to } einer Verlängerung, die sich nicht auswerten liess */
+  function extFailText(f) {
+    return T('Die Verlängerung auf {b} s liess sich nicht auswerten. Es gilt der Wert der ersten {a} Sekunden.', { a: f.from, b: f.to });
+  }
+  /* Die gewählte Messdauer ist um: Wert rechnen, während die Aufnahme weiterläuft. Ist er sicher genug (oder abgelehnt,
+     oder das Signal schwach), endet die Aufnahme, und es gilt dieses Ergebnis; die inzwischen aufgenommenen Sekunden
+     fallen weg. Sonst läuft sie bis EXTEND_TO weiter und wird dann als Ganzes ausgewertet. Das erste Ergebnis und seine
+     Aufnahme bleiben bis dahin stehen (r.ext.first), als Rückfall, falls sich das Ganze nicht auswerten lässt (extFallback). */
+  function recCheck(r) {
+    var first = allSamples(r, Math.round(r.dur * r.fs));
+    r.ext = { state: 'checking', from: r.dur };
+    r.dur = EXTEND_TO;
+    if (r.o.extend.onChecking) r.o.extend.onChecking(r);
+    runJob({ samples: first, fs: r.fs, opts: r.o.extend.opts() }).then(function (res) {
+      if (rec !== r || r.ext.state !== 'checking') return;   /* abgebrochen oder schon fertig */
+      if (needsMore(res)) {
+        r.ext.state = 'extended';
+        r.ext.first = { samples: first, res: res };
+        if (r.o.extend.onExtended) r.o.extend.onExtended(res, r);
+        return;
+      }
+      rec = null; teardown(r);
+      r.o.onDone(first, r.fs, res || { ok: false }, 0);
+    });
+  }
+  /* Eine verlängerte Messung darf nie schlechter sein als eine ohne Verlängerung. Ergibt die ganze Aufnahme keinen Wert
+     (Handy in der Verlängerung bewegt oder weggenommen, Signal dort schwach, Gang über die ganze Zeit zu unruhig, ein
+     Aussetzer der Aufnahme mitten in schwankendem Gang), gilt darum das Ergebnis der zuerst gewählten Dauer: unsicher und
+     so gekennzeichnet, aber genau das, was ohne Verlängerung dastünde. Zuerst galt das nicht, wenn die Engine wegen
+     schwankendem Gang ablehnt (code 'wander'); im Test endete dann eine Messung, die nach 30 s einen Wert hatte, nach
+     60 s ohne Wert. Das ist schlechter als ohne Verlängerung, darum keine Ausnahme.
+     res: Ergebnis der ganzen Aufnahme, first: { samples, res } aus der Prüfung. Rückgabe: first oder null. */
+  function extFallback(res, first) {
+    if (!first || !first.res || !first.res.ok) return null;
+    if (res && res.ok) return null;
+    return first;
   }
   function tick() {
     var r = rec; if (!r) return;
@@ -828,7 +924,8 @@
   function recFinish() {
     var r = rec; if (!r) return;
     rec = null; teardown(r);
-    r.o.onDone(allSamples(r, Math.round(r.dur * r.fs)), r.fs);
+    var ext = r.ext && r.ext.state === 'extended' ? r.ext : null;
+    r.o.onDone(allSamples(r, Math.round(r.dur * r.fs)), r.fs, null, ext ? ext.from : 0, ext ? ext.first : null);
   }
 
   /* Papierstreifen platzsparend: höchstens 300 Punkte, nur für die letzten Messungen (fürs Protokoll) */
@@ -973,11 +1070,22 @@
         setStatus('status', T('Zwei Minuten lang kein klares Ticken. Uhr aufziehen, Handy-Unterkante direkt an die Krone halten und nochmals versuchen.'), 'err');
       },
       onTick: function (left, frac, r) {
+        var db = 20 * Math.log10(r.peak + 1e-9);
+        bar($('levelFill'), (db + 80) / 60);
+        if (r.ext && r.ext.state === 'checking') {   /* gewählte Dauer um: Der Wert wird gerechnet, die Aufnahme läuft weiter */
+          $('mStartLabel').textContent = T('Abbrechen'); $('mState').textContent = T('Prüft den Wert'); bar($('mProg'), 1);
+          return;
+        }
         $('mStartLabel').textContent = T('Abbrechen') + ' · ' + left + ' s';
         $('mState').textContent = T('Misst · noch {n} s', { n: left });
         bar($('mProg'), frac);
-        var db = 20 * Math.log10(r.peak + 1e-9);
-        bar($('levelFill'), (db + 80) / 60);
+      },
+      extend: {
+        opts: function () { return watchOpts(w); },
+        onChecking: function () { setStatus('status', T('Die Messzeit ist um. Tickwerk prüft, ob der Wert sicher genug ist. Noch nichts bewegen.'), 'busy'); },
+        onExtended: function (res) {
+          setStatus('status', extendText(res), 'busy');
+        }
       },
       onLive: function (res) {
         if (heardOf(res)) {
@@ -985,17 +1093,18 @@
           $('mSigma').textContent = T('vorläufig') + ' · ' + thousands(res.bph) + ' ' + T('A/h');
           setMarker(res.rate, true); setSignal(qLevel(res.quality));
           drawTape($('mTape'), res.trace);
-          setStatus('status', T('Ticken erkannt. Nichts bewegen, bis die Zeit um ist.'), 'ok');
+          /* während Prüfung und Verlängerung bleibt deren Hinweis stehen (er sagt, warum es länger dauert) */
+          if (!(rec && rec.ext)) setStatus('status', T('Ticken erkannt. Nichts bewegen, bis die Zeit um ist.'), 'ok');
         } else {
           setSignal(0);
           setStatus('status', T('Noch kein klares Ticken. Unterkante des Handys näher an die Krone, Raum ruhig halten.'), 'err');
         }
       },
       onCancel: function () { measureIdle(); $('mState').textContent = T('Bereit'); setStatus('status', T('Abgebrochen.'), ''); },
-      onDone: function (samples, fs) {
+      onDone: function (samples, fs, pre, extFrom, first) {
         measureIdle();
         lastRec = { samples: samples, fs: fs, date: new Date(), watchName: w ? w.name : UNKNOWN.name, pos: settings.pos };
-        analyzeMeasure(samples, fs, 'Mikrofon', grc);
+        analyzeMeasure(samples, fs, 'Mikrofon', grc, pre, extFrom, first);
       }
     });
   }
@@ -1010,17 +1119,54 @@
     bar($('mProg'), 0); bar($('levelFill'), 0);
     $('mStartLabel').textContent = lastShown ? T('Nochmals messen') : T('Messen');
   }
-  function analyzeMeasure(samples, fs, source, grc) {
+  /* Grund einer abgelehnten Auswertung als Text. Fehlte das Ticken 4 s oder länger (Engine: code 'silence', zum Beispiel
+     Handy weggenommen), sagt die App, wo die Lücke lag, statt nur «Signal zu schwach». Sekunden zählen ab Beginn der Messzeit. */
+  function failText(res) {
+    var s = res && res.code === 'silence' ? res.silence : null;
+    if (!s) return T((res && res.reason) || 'Keine Messung möglich.');
+    var a = Math.max(1, Math.round(s.fromS)), b = Math.round(s.toS), n = Math.round(s.totalS);
+    return (s.where === 'end' ? T('Nach {a} von {n} Sekunden war das Ticken nicht mehr zu hören.', { a: a, n: n }) :
+      s.where === 'start' ? T('In den ersten {b} Sekunden war kein Ticken zu hören.', { b: b }) :
+        T('Zwischen Sekunde {a} und {b} war das Ticken nicht zu hören.', { a: a, b: b })) +
+      ' ' + T('Darum gibt es keinen Wert. Handy und Uhr während der ganzen Messung ruhig lassen und nochmals messen.');
+  }
+  /* Abgelehnte Auswertung fürs Fehlerprotokoll (Diagnose): der Grundtext der Engine, bei einer Lücke im Ticken deren Lage */
+  function logFail(kind, res) {
+    var s = res && res.code === 'silence' ? res.silence : null, why = (res && res.reason) || 'Keine Messung möglich.', pre = 'Fehler in der Auswertung: ';
+    if (s) logErr(kind, 'Lücke im Ticken', s.fromS + '–' + s.toS + ' / ' + s.totalS + ' s');
+    else if (why.indexOf(pre) === 0) logErr(kind, 'Fehler in der Auswertung', why.slice(pre.length));
+    else logErr(kind, why);
+  }
+  /* Die Verlängerung liess sich nicht auswerten (dann gilt die zuerst gewählte Dauer, siehe extFallback): mit dem Grund ins Fehlerprotokoll */
+  function logExtFail(res) {
+    var s = res && res.code === 'silence' ? res.silence : null;
+    logErr('mess', 'Verlängerung nicht auswertbar', s ? 'Lücke ' + s.fromS + '–' + s.toS + ' / ' + s.totalS + ' s' : (res && res.reason) || '');
+  }
+  /* pre: schon gerechnetes Ergebnis derselben Aufnahme (aus der Prüfung vor einer möglichen Verlängerung), dann wird nicht
+     nochmals gerechnet. extFrom: ursprünglich gewählte Dauer, wenn die Messung verlängert wurde; first: Aufnahme und
+     Ergebnis dieser Dauer als Rückfall (siehe extFallback). */
+  function analyzeMeasure(samples, fs, source, grc, pre, extFrom, first) {
     var w = currentWatch(), pos = settings.pos, keepRec = lastRec;
     busy = true;
     $('mStart').disabled = true; $('mStartLabel').textContent = T('Rechnet …'); $('mState').textContent = T('Rechnet');
     setStatus('status', T('Rechne …'), 'busy');
-    runJob({ samples: samples, fs: fs, opts: watchOpts(w, source === 'Datei' ? '' : usedMic) }).then(function (res) {
+    var op = watchOpts(w, source === 'Datei' ? '' : usedMic);
+    /* Eine Datei hat oft einen Vor- oder Nachlauf ohne Ticken (Handy noch nicht an der Uhr): Die Engine wertet dann nur
+       das Stück mit Ticken aus. Bei einer Messung übers Mikrofon gibt es das nicht; dort heisst eine Lücke «Handy bewegt». */
+    if (source === 'Datei') op.trimSilence = true;
+    (pre ? Promise.resolve(pre) : runJob({ samples: samples, fs: fs, opts: op })).then(function (res) {
       busy = false; $('mStart').disabled = false;
+      var fb = extFallback(res, first);
+      if (fb) {   /* die Verlängerung liess sich nicht auswerten: Es gilt die zuerst gewählte Dauer, auch als Aufnahme zum Teilen */
+        logExtFail(res);
+        res = fb.res; res.extFailed = { from: extFrom, to: EXTEND_TO }; samples = fb.samples;
+        if (keepRec) keepRec.samples = samples;
+      } else if (res && res.ok && extFrom) res.extFrom = extFrom;
       if (!res || !res.ok) {
         clearReadout(); lastRec = keepRec;
         $('shareBtn').hidden = !lastRec;
-        setStatus('status', T((res && res.reason) || 'Keine Messung möglich.'), 'err');
+        logFail('mess', res);
+        setStatus('status', failText(res), 'err');
         runJob({ kind: 'quartzProbe', samples: samples.subarray(0, Math.min(samples.length, Math.round(12 * fs))), fs: fs }).then(function (qr) {
           if (qr && qr.quartz && !rec && !busy) showQuartzHint();
         });
@@ -1079,7 +1225,10 @@
     setSignal(qLevel(r.quality));
     $('mState').textContent = T('Gespeichert') + ' · ' + timeStr(new Date(m.date));   /* jede gezeigte Messung ist gespeichert; die Zeile dazu steht unter dem Papierstreifen */
     setStatus('status', (m.watchId ? T('Gespeichert bei «{w}»', { w: m.watchName }) : T('Gespeichert unter «Alle Messungen»')) + ', ' + T('Lage {p}', { p: POS[m.pos] }) +
-      (r.clockPpm ? '. ' + T('Handy-Uhr korrigiert.') : '.') + (r.gaps && r.gaps.length ? ' ' + T('Ein kurzer Aussetzer der Aufnahme wurde ausgeglichen.') : ''), 'ok');
+      (r.clockPpm ? '. ' + T('Handy-Uhr korrigiert.') : '.') + (r.gaps && r.gaps.length ? ' ' + T('Ein kurzer Aussetzer der Aufnahme wurde ausgeglichen.') : '') +
+      (r.trimmed ? ' ' + T('Ausgewertet ist nur das Stück mit Ticken (Sekunde {a} bis {b}).', { a: Math.round(r.trimmed.fromS), b: Math.round(r.trimmed.toS) }) : '') +
+      (r.extFrom ? ' ' + T('Verlängert von {a} auf {b} s, weil der Wert noch zu unsicher war.', { a: r.extFrom, b: Math.round(r.duration) }) : '') +
+      (r.extFailed ? ' ' + extFailText(r.extFailed) : ''), 'ok');
     $('mStartLabel').textContent = T('Nochmals messen');
     $('shareBtn').hidden = !lastRec; $('imgBtn').hidden = false;
     drawTape($('mTape'), r.trace);
@@ -1667,35 +1816,51 @@
         showCount('pCount', left, T('Gleich geht es los. Nichts mehr bewegen.'));
       },
       onTick: function (left, frac, r) {
+        bar($('pLevel'), (20 * Math.log10(r.peak + 1e-9) + 80) / 60);
+        if (r.ext && r.ext.state === 'checking') {   /* gewählte Dauer um: Der Wert wird gerechnet, die Aufnahme läuft weiter */
+          showCount('pCount', null); $('pState').textContent = T('Prüft den Wert'); $('pStartLabel').textContent = T('Abbrechen'); bar($('pProg'), 1);
+          return;
+        }
         showCount('pCount', left, T(left === 1 ? 'Sekunde · Handy ruhig halten' : 'Sekunden · Handy ruhig halten'));
         $('pState').textContent = T('Misst · noch {n} s', { n: left });
         $('pStartLabel').textContent = T('Abbrechen') + ' · ' + left + ' s';
         bar($('pProg'), frac);
-        bar($('pLevel'), (20 * Math.log10(r.peak + 1e-9) + 80) / 60);
+      },
+      extend: {
+        opts: function () { return watchOpts(w); },
+        onChecking: function () { setStatus('pStatus', T('Die Messzeit ist um. Tickwerk prüft, ob der Wert sicher genug ist. Noch nichts bewegen.'), 'busy'); },
+        onExtended: function (res) {
+          setStatus('pStatus', extendText(res), 'busy');
+        }
       },
       onLive: function (res) {
         if (heardOf(res)) {
           $('pRate').textContent = signed(res.rate, 1); $('pRate').classList.add('live');
           $('pSub').textContent = T('vorläufig') + ' · ' + thousands(res.bph) + ' ' + T('A/h');
           setPSignal(qLevel(res.quality)); drawTape($('pTape'), res.trace);
-          setStatus('pStatus', T('Ticken erkannt. Nichts bewegen, bis die Zeit um ist.'), 'ok');
+          if (!(rec && rec.ext)) setStatus('pStatus', T('Ticken erkannt. Nichts bewegen, bis die Zeit um ist.'), 'ok');
         } else {
           setPSignal(0);
           setStatus('pStatus', T('Noch kein klares Ticken. Handy-Unterkante näher an die Krone, ohne die Uhr zu bewegen.'), 'err');
         }
       },
       onCancel: function () { lpReady(p); setStatus('pStatus', T('Abgebrochen.'), ''); },
-      onDone: function (samples, fs) {
+      onDone: function (samples, fs, pre, extFrom, first) {
         busy = true; showCount('pCount', null);
         $('pStart').classList.remove('running'); $('pStart').disabled = true; $('pSearch').hidden = true;
         $('pStartLabel').textContent = T('Rechnet …'); $('pState').textContent = T('Rechnet'); bar($('pProg'), 0); bar($('pLevel'), 0);
         setStatus('pStatus', T('Rechne …'), 'busy');
-        runJob({ samples: samples, fs: fs, opts: watchOpts(w) }).then(function (res) {
+        (pre ? Promise.resolve(pre) : runJob({ samples: samples, fs: fs, opts: watchOpts(w) })).then(function (res) {
           busy = false; $('pStart').disabled = false;
-          var here = top().s === 'lpos' && top().p === p;
+          var here = top().s === 'lpos' && top().p === p, fb = extFallback(res, first);
           if (!session || session.id !== sess) { if (here) lpReady(p); return; }
+          if (fb) {   /* die Verlängerung liess sich nicht auswerten: Es gilt die zuerst gewählte Dauer (siehe extFallback) */
+            logExtFail(res); res = fb.res;
+            if (here) toast(extFailText({ from: extFrom, to: EXTEND_TO }));
+          }
           if (!res || !res.ok) {
-            if (here) { lpReady(p); $('pStartLabel').textContent = T('Nochmals messen'); setStatus('pStatus', T((res && res.reason) || 'Keine Messung möglich.') + ' ' + T('Nochmals messen.'), 'err'); }
+            logFail('mess', res);
+            if (here) { lpReady(p); $('pStartLabel').textContent = T('Nochmals messen'); setStatus('pStatus', res && res.code === 'silence' ? failText(res) : T((res && res.reason) || 'Keine Messung möglich.') + ' ' + T('Nochmals messen.'), 'err'); }
             return;
           }
           var m = saveMeasurement(res, 'Mikrofon', fs, { watch: w, pos: pos, sess: sess, lset: setN });
@@ -1908,8 +2073,8 @@
     $('dMore').hidden = more <= 0;
     $('dMore').textContent = isPro() ? T('Alle {n} Messungen unter Mehr → Alle Messungen.', { n: list.length }) : T(more === 1 ? '{n} ältere Messung ist gespeichert. Den ganzen Verlauf zeigt Tickwerk Pro.' : '{n} ältere Messungen sind gespeichert. Den ganzen Verlauf zeigt Tickwerk Pro.', { n: more });
     $('dListSub').textContent = list.length ? String(list.length) : '';
-    $('dPdf').disabled = !list.length; $('dShare').disabled = !list.length;
-    $('dPdfBar').hidden = true; $('dShareBar').hidden = true;
+    $('dPdf').disabled = !list.length; $('dShare').disabled = !list.length; $('dCsv').disabled = !list.length;
+    $('dPdfBar').hidden = true; $('dShareBar').hidden = true; $('dCsvBar').hidden = true;
     renderLagenCard(w, list);
     renderTimeCard(w, list);
     renderGrCard(w);
@@ -1997,6 +2162,7 @@
   $('dlOpen').addEventListener('click', function () { var w = detailWatch(); if (w && session && session.watchId === w.id) lagenOpen(w.id); });
   function detailWatch() { var t = top(); return t.s === 'watch' ? findWatch(t.p.id) : null; }
   $('dPdf').addEventListener('click', function () { var w = detailWatch(); if (w) makeReport(w, $('dPdfBar'), {}); });
+  $('dCsv').addEventListener('click', function () { var w = detailWatch(); if (w) makeCsv(w, $('dCsvBar')); });
   $('dShare').addEventListener('click', function () { var w = detailWatch(); if (w) makeReport(w, $('dShareBar'), { share: true }); });
   $('dMeasure').addEventListener('click', function () { var w = detailWatch(); if (!w) return; setWatch(w.id); switchTab('measure'); });
   $('dEdit').addEventListener('click', function () { var w = detailWatch(); if (w) go('edit', { id: w.id }); });
@@ -2860,7 +3026,7 @@
     });
   }
   function renderSettings() {
-    $('langSel').value = settings.lang; $('autoStart').checked = settings.autoStart;
+    $('langSel').value = settings.lang; $('autoStart').checked = settings.autoStart; $('extendOn').checked = settings.extend;
     renderMic(); renderPpm();
   }
   /* ---------- Mikrofon wählen (Pro) ---------- */
@@ -2932,6 +3098,7 @@
     if (!(rec && rec.owner === 'eichen')) quartzIdle();
   }
   $('autoStart').addEventListener('change', function () { settings.autoStart = this.checked; saveSettings(); if (!rec && !lastShown) setStatus('status', idleHint(), ''); });
+  $('extendOn').addEventListener('change', function () { settings.extend = this.checked; saveSettings(); });
   $('fileIn').addEventListener('change', function (e) {
     var f = e.target.files[0]; e.target.value = '';
     if (!f || rec || busy) return;
@@ -2944,6 +3111,7 @@
       lastRec = { samples: s, fs: a.sampleRate, date: new Date(), watchName: (currentWatch() || UNKNOWN).name, pos: settings.pos };
       analyzeMeasure(s, a.sampleRate, 'Datei');
     }).catch(function () {
+      logErr('datei', f.size > MAX_FILE ? 'Aufnahme zu gross' : 'Aufnahme nicht lesbar', String(f.type || '').replace(/[^a-z0-9\/+.-]/gi, '').slice(0, 30));   /* ohne Dateinamen */
       setStatus('status', f.size > MAX_FILE ? T('{f} ist zu gross (höchstens 150 MB).', { f: f.name }) : T('{f} konnte nicht gelesen werden. Am besten WAV verwenden.', { f: f.name }), 'err');
     });
   });
@@ -2955,7 +3123,7 @@
      Sie gilt für das Mikrofon, das aufgenommen hat (bei einer Datei: das eingebaute). */
   function quartzPpm(raw) { return +(raw + settings.quartzRate / 0.0864).toFixed(1); }
   function applyQuartz(q, key) {
-    if (!q || !q.ok) { setStatus('quartzOut', T((q && q.reason) || 'Keine Auswertung möglich.'), 'err'); return; }
+    if (!q || !q.ok) { logErr('eichen', (q && q.reason) || 'Keine Auswertung möglich.'); setStatus('quartzOut', T((q && q.reason) || 'Keine Auswertung möglich.'), 'err'); return; }
     var raw = +q.ppm.toFixed(2), ppm = quartzPpm(raw);
     setClock(key, ppm, raw); saveSettings(); renderPpm();
     setStatus('quartzOut', T(ppm >= 0 ? 'Die Handy-Uhr geht {p} ppm vor (± {s} ppm), das sind {d} s/Tag' : 'Die Handy-Uhr geht {p} ppm nach (± {s} ppm), das sind {d} s/Tag',
@@ -3046,6 +3214,7 @@
     if (!window.confirm(T('Alle Uhren und Messungen auf diesem Handy löschen? Das lässt sich nicht rückgängig machen. Tipp: vorher eine Sicherung speichern.'))) return;
     watches = []; meas = []; session = null; settings.watchId = '';
     saveWatches(); saveMeas(); saveSession(); saveSettings();
+    errLog = []; unstore(KEYS.log);   /* auch das Fehlerprotokoll (Diagnose): «alles» heisst alles, was die App über die Benutzung weiss */
     clearReadout();
     $('backupOut').textContent = T('Alle Uhren und Messungen sind gelöscht.');
   });
@@ -3056,6 +3225,8 @@
     $('moreProState').textContent = isPro() ? T('Freigeschaltet') : T('Gratis · noch {n} von {m} Messungen mit allen Werten diese Woche', { n: freeLeft(), m: FREE_PER_WEEK });
     $('moreHistory').textContent = plural(meas.length, 'Messung', 'Messungen');
     renderTools($('moreTools'));
+    $('newsSub').textContent = T('Die Neuerungen von Version {v}', { v: APP_VERSION });
+    renderUpd();
     $('versionInfo').textContent = 'Tickwerk ' + APP_VERSION + (FLAVOR === 'test' ? ' (' + T('Testversion') + ')' : '') + ' · ' + T('Mess-Engine') + ' ' + (engineVersion || '?');
   }
   function renderPro() {
@@ -3127,6 +3298,76 @@
       document.body.appendChild(a); a.click(); a.remove();
     });
     if (opt.share && canShare) share();
+  }
+
+  /* ---------- Messungen als Tabelle (CSV, Pro) ----------
+     Alle Messungen einer Uhr für Excel, Numbers oder Google Tabellen. Entscheide, damit die Datei ohne Nacharbeit aufgeht:
+     - UTF-8 mit BOM: nur so liest Excel Umlaute richtig.
+     - Dezimalzeichen wie auf diesem Handy eingestellt (Intl), nicht nach der Sprache der App: Excel liest Zahlen nach der
+       Region des Computers, und die ist meist dieselbe wie die des Handys (Schweiz: Punkt, Deutschland: Komma).
+     - Trennzeichen Strichpunkt, ausser auf Englisch mit Dezimalpunkt (dort erwartet Excel das Komma). Bewusst ohne die
+       Zeile «sep=;»: Mit ihr übergeht Excel das BOM, und andere Programme zeigen sie als Datenzeile.
+     - Datum und Zeit als 2026-11-10 und 21:14:05: das versteht jede Region gleich.
+     - Text, der mit = + - @ beginnt (der Name der Uhr ist frei wählbar), bekommt ein Hochkomma davor: Sonst würde ihn
+       Excel als Formel ausführen. Zahlen schreibt Tickwerk selbst; ein Minus dort bleibt ein Minus.
+     - Zeilenende CRLF, Felder mit Trennzeichen, Anführungszeichen oder Umbruch in Anführungszeichen (RFC 4180). */
+  var lastCsvUrl = '';
+  function csvFormat() {
+    var dec = '.';
+    try { dec = new Intl.NumberFormat(undefined).format(1.5).replace(/[0-9]/g, '').charAt(0) === ',' ? ',' : '.'; } catch (e) { dec = LANG === 'en' ? '.' : ','; }
+    return { dec: dec, sep: dec === '.' && LANG === 'en' ? ',' : ';' };
+  }
+  function csvText(v) {
+    var s = String(v == null ? '' : v).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, ' ');
+    return /^[=+\-@\t\r]/.test(s) ? '\'' + s : s;
+  }
+  function buildCsv(w, list) {
+    var f = csvFormat(), p2 = function (n) { return (n < 10 ? '0' : '') + n; };
+    function num(v, d) { return v == null || !isFinite(v) ? '' : v.toFixed(d).replace('.', f.dec); }
+    function cell(v) { var s = String(v); return s.indexOf(f.sep) >= 0 || /["\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
+    var head = [T('Datum'), T('Zeit'), T('Uhr'), T('Lage'), T('Gang (s/Tag)'), T('Unsicherheit ± (s/Tag)'), T('Gewertet'), T('Abfallfehler (ms)'), T('Amplitude (°)'),
+      T('Hebewinkel (°)'), T('Schlagzahl (A/h)'), T('Signal'), T('Dauer (s)'), T('Quelle'), T('Korrektur Handy-Uhr (ppm)'), T('Hinweis'), T('App'), T('Mess-Engine')];
+    var rows = [head.map(function (h) { return csvText(h.charAt(0).toUpperCase() + h.slice(1)); })];
+    list.forEach(function (m) {
+      var d = new Date(m.date), notes = [];
+      if (m.stable === false) notes.push(counted(m) ? shakyText(m) : T('Gang schwankt zu stark'));
+      else if (!counted(m)) notes.push(whyNot(m));
+      if (m.amp && !m.ampOk) notes.push(T('Amplitude unsicher'));
+      if (!m.beOk) notes.push(T('Abfallfehler unsicher'));
+      if (m.sess) notes.push(T('Lagen-Test'));
+      if (m.gr) notes.push(T('Gangreserve-Test') + ' ' + [T('voll aufgezogen'), T('nach 24 h'), T('nach 36 h')][m.grs || 0]);
+      rows.push([
+        d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()), p2(d.getHours()) + ':' + p2(d.getMinutes()) + ':' + p2(d.getSeconds()),
+        csvText(m.watchName || w.name), csvText(POS[m.pos] || m.pos), num(m.rate, 2), num(m.sigma, 2), csvText(T(counted(m) ? 'ja' : 'nein')),
+        num(m.be, 2), m.amp ? String(Math.round(m.amp)) : '', num(m.lift, 1), m.bph ? String(m.bph) : '', csvText(T(m.q)), num(m.dur, 1), csvText(T(m.source)),
+        m.ppm ? num(m.ppm, 1) : '', csvText(notes.join(', ')), csvText(m.app || ''), csvText(m.eng || '')
+      ]);
+    });
+    return { text: '\uFEFF' + rows.map(function (r) { return r.map(cell).join(f.sep); }).join('\r\n') + '\r\n', format: f, rows: list.length };
+  }
+  function makeCsv(w, bar) {
+    if (!requirePro('csv')) return;
+    var items = measOf(w.id ? w : null);
+    bar.hidden = false;
+    if (!items.length) { bar.textContent = T('Für diese Uhr gibt es noch keine Messung.'); return; }
+    var out = buildCsv(w, items), now = new Date(), p2 = function (n) { return (n < 10 ? '0' : '') + n; };
+    var safe = w.name.replace(/[^\wäöüÄÖÜéèàçùìòâêîôû-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || T('Uhr');
+    var name = 'Tickwerk_' + safe + '_' + now.getFullYear() + '-' + p2(now.getMonth() + 1) + '-' + p2(now.getDate()) + '.csv';
+    var blob = new Blob([out.text], { type: 'text/csv;charset=utf-8' }), file = null;
+    try { file = new File([blob], name, { type: 'text/csv' }); } catch (e) { /* alte Browser */ }
+    if (lastCsvUrl) URL.revokeObjectURL(lastCsvUrl);
+    lastCsvUrl = URL.createObjectURL(blob);
+    var canShare = !!(file && navigator.canShare && navigator.canShare({ files: [file] }));
+    bar.innerHTML = '<span class="pdfinfo">' + esc(T('Tabelle mit {n} · Trennzeichen «{s}», Dezimalzeichen «{d}»', { n: plural(out.rows, 'Messung', 'Messungen'), s: out.format.sep, d: out.format.dec })) + '</span>' +
+      (canShare ? '<button type="button" data-p="share">' + esc(T('Teilen oder speichern')) + '</button>' : '') +
+      '<button type="button" data-p="dl">' + esc(T('Herunterladen')) + '</button>';
+    if (canShare) bar.querySelector('[data-p="share"]').addEventListener('click', function () {
+      navigator.share({ files: [file], title: 'Tickwerk ' + w.name }).catch(function () { /* abgebrochen */ });
+    });
+    bar.querySelector('[data-p="dl"]').addEventListener('click', function () {
+      var a = document.createElement('a'); a.href = lastCsvUrl; a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+    });
   }
 
   /* ---------- Zeichnen ---------- */
@@ -3337,17 +3578,197 @@
     deferredPrompt.userChoice.then(function () { deferredPrompt = null; $('installBtn').hidden = true; });
   });
   window.addEventListener('appinstalled', function () { $('installBtn').hidden = true; });
-  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
-    /* Neue Version im Hintergrund geladen: Knopf zum Neuladen anbieten (nie mitten in einer Messung neu laden) */
-    var hadController = !!navigator.serviceWorker.controller;
-    navigator.serviceWorker.addEventListener('controllerchange', function () {
-      if (!hadController) return;
-      $('updateBtn').hidden = false;
-      toast(T('Eine neue Version von Tickwerk ist bereit. Unter «Mehr» neu laden.'));
-    });
-    $('updateBtn').addEventListener('click', function () { if (!rec && !busy) location.reload(); });
-    navigator.serviceWorker.register('sw.js').catch(function () { /* ohne Offline-Modus weiter */ });
+
+  /* Nach Update suchen (unter «Mehr»): Der Browser prüft von selbst nur beim Öffnen der App, ob es eine neue Version gibt.
+     Der Knopf stösst die Prüfung sofort an und sagt, was herauskam: aktuell, gefunden (wird geladen), bereit (neu laden),
+     keine Verbindung, oder hier nicht möglich (kein https, kein Offline-Speicher). */
+  var swReg = null, updReady = false, updBusy = false, updMsg = null;
+  function setUpd(text, kind) { $('updState').textContent = text; $('updState').setAttribute('data-kind', kind || ''); }
+  function renderUpd() {
+    if (updBusy) return;
+    if (updReady) setUpd(T('Die neue Version ist bereit. Unten «Neue Version: neu laden» tippen.'), 'ok');
+    else if (updMsg) setUpd(updMsg.text, updMsg.kind);
+    else setUpd(T('Installiert ist Version {v}', { v: APP_VERSION }), '');
   }
+  /* Eine neue Version ist geladen und aktiv: Knopf zum Neuladen anbieten (nie mitten in einer Messung von selbst neu laden) */
+  function updIsReady() {
+    if (updReady) return;
+    updReady = true; updBusy = false;
+    $('updateBtn').hidden = false;
+    renderUpd();
+    toast(T('Eine neue Version von Tickwerk ist bereit. Unter «Mehr» neu laden.'));
+  }
+  function updCheck() {
+    if (updBusy || updReady) { renderUpd(); return; }
+    if (!swReg) { updMsg = { text: T('Hier gibt es keine Updates: Tickwerk läuft nicht über https.'), kind: 'warn' }; renderUpd(); return; }
+    if (navigator.onLine === false) { updMsg = { text: T('Keine Verbindung. Mit dem Internet verbinden und nochmals suchen.'), kind: 'warn' }; renderUpd(); return; }
+    updBusy = true; setUpd(T('Suche nach einer neuen Version …'), '');
+    var over = false, timer = setTimeout(function () { end(T('Keine Antwort vom Server. Später nochmals suchen.'), 'warn'); }, 25000);
+    function end(text, kind) {
+      if (over) return;
+      over = true; clearTimeout(timer); updBusy = false;
+      updMsg = text ? { text: text, kind: kind } : null;
+      renderUpd();
+    }
+    swReg.update().then(function () {
+      var nw = swReg.installing || swReg.waiting;
+      if (updReady) { end('', ''); return; }
+      if (!nw) { end(T('Tickwerk ist aktuell: Version {v}, geprüft um {t}.', { v: APP_VERSION, t: timeStr(new Date()) }), 'ok'); return; }
+      setUpd(T('Neue Version gefunden. Sie wird geladen …'), '');
+      nw.addEventListener('statechange', function () {
+        if (nw.state === 'activated') { end('', ''); updIsReady(); }
+        else if (nw.state === 'redundant') end(T('Die neue Version konnte nicht geladen werden. Später nochmals suchen.'), 'warn');
+      });
+    }).catch(function () { end(T('Keine Verbindung zum Server. Später nochmals suchen.'), 'warn'); });
+  }
+  $('updCheck').addEventListener('click', updCheck);
+  $('updateBtn').addEventListener('click', function () { if (!rec && !busy) location.reload(); });
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+    var hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', function () { if (hadController) updIsReady(); });
+    navigator.serviceWorker.register('sw.js').then(function (r) { swReg = r; }).catch(function () { /* ohne Offline-Modus weiter */ });
+  }
+
+  /* ---------- Was ist neu ----------
+     Einmal nach einem Update zeigen, was dazugekommen ist und wo es zu finden ist; jederzeit unter «Mehr». Bei einer
+     neuen Installation nicht (dort erklärt die Anleitung den Einstieg). settings.seenVersion merkt sich die Version. */
+  var NEWS = {
+    '0.6.3': [
+      { t: T('Kein grober Wert mehr nach einer Lücke'), s: T('Fehlt das Ticken vier Sekunden oder länger, zum Beispiel weil das Handy verrutscht ist, zeigt Tickwerk keinen Wert mehr, sondern sagt, wann die Lücke war.') },
+      { t: T('Unsichere Messung läuft von selbst weiter'), s: T('Ist der Wert nach der gewählten Messdauer noch zu unsicher, misst Tickwerk weiter, höchstens bis 60 Sekunden. Ausschalten unter Einstellungen.') },
+      { t: T('Messungen als Tabelle'), s: T('Auf der Seite der Uhr unter «Letzte Messungen»: «Tabelle (CSV)» speichert alle Messungen der Uhr für Excel. Gehört zu Tickwerk Pro.') },
+      { t: T('Nach Update suchen'), s: T('Unter «Mehr»: zeigt, ob die neuste Version installiert ist, und lädt eine neue.') },
+      { t: T('Diagnose teilen'), s: T('Unter «Mehr»: Version, Handy, Mikrofon und die letzten Fehler als Text, falls einmal etwas nicht klappt.') }
+    ]
+  };
+  function showNews() {
+    var ul = $('nsList');
+    $('nsTitle').textContent = T('Version') + ' ' + APP_VERSION;
+    ul.innerHTML = '';
+    (NEWS[APP_VERSION] || []).forEach(function (it) {
+      var li = document.createElement('li'), a = document.createElement('span'), b = document.createElement('span');
+      a.className = 'news-t'; a.textContent = it.t; b.className = 'news-s'; b.textContent = it.s;
+      li.appendChild(a); li.appendChild(b); ul.appendChild(li);
+    });
+    openSheet('newsSheet');
+  }
+  /* Beim Start: true, wenn das Blatt gezeigt wurde (dann kommen die übrigen Hinweise erst beim nächsten Start) */
+  function newsOnStart() {
+    if (settings.seenVersion === APP_VERSION) return false;
+    var isUpdate = !!settings.seenVersion || settings.guideSeen;   /* schon benutzt: ein Update. Sonst neu installiert */
+    if (isUpdate && NEWS[APP_VERSION]) {
+      if (sheetOpen || rec || busy || topScreen() !== 'measure') return false;   /* gerade beschäftigt: beim nächsten Start zeigen */
+      settings.seenVersion = APP_VERSION; saveSettings();
+      showNews();
+      return true;
+    }
+    settings.seenVersion = APP_VERSION; saveSettings();
+    return false;
+  }
+  $('newsBtn').addEventListener('click', showNews);
+  $('nsClose').addEventListener('click', function () { closeSheet(); });
+
+  /* ---------- Diagnose teilen ----------
+     Ein Text mit allem, was bei der Fehlersuche hilft: Version, Handy, Mikrofon, Eichung, die letzten Messungen (ohne
+     Namen der Uhren) und die letzten Fehler. Er wird zuerst angezeigt und verlässt das Handy nur über «Teilen» oder
+     «Kopieren». Fragen an den Browser, die warten lassen könnten (Gerät, Speicher, Erlaubnis), haben eine Frist von 1,5 s. */
+  function soon(make, fallback) {
+    return new Promise(function (resolve) {
+      var done = false, t = setTimeout(function () { if (!done) { done = true; resolve(fallback); } }, 1500);
+      function fin(v) { if (!done) { done = true; clearTimeout(t); resolve(v); } }
+      try { Promise.resolve(make()).then(function (v) { fin(v == null ? fallback : v); }, function () { fin(fallback); }); } catch (e) { fin(fallback); }
+    });
+  }
+  function diagStamp(iso) {
+    var d = new Date(iso), p = function (n) { return (n < 10 ? '0' : '') + n; };
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+  function diagDevice() {
+    var ud = navigator.userAgentData;
+    if (!ud || !ud.getHighEntropyValues) return Promise.resolve(logLine(navigator.userAgent));
+    return ud.getHighEntropyValues(['model', 'platformVersion', 'fullVersionList']).then(function (h) {
+      var br = (h.fullVersionList || ud.brands || []).filter(function (b) { return !/not.?a.?brand/i.test(b.brand) && b.brand !== 'Chromium'; })[0];
+      return logLine([h.model, (ud.platform || '') + ' ' + (h.platformVersion || ''), br ? br.brand + ' ' + br.version : ''].map(function (x) { return String(x || '').trim(); }).filter(Boolean).join(' · ')) ||
+        logLine(navigator.userAgent);
+    });
+  }
+  function diagText() {
+    var yn = function (b) { return T(b ? 'ja' : 'nein'); };
+    return Promise.all([
+      soon(diagDevice, logLine(navigator.userAgent)),
+      soon(function () { return navigator.storage.estimate(); }, {}),
+      soon(function () { return navigator.storage.persisted(); }, null),
+      soon(function () { return navigator.permissions.query({ name: 'microphone' }).then(function (st) { return st.state; }); }, ''),
+      soon(function () { return caches.keys(); }, [])
+    ]).then(function (r) {
+      var L = [], cal = calOf(''), est = r[1] || {}, perm = { granted: T('erteilt'), denied: T('verweigert'), prompt: T('noch nicht gefragt') }[r[3]] || T('unbekannt');
+      var build = (Array.isArray(r[4]) ? r[4] : []).filter(function (k) { return /^tickwerk-[a-z]+-[0-9a-f]{6,12}$/.test(k); }).join(', ');
+      var last = meas.slice(-5).reverse(), standalone = !!(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+      L.push('Tickwerk ' + APP_VERSION + ' (' + (FLAVOR === 'test' ? T('Testversion') : 'Google Play') + ') · ' + T('Mess-Engine') + ' ' + (engineVersion || '?'));
+      L.push(T('Stand') + ': ' + diagStamp(new Date().toISOString()) + (build ? ' · ' + build : ''));
+      L.push(T('Sprache') + ': ' + LANG + ' (' + T('Handy') + ': ' + logLine(navigator.language || '?').slice(0, 20) + ')');
+      L.push(T('Gerät') + ': ' + r[0]);
+      L.push(T('Als App installiert') + ': ' + yn(standalone) + ' · ' + T('online') + ': ' + yn(navigator.onLine !== false) + ' · ' + T('Bildschirm') + ': ' +
+        window.innerWidth + ' × ' + window.innerHeight + ' (' + (window.devicePixelRatio || 1).toFixed(2) + ')');
+      L.push(T('Mikrofon') + ': ' + T(isPro() && settings.micId ? 'gewählt' : 'eingebaut') + ' · ' + T('Erlaubnis') + ': ' + perm +
+        (lastRec && lastRec.fs ? ' · ' + T('letzte Aufnahme') + ' ' + Math.round(lastRec.fs) + ' Hz' : ''));
+      L.push(T('Eichung') + ': ' + (cal.ppm ? signed(cal.ppm, 1) + ' ppm' + (cal.at ? ' (' + diagStamp(cal.at).slice(0, 10) + ')' : '') : T('keine')) +
+        ' · ' + T('weitere Mikrofone') + ': ' + Object.keys(settings.cal).length);
+      L.push(T('Einstellungen') + ': ' + settings.dur + ' s · ' + T('automatischer Start') + ' ' + yn(settings.autoStart) + ' · ' + T('verlängern') + ' ' + yn(settings.extend) + ' · ' + settings.pos);
+      L.push(T('Daten') + ': ' + plural(watches.length, 'Uhr', 'Uhren') + ' · ' + plural(meas.length, 'Messung', 'Messungen') + ' · Pro: ' + yn(isPro()));
+      L.push(T('Speicher') + ': ' + T('dauerhaft') + ' ' + (r[2] == null ? '?' : yn(r[2])) + (est.usage ? ' · ' + fmt(est.usage / 1048576, 1) + ' MB' : '') +
+        ' · ' + T('Update bereit') + ': ' + yn(updReady));
+      L.push('');
+      L.push(T('Letzte Messungen') + ':');
+      if (!last.length) L.push('  –');
+      last.forEach(function (m) {
+        L.push('  ' + diagStamp(m.date) + ' · ' + m.pos + ' · ' + signed(m.rate, 2) + ' ± ' + fmt(m.sigma, 2) + ' · ' + qText(m.q) + (m.stable === false ? ' (' + T('schwankt') + ')' : '') +
+          ' · ' + Math.round(m.dur) + ' s · ' + m.bph + ' · ' + (m.fs ? Math.round(m.fs) + ' Hz · ' : '') + T(m.source) + ' · ' + (m.app || '?') + '/' + (m.eng || '?'));
+      });
+      L.push('');
+      L.push(T('Letzte Fehler') + ':');
+      if (!errLog.length) L.push('  –');
+      /* Versprochen ist: keine Namen der Uhren. Die App schreibt keine ins Protokoll; eine technische Meldung des Browsers
+         (das Feld x) könnte aber ein Stück gespeicherter Daten zitieren. Darum dort jeden bekannten Namen ersetzen. */
+      var names = Object.create(null);
+      watches.forEach(function (w) { names[w.name] = 1; });
+      meas.forEach(function (m) { if (m.watchName) names[m.watchName] = 1; });
+      names = Object.keys(names).filter(function (n) { return n.length >= 3; }).sort(function (a, b) { return b.length - a.length; });
+      function noNames(x) { names.forEach(function (n) { x = x.split(n).join('…'); }); return x; }
+      errLog.slice().reverse().forEach(function (e) { L.push('  ' + diagStamp(e.t) + ' · ' + T(e.m) + (e.x ? ' (' + noNames(e.x) + ')' : '')); });
+      return L.join('\n');
+    });
+  }
+  function diagOpen() {
+    $('dgText').textContent = T('Einen Moment …'); $('dgOut').textContent = '';
+    $('dgShare').hidden = !navigator.share; $('dgShare').disabled = true; $('dgCopy').disabled = true;
+    openSheet('diagSheet');
+    diagText().then(function (txt) {
+      $('dgText').textContent = txt;
+      $('dgShare').disabled = false; $('dgCopy').disabled = false;
+    });
+  }
+  function diagCopied(ok) { $('dgOut').textContent = ok ? T('Kopiert. Jetzt in eine Nachricht einfügen.') : T('Kopieren ging nicht. Den Text lange antippen und von Hand kopieren.'); }
+  $('diagBtn').addEventListener('click', diagOpen);
+  $('dgClose').addEventListener('click', function () { closeSheet(); });
+  $('dgShare').addEventListener('click', function () {
+    if (!navigator.share) return;
+    navigator.share({ title: 'Tickwerk ' + T('Diagnose'), text: $('dgText').textContent }).catch(function () { /* abgebrochen */ });
+  });
+  $('dgCopy').addEventListener('click', function () {
+    var txt = $('dgText').textContent;
+    function legacy() {   /* ohne Zwischenablage-Schnittstelle: Text markieren und den Browser kopieren lassen */
+      var ok = false;
+      try {
+        var rg = document.createRange(), sel = window.getSelection();
+        rg.selectNodeContents($('dgText')); sel.removeAllRanges(); sel.addRange(rg);
+        ok = document.execCommand('copy'); sel.removeAllRanges();
+      } catch (e) { ok = false; }
+      diagCopied(ok);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(function () { diagCopied(true); }, legacy);
+    else legacy();
+  });
 
   /* ---------- Start ---------- */
   var RENDER = { measure: renderMeasure, watches: renderWatches, watch: renderDetail, edit: renderEdit, lagen: renderLagen, lpos: renderLpos, reg: renderReg, zeit: renderZeit, detektiv: renderDetektiv, guide: function () {},
@@ -3362,8 +3783,9 @@
   setStatus('status', idleHint(), '');
   if (location.hash === '#mehr') { stack = [{ s: 'more', p: {} }]; history.replaceState({ tw: 0 }, '', location.pathname + location.search); }
   render();
-  if (!settings.guideSeen) go('guide');
+  if (!settings.guideSeen) { newsOnStart(); go('guide'); }   /* neu installiert: nichts zu zeigen, nur die Version merken */
   else setTimeout(function () {
+    if (newsOnStart()) return;   /* nach einem Update zuerst «Was ist neu»; die übrigen Hinweise kommen beim nächsten Start */
     for (var i = 0; i < watches.length; i++) {
       var dt = dueText(watches[i]);
       if (dt) { toast(T('Bei «{w}»: {x}', { w: watches[i].name, x: dt })); return; }

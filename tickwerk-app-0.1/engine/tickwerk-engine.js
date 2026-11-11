@@ -156,6 +156,31 @@
     return sm;
   }
 
+  /* Laute Stoergeraeusche begrenzen (Rascheln, wenn das Handy bewegt wird, ein Stoss an den Tisch).
+     Ein einziges solches Geraeusch ist in der Huellkurve ein Vielfaches eines Schlags. Ohne Grenze praegte es den Anker
+     des Rasters und die ersten Schablonen mit; die Messung endete dann mit «Zu wenige saubere Schlaege» oder «Signal zu
+     schwach», obwohl das Ticken davor und danach klar war (Versuch mit echten Aufnahmen: 1 s Rascheln mitten in 32 s).
+     Grenze: das Vierfache einer ueblichen Schlagspitze. Ueblich = oberes Viertel der hoechsten Werte je 0,4 s (darin
+     liegt bei jeder Schlagzahl mindestens ein Schlag). Das obere Viertel statt der Mitte, damit eine Aufnahme, in der
+     das Ticken ueber die Haelfte der Zeit fehlt, die Schlaege selbst nicht beschneidet. Liegt nichts ueber der Grenze,
+     kommt die Huellkurve unveraendert zurueck: saubere Aufnahmen ergeben genau dieselben Werte wie bisher.
+     Die Suche nach der Schlagzahl hat zusaetzlich ihre eigene, engere Kappe (siehe detectBph). */
+  function limitBursts(env, fs) {
+    var w = Math.round(0.4 * fs), n = env.length, tops = [], i, j, m;
+    for (i = 0; i + w <= n; i += w) {
+      m = 0;
+      for (j = i; j < i + w; j++) if (env[j] > m) m = env[j];
+      tops.push(m);
+    }
+    if (tops.length < 8) return env;
+    tops.sort(function (a, b) { return a - b; });
+    var lim = 4 * tops[Math.floor(0.75 * (tops.length - 1))];
+    if (!(lim > 0) || tops[tops.length - 1] <= lim) return env;
+    var out = new Float32Array(n);
+    for (i = 0; i < n; i++) out[i] = env[i] > lim ? lim : env[i];
+    return out;
+  }
+
   // Standard: 2-10 kHz, dort liegen die Tick-Geraeusche meistens
   function fineEnvelope(x, fs) {
     return bandEnvelope(x, fs, 2000, 10000);
@@ -173,7 +198,7 @@
       var lo = BANDS[b][0];
       var hi = BANDS[b][1] < 0.45 * fs ? BANDS[b][1] : null;
       if (lo >= 0.38 * fs) continue;
-      var det = detectBph(bandEnvelope(probe, fs, lo, hi), fs, { bph: opts.bph });
+      var det = detectBph(limitBursts(bandEnvelope(probe, fs, lo, hi), fs), fs, { bph: opts.bph });
       if (!det) continue;
       var z = (det.score - det.noiseMean) / Math.max(det.noiseSd, 1e-6);
       tried.push({ lo: lo, hi: hi, bph: det.bph, score: +det.score.toFixed(3), z: +z.toFixed(1) });
@@ -184,7 +209,21 @@
 
   /* ---------- Schlagzahl erkennen ---------- */
 
+  /* Die Suche laeuft ueber die Energie der Huellkurve. Ein lautes, langes Stoergeraeusch (Rascheln beim Wegnehmen des
+     Handys, ein Stoss) traegt darin hundertmal mehr bei als ein Schlag; zwei davon im passenden Abstand taeuschten eine
+     falsche Schlagzahl vor (Versuch: 21'600er-Uhr, 0,4 s Rascheln -> 28'800 erkannt, Messung «zu schwach»).
+     Darum wird die Energie zuerst bei der ueblichen Schlagspitze gekappt, aber nur, wenn etwas deutlich darueber liegt
+     (mehr als das Dreifache); bei einer sauberen Aufnahme bleibt alles wie bisher. Findet die gekappte Suche keinen Takt
+     (z. B. weil das Ticken nur in einem kleinen Teil der Aufnahme liegt und die Kappe darum zu tief sitzt), gilt die
+     Suche ohne Kappe. Die hoehere Korrelation der beiden zu nehmen, waere falsch: Zwei laute Stoergeraeusche ergeben
+     ungekappt eine sehr hohe Korrelation bei ihrem zufaelligen Abstand (so gemessen an den echten Aufnahmen). */
   function detectBph(env, fs, opts) {
+    var capped = detectBphCore(env, fs, opts, true);   // null: nichts zu kappen
+    if (capped && capped.score >= Math.max(0.01, capped.noiseMean + 5 * capped.noiseSd)) return capped;
+    return detectBphCore(env, fs, opts, false);
+  }
+
+  function detectBphCore(env, fs, opts, cap) {
     opts = opts || {};
     var D = Math.max(1, Math.round(fs / 2000)); // 0.5-ms-Raster
     var fsC = fs / D;
@@ -195,6 +234,24 @@
     var c = decimateMean(movingAverage(e2, Math.max(1, Math.round(0.001 * fs))), D);
     var s0 = Math.min(Math.round(0.3 * fsC), Math.floor(c.length / 4));
     var s1 = Math.min(c.length, s0 + Math.round(20 * fsC));
+    var capped = false;
+    if (cap) {
+      var wC = Math.round(0.4 * fsC), tops = [], mC, jC;
+      for (i = s0; i + wC <= s1; i += wC) {
+        mC = 0;
+        for (jC = i; jC < i + wC; jC++) if (c[jC] > mC) mC = c[jC];
+        tops.push(mC);
+      }
+      if (tops.length >= 8) {
+        tops.sort(function (a, b) { return a - b; });
+        var capV = tops[Math.floor(0.75 * (tops.length - 1))];
+        if (capV > 0 && tops[tops.length - 1] > 3 * capV) {
+          for (i = s0; i < s1; i++) if (c[i] > capV) c[i] = capV;
+          capped = true;
+        }
+      }
+      if (!capped) return null;   // nichts zu kappen: der Durchgang ohne Kappe genuegt
+    }
     var mean = 0;
     for (i = s0; i < s1; i++) mean += c[i];
     mean /= Math.max(1, s1 - s0);
@@ -290,30 +347,45 @@
     for (var L = Math.round(0.022 * fsC); L <= Math.round(0.045 * fsC); L += Math.max(1, Math.round(0.0017 * fsC))) offs.push(corr(L));
     var om = offs.reduce(function (a, b) { return a + b; }, 0) / Math.max(1, offs.length);
     var osd = Math.sqrt(offs.reduce(function (a, b) { return a + (b - om) * (b - om); }, 0) / Math.max(1, offs.length));
-    return { bph: chosen.bph, score: chosen.score, periodS: chosen.periodS, noiseSd: osd, noiseMean: om, candidates: results };
+    return { bph: chosen.bph, score: chosen.score, periodS: chosen.periodS, noiseSd: osd, noiseMean: om, candidates: results, capped: capped };
   }
 
   /* ---------- Schlaege verfolgen (grob) ---------- */
 
-  // Anker: Phase des staerksten periodischen Anteils ueber die ersten ~3 s (robust gegen einzelne Klicks)
+  // Anker: Phase des staerksten periodischen Anteils ueber ~3 s (robust gegen einzelne Klicks).
+  // Normalerweise sind das die ersten 3 s. Beginnt die Aufnahme aber mit Rauschen (Datei mit Vorlauf: Handy noch nicht
+  // an der Uhr), laege der Anker irgendwo, und das ganze Raster stuende neben den Schlaegen. Darum zaehlt das erste
+  // 3-s-Fenster (in den ersten 20 s), dessen Takt mindestens halb so deutlich ist wie im deutlichsten Fenster. Bei einer
+  // Aufnahme, die von Anfang an tickt, ist das wie bisher das erste.
   function findAnchor(env, fs, T) {
     var n = env.length;
     var Ts = T * fs;
-    var start = Math.min(Math.round(0.25 * fs), Math.floor(n / 4));
+    var start0 = Math.min(Math.round(0.25 * fs), Math.floor(n / 4));
     var Pn = 2 * Ts;
     var bins = Math.max(16, Math.round(Pn / Math.max(1, Math.round(0.0005 * fs))));
-    var prof = new Float64Array(bins), cnt = new Float64Array(bins);
-    var fEnd = Math.min(n, start + Math.round(3 * fs));
-    for (var i = start; i < fEnd; i++) {
-      var bi = Math.min(bins - 1, Math.floor((((i - start) % Pn) / Pn) * bins));
-      prof[bi] += env[i]; cnt[bi]++;
+    function fold(start) {
+      var prof = new Float64Array(bins), cnt = new Float64Array(bins);
+      var fEnd = Math.min(n, start + Math.round(3 * fs));
+      for (var i = start; i < fEnd; i++) {
+        var bi = Math.min(bins - 1, Math.floor((((i - start) % Pn) / Pn) * bins));
+        prof[bi] += env[i]; cnt[bi]++;
+      }
+      var best = 0, sum = 0;
+      for (var b = 0; b < bins; b++) {
+        prof[b] = cnt[b] ? prof[b] / cnt[b] : 0;
+        sum += prof[b];
+        if (prof[b] > prof[best]) best = b;
+      }
+      var mean = sum / bins;
+      return { start: start, best: best, contrast: mean > 0 ? prof[best] / mean : 0 };
     }
-    var best = 0;
-    for (var b = 0; b < bins; b++) {
-      prof[b] = cnt[b] ? prof[b] / cnt[b] : 0;
-      if (prof[b] > prof[best]) best = b;
-    }
-    var guess = start + (best + 0.5) / bins * Pn;
+    var wins = [fold(start0)], stepW = Math.round(3 * fs);
+    for (var st = start0 + stepW; st + stepW <= n && st < 20 * fs; st += stepW) wins.push(fold(st));
+    var top = 0, w = wins[0], q;
+    for (q = 0; q < wins.length; q++) if (wins[q].contrast > top) top = wins[q].contrast;
+    // «deutlich» misst sich am Ueberschuss ueber 1 (flaches Profil = nur Rauschen)
+    for (q = 0; q < wins.length; q++) if (wins[q].contrast - 1 >= 0.5 * (top - 1)) { w = wins[q]; break; }
+    var guess = w.start + (w.best + 0.5) / bins * Pn;
     var aw = Math.round(0.1 * Ts);
     return argmax(env, Math.max(0, Math.round(guess - aw)), Math.min(n, Math.round(guess + aw) + 1));
   }
@@ -463,6 +535,28 @@
     return bestLag + off;
   }
 
+  // Wie alignBeat, fuer das weite Suchfenster des zweiten Versuchs (analyzeBand, secondTry): zuerst grob in Schritten
+  // von stride Abtastwerten (0,1 ms; die Huellkurve ist ueber 0,2 ms geglaettet, die Aehnlichkeit aendert sich auf
+  // dieser Strecke kaum), dann jeder Wert rund um die beste Stelle. Das spart gut die Haelfte der Rechenzeit.
+  function alignBeatWide(env, center, tpl, pre, range, maxLag, stride) {
+    var n = env.length, vals = {}, best = -Infinity, bestLag = 0, lag;
+    function corrAt(l) {
+      var base = center - pre + l;
+      if (base + range.a < 0 || base + range.b >= n) return;
+      var sum = 0;
+      for (var j = range.a; j <= range.b; j++) sum += env[base + j] * tpl[j];
+      vals[l] = sum;
+      if (sum > best) { best = sum; bestLag = l; }
+    }
+    for (lag = -maxLag; lag <= maxLag; lag += stride) corrAt(lag);
+    if (best === -Infinity) return null;
+    var lo = Math.max(-maxLag, bestLag - stride), hi = Math.min(maxLag, bestLag + stride);
+    for (lag = lo; lag <= hi; lag++) if (vals[lag] === undefined) corrAt(lag);
+    var off = 0;
+    if (vals[bestLag - 1] != null && vals[bestLag + 1] != null) off = parabolicOffset(vals[bestLag - 1], best, vals[bestLag + 1]);
+    return bestLag + off;
+  }
+
   // Einzelne Geraeusche (Spitzen) in einer Schablone finden
   function templatePeaks(t, fs) {
     var L = t.length;
@@ -533,6 +627,71 @@
     var m = vals.reduce(function (a, c) { return a + c; }, 0) / vals.length;
     var sd = Math.sqrt(vals.reduce(function (a, c) { return a + (c - m) * (c - m); }, 0) / vals.length);
     return Math.min(0.5, Math.max(0.12, m + 3 * sd));
+  }
+
+  /* ---------- Luecken im Ticken (Handy weggenommen, Uhr verrutscht, Uhr steht) ---------- */
+
+  // So lange darf das Ticken hoechstens fehlen. Kuerzere Unterbrueche (ein Rascheln, ein kurzer Stoss) gleicht die
+  // Ausgleichsrechnung aus; ab 4 s ist es keine durchgehende Messung mehr (bei der kuerzesten Messdauer von 20 s ein Fuenftel).
+  var SILENCE_S = 4;
+
+  // Zweiter Versuch bei springendem Zeitbezug (siehe analyzeBand): So viele Sekunden vor und nach der gewaehlten Stelle
+  // liefern die erste Schablone. Kurz genug, dass kaum je ein Aussetzer der Aufnahme hineinfaellt und der Gang darin
+  // nicht wandert; lang genug fuer mindestens ein Dutzend Schlaege je Tick und Tack (bei 18'000 A/h: 15).
+  var LOCAL_TPL_S = 3;
+
+  /* Wo ist das Ticken wirklich zu hoeren?
+     Die Aehnlichkeit mit der Schablone allein (b.ok) reicht dafuer nicht: Im reinen Rauschen erreichen sie je nach
+     Aufnahme 15 bis 60 % der Rasterplaetze zufaellig, und diese Scheinschlaege verfaelschen den Gang (Versuch: 30 s,
+     Ticken nur in den ersten 18 s -> 4,7 statt 5,4 s/Tag). Ein echter Schlag hat aber zusaetzlich zum uebernaechsten
+     Nachbarn (gleiche Art: Tick zu Tick) genau den Abstand von zwei Schlaegen; ein Scheinschlag liegt irgendwo im
+     Suchfenster von +-22 ms. «Da» ist ein Schlag darum erst, wenn beides stimmt und in seiner Naehe (+-1 s) noch zwei
+     weitere solche Schlaege liegen (einzelne Zufallstreffer im Rauschen zaehlen so nicht).
+     Rueckgabe: null (keine Luecke, oder nicht beurteilbar, weil auch der Rest der Aufnahme kein klares Ticken hat;
+     dann entscheiden wie bisher Signalqualitaet und Unsicherheit) oder
+     { stretches: [{ fromS, toS, where: 'start' | 'middle' | 'end' }], longest: {...}, sound: { fromS, toS } },
+     sound = das laengste durchgehende Stueck mit Ticken. */
+  function findSilence(beats, fs, Tsamp, duration) {
+    var byK = Object.create(null), i, j;
+    beats.forEach(function (b) { byK[b.k] = b; });
+    var tol = 0.0006 * fs, step = 2 * Tsamp;
+    function regular(b, o) { return o && o.ok && Math.abs(Math.abs(b.pos - o.pos) - step) <= tol; }
+    var near = beats.filter(function (b) { return b.ok && (regular(b, byK[b.k - 2]) || regular(b, byK[b.k + 2])); })
+      .map(function (b) { return b.pos / fs; }).sort(function (a, c) { return a - c; });
+    var there = [];
+    for (i = 0; i < near.length; i++) {
+      var cnt = 0;
+      for (j = i - 1; j >= 0 && near[i] - near[j] <= 1; j--) cnt++;
+      for (j = i + 1; j < near.length && near[j] - near[i] <= 1; j++) cnt++;
+      if (cnt >= 2) there.push(near[i]);
+    }
+    if (there.length < 8) return null;
+    var edges = [0].concat(there, [duration]), stretches = [], silent = 0;
+    for (i = 1; i < edges.length; i++) {
+      if (edges[i] - edges[i - 1] < SILENCE_S) continue;
+      stretches.push({ fromS: edges[i - 1], toS: edges[i], where: i === 1 ? 'start' : i === edges.length - 1 ? 'end' : 'middle' });
+      silent += edges[i] - edges[i - 1];
+    }
+    if (!stretches.length) return null;
+    // Nur von einer Luecke sprechen, wenn das Ticken sonst zu hoeren ist: ausserhalb der Luecken mindestens 4 s lang und
+    // mindestens jeder fuenfte Schlag da (im Rauschen ist es praktisch keiner). Darunter ist die ganze Aufnahme zu
+    // schwach, und «Luecke» waere der falsche Grund.
+    // Bei schwachem Ticken sind auch ohne Luecke nur 35 bis 60 % der Schlaege «da», mit natuerlichen Pausen bis knapp 4 s
+    // (gemessen an den komprimierten Aufnahmen). Darum muss die Luecke dort laenger sein, bevor sie gilt: 4 s, wenn
+    // mindestens die Haelfte der Schlaege da ist, sonst im selben Verhaeltnis mehr (bei 25 % also 8 s).
+    var soundS = duration - silent, share = there.length / Math.max(1, soundS * fs / Tsamp);
+    if (soundS < 4 || share < 0.2) return null;
+    var need = SILENCE_S / Math.min(1, share / 0.5);
+    stretches = stretches.filter(function (s) { return s.toS - s.fromS >= need; });
+    if (!stretches.length) return null;
+    var longest = stretches[0], sound = { fromS: 0, toS: 0 }, at = 0;
+    stretches.forEach(function (s) {
+      if (s.toS - s.fromS > longest.toS - longest.fromS) longest = s;
+      if (s.fromS - at > sound.toS - sound.fromS) sound = { fromS: at, toS: s.fromS };
+      at = s.toS;
+    });
+    if (duration - at > sound.toS - sound.fromS) sound = { fromS: at, toS: duration };
+    return { stretches: stretches, longest: longest, sound: sound };
   }
 
   /* ---------- Lineare Ausgleichsrechnung: t_k = c + k*T + d*[k ungerade] ---------- */
@@ -734,6 +893,50 @@
     return ks;
   }
 
+  /* Hoehe eines Aussetzers oertlich messen: nur aus den LOCAL_STEP_W Schlaegen direkt davor und danach, mit eigenem
+     Trend. In diesen wenigen Sekunden kann der Gang der Uhr die Schlaege kaum verschieben. Die Ausgleichsrechnung ueber
+     die ganze Aufnahme schaetzt den Sprung dagegen als freien Wert mit und verrechnet einen wandernden Gang zum Teil mit
+     ihm: Der Sprung wird dann falsch geschaetzt und mit ihm der Gang. Der Vergleich beider Werte zeigt, wie sehr.
+     f: Ausgleich mit Spruengen (fitBeatsSteps). kA bis kB: Schlagnummern des ersten und des letzten Sprungs einer Gruppe
+     dicht aufeinander folgender Spruenge (einzelner Sprung: kA = kB); gemessen wird ihre Summe, aus den Schlaegen vor
+     dem ersten und ab dem letzten. Rueckgabe { dt, sigma } in Sekunden oder null (zu wenige Schlaege, oder ein
+     Sprung ausserhalb der Gruppe liegt im Fenster). */
+  var LOCAL_STEP_W = 12;
+  function localStep(points, f, kA, kB) {
+    var W = LOCAL_STEP_W, steps = f.steps || [];
+    var outside = function (st) { return st.k < kA || st.k > kB; };
+    var pts = points.slice().sort(function (a, b) { return a.k - b.k; });
+    var before = pts.filter(function (p) { return p.k < kA; }).slice(-W), after = pts.filter(function (p) { return p.k >= kB; }).slice(0, W);
+    if (before.length < 6 || after.length < 6) return null;
+    var k0 = before[0].k, k1 = after[after.length - 1].k;
+    if (steps.some(function (st) { return outside(st) && st.k > k0 && st.k <= k1; })) return null;
+    var win = before.concat(after).map(function (p) {
+      var r = p.t - (f.c + f.T * p.k + f.d * p.parity);
+      steps.forEach(function (st) { if (outside(st) && p.k >= st.k) r -= st.dt; });
+      return { u: p.k - kB, h: p.k >= kB ? 1 : 0, r: r };
+    });
+    var out = null;
+    for (var iter = 0; iter < 2; iter++) {   // zweiter Durchgang ohne einzelne gestoerte Schlaege
+      if (win.length < 10) return out;
+      var A = [[0, 0, 0], [0, 0, 0], [0, 0, 0]], b = [0, 0, 0], i, j;
+      win.forEach(function (w) {
+        var row = [1, w.u, w.h];
+        for (i = 0; i < 3; i++) { b[i] += row[i] * w.r; for (j = 0; j < 3; j++) A[i][j] += row[i] * row[j]; }
+      });
+      var x = solve3(A, b), inv = invert3(A);
+      if (!x || !inv) return out;
+      var res = win.map(function (w) { return w.r - (x[0] + x[1] * w.u + x[2] * w.h); }), ss = 0;
+      res.forEach(function (v) { ss += v * v; });
+      var s2 = ss / Math.max(1, win.length - 3);
+      out = { dt: x[2], sigma: Math.sqrt(Math.max(0, inv[2][2] * s2)) };
+      var mad = median(res.map(function (v) { return Math.abs(v); })), lim = Math.max(4 * 1.4826 * mad, 0.0001);
+      var keep = win.filter(function (w, idx) { return Math.abs(res[idx]) <= lim; });
+      if (keep.length === win.length) break;
+      win = keep;
+    }
+    return out;
+  }
+
   /* Gerade t = c + k·P mit je einem Versatz ab jedem Aussetzer, für die Quarzuhr (ein Schritt pro Sekunde, kein Tick/Tack) */
   function fitLineSteps(points, stepKs) {
     var use = points.slice(), result = null;
@@ -789,10 +992,12 @@
     var zMax = tried.length ? tried[0].z : 0;
     var cands = tried.filter(function (t, i) { return i === 0 || t.z >= 0.6 * zMax; }).slice(0, opts.probe ? 1 : 3);   // Suche: nur das beste Band, damit es schnell geht
     if (!cands.length) cands = [{ lo: 2000, hi: 10000 }];
-    var best = null, firstFail = null, oks = [];
+    var best = null, firstFail = null, oks = [], silent = null;
     cands.forEach(function (c) {
+      if (silent) return;   // eine Luecke gilt fuer die ganze Aufnahme (siehe unten): Weitere Baender aendern nichts mehr
       var r = analyzeBand(x, fs, opts, { lo: c.lo, hi: c.hi });
-      c.result = r.ok ? 'ok' : 'abgelehnt';
+      c.result = r.ok ? 'ok' : r.code === 'silence' ? 'Lücke' : 'abgelehnt';
+      if (r.code === 'silence' && !silent) silent = r;
       if (r.ok) {
         c.rateSigma = +r.rateSigma.toFixed(3);
         c.rate = +r.rate.toFixed(2);
@@ -800,12 +1005,13 @@
         c.liftTimeMs = r.liftTimeMs != null ? +r.liftTimeMs.toFixed(2) : null;
         oks.push(r);
       }
-      if (r.ok && (!best || r.rateSigma < best.rateSigma)) best = r;
+      // Ein Band mit Verdacht auf einen versteckten Sprung (jumpSuspect) gewinnt nie gegen eines ohne: Sein ± ist nicht echt.
+      if (r.ok && (!best || (r.jumpSuspect !== best.jumpSuspect ? best.jumpSuspect : r.rateSigma < best.rateSigma))) best = r;
       if (!r.ok && !firstFail) firstFail = r;
     });
     if (best) {
       // Gegenprobe mit den anderen brauchbaren Baendern: die Uhr ist dieselbe, die Werte muessen passen
-      var peers = oks.filter(function (r) { return r !== best && r.bph === best.bph && r.rateSigma <= 3 * best.rateSigma; });
+      var peers = oks.filter(function (r) { return r !== best && !r.jumpSuspect && r.bph === best.bph && r.rateSigma <= 3 * best.rateSigma; });
       if (peers.length) {
         var lts = [best.liftTimeMs].concat(peers.map(function (r) { return r.liftTimeMs; })).filter(function (v) { return v != null; });
         if (best.liftTimeMs != null && lts.length >= 2 &&
@@ -822,18 +1028,24 @@
         firstFail = { ok: false, reason: 'Signal zu schwach für eine verlässliche Messung. Mikrofon näher an die Krone, ruhiger Raum.' };
       }
     }
-    var out = best || firstFail;
+    // Eine Luecke im Ticken ist eine Eigenschaft der Aufnahme, nicht des Frequenzbands: Meldet sie ein Band (und das tut
+    // es nur, wenn das Ticken dort sonst klar ist), gilt sie, auch wenn ein anderes Band noch eine Zahl liefern wuerde.
+    // Diese Zahl waere genau der grobe Wert aus Scheinschlaegen, den die Pruefung verhindern soll.
+    var out = silent || best || firstFail;
     out.bandsTried = cb.tried;
     return out;
   }
 
-  function analyzeBand(x, fs, opts, band) {
+  function analyzeBand(x, fs, opts, band, shared) {
     var liftAngle = opts.liftAngle || 52;
     var clockPpm = opts.clockPpm || 0;
     var duration = x.length / fs;
-    var env = bandEnvelope(x, fs, band.lo, band.hi);
+    // shared: Zwischenergebnisse dieses Bands (Huellkurve, Schlagzahl, Anker), die ein zweiter Versuch (secondTry) nicht
+    // nochmals rechnen muss. Sie haengen nur von Aufnahme und Band ab und werden nach dem Anlegen nicht mehr veraendert.
+    var sh = shared || {};
+    var env = sh.env || (sh.env = limitBursts(bandEnvelope(x, fs, band.lo, band.hi), fs));
 
-    var det = detectBph(env, fs, { bph: opts.bph });
+    var det = sh.det !== undefined ? sh.det : (sh.det = detectBph(env, fs, { bph: opts.bph }));
     if (!det || det.score < Math.max(0.01, det.noiseMean + 5 * det.noiseSd)) {
       return { ok: false, reason: 'Kein regelmässiges Ticken gefunden. Mikrofon näher an die Krone, ruhiger Raum.', bphScore: det ? det.score : 0 };
     }
@@ -843,14 +1055,19 @@
 
     // 1) grobe Schlagpositionen (Energie ueber 1 ms geglaettet). Die Spitze kann auf irgendeinem
     //    Geraeusch des Schlags liegen; das korrigiert der erste Ausrichtungsdurchgang.
-    var e2 = new Float32Array(env.length);
-    for (var ii = 0; ii < env.length; ii++) e2[ii] = env[ii] * env[ii];
-    var envS = movingAverage(e2, Math.max(1, Math.round(0.001 * fs)));
-    for (ii = 0; ii < envS.length; ii++) envS[ii] = Math.sqrt(envS[ii]);
-    var noiseS = approxMedian(envS) || 1e-12;
+    var envS = sh.envS, ii;
+    if (!envS) {
+      var e2 = new Float32Array(env.length);
+      for (ii = 0; ii < env.length; ii++) e2[ii] = env[ii] * env[ii];
+      envS = movingAverage(e2, Math.max(1, Math.round(0.001 * fs)));
+      for (ii = 0; ii < envS.length; ii++) envS[ii] = Math.sqrt(envS[ii]);
+      sh.envS = envS;
+      sh.noiseS = approxMedian(envS) || 1e-12;
+    }
+    var noiseS = sh.noiseS;
     // Die Periode ist aus der Korrelation sehr genau bekannt: alle Schlaege liegen auf einem Raster
     // ab dem Anker. So bekommt jeder Schlag denselben Bezugspunkt (kein Springen zwischen Geraeuschen).
-    var anchor = findAnchor(envS, fs, T0);
+    var anchor = sh.anchor !== undefined ? sh.anchor : (sh.anchor = findAnchor(envS, fs, T0));
     var Tsamp = T0 * fs;
     var beats = [];
     var kLo = -Math.floor(anchor / Tsamp), kHi = Math.floor((envS.length - 1 - anchor) / Tsamp);
@@ -863,17 +1080,82 @@
     var pre = Math.min(Math.round(0.032 * fs), Math.round(0.45 * T0 * fs));
     var post = pre;
     var T = null, ranges = null, rhoThr = 0.3;
+    // Zweiter Versuch, wenn der Zeitbezug springt. Ein Aussetzer der Aufnahme (ein doppelter oder fehlender Audiopuffer,
+    // 10 ms und mehr) verschiebt alle folgenden Schlaege. Ist er etwa so gross wie der Abstand zweier Geraeusche im
+    // Schlag, zeigt die erste Schablone aus allen Schlaegen beide Lagen uebereinander und passt an zwei Stellen fast
+    // gleich gut: Die Schlaege richten sich einmal hier, einmal dort aus. Ist er groesser, passen die Schlaege danach
+    // gar nicht mehr zur Schablone, und es sieht aus, als fehle das Ticken. Im zweiten Versuch (opts.localTpl) entsteht
+    // die erste Schablone nur aus den Schlaegen in LOCAL_TPL_S Sekunden rund um den Anker ('anchor'); liegt der Aussetzer
+    // gerade dort, aus denen rund um eine Stelle im letzten Drittel ('late'). Sie ist scharf; an ihr richtet sich jeder
+    // Schlag eindeutig aus, auch ueber ein weiteres Suchfenster, und der Aussetzer wird als Sprung erkannt und
+    // ausgeglichen. Ein Versuch gilt nur, wenn er ein klares Signal ergibt; sonst bleibt es beim ersten Ergebnis.
+    // Aufnahmen ohne springenden Zeitbezug kommen hier nicht vorbei. Dateien: ohne Zuschnitt (trimSilence), der bleibt
+    // dem ersten Durchgang vorbehalten.
+    function secondTry() {
+      if (opts.probe || opts.localTpl) return null;
+      var tries = ['anchor', 'late'];
+      for (var ti = 0; ti < tries.length; ti++) {
+        var oL = {};
+        Object.keys(opts).forEach(function (key) { if (key !== 'trimSilence') oL[key] = opts[key]; });
+        oL.localTpl = tries[ti];
+        var alt = analyzeBand(x, fs, oL, band, sh);
+        if (alt.ok && alt.quality.label !== 'schwach') return alt;
+      }
+      return null;
+    }
+    // Sprung-Probe: Passen die Schlaege irgendwo in der Aufnahme an einer anderen Stelle besser, wenn man sie mit einer
+    // scharfen Schablone vergleicht (nur aus den Schlaegen einiger Sekunden, einmal rund um den Anker, einmal im letzten
+    // Drittel)? Je Viertel der Aufnahme acht Schlaege. Ein Sprung gilt als gefunden, wenn mindestens drei Viertel davon um
+    // denselben Betrag (auf 1 ms) und um mindestens 2 ms verschoben besser passen. In einer durchgehenden Aufnahme passt
+    // jeder Schlag dort am besten, wo er schon liegt; einzelne Ausreisser oder Rauschen ergeben keine gemeinsame Verschiebung.
+    function jumpProbe() {
+      var okB = beats.filter(function (b) { return b.ok; });
+      if (okB.length < 40) return false;
+      var lagW = Math.round(Math.min(0.045, 0.3 * T0) * fs), strideW = Math.max(1, Math.round(0.0001 * fs));
+      var spanP = Math.max(8, Math.round(LOCAL_TPL_S / T0)), centers = [0, Math.round(0.7 * kHi)];
+      for (var ci = 0; ci < centers.length; ci++) {
+        var TL = buildTemplates(env, okB.filter(function (b) { return Math.abs(b.k - centers[ci]) <= spanP; }), pre, post);
+        if (TL.cnt[0] < 3 || TL.cnt[1] < 3) continue;
+        var rg = [activeRange(TL.tpl[0]), activeRange(TL.tpl[1])];
+        for (var q = 0; q < 2; q++) {
+          rg[q].a = Math.max(0, rg[q].a - Math.round(0.001 * fs));
+          rg[q].b = Math.min(TL.L - 1, rg[q].b + Math.round(0.001 * fs));
+        }
+        for (var part = 0; part < 4; part++) {
+          var kA = kLo + (kHi - kLo) * part / 4, kB = kLo + (kHi - kLo) * (part + 1) / 4;
+          var sel = okB.filter(function (b) { return b.k >= kA && b.k < kB; });
+          if (sel.length < 8) continue;
+          var every = Math.max(1, Math.floor(sel.length / 8)), lags = [];
+          for (var si = 0; si < sel.length && lags.length < 8; si += every) {
+            var lg = alignBeatWide(env, Math.round(sel[si].pos), TL.tpl[sel[si].parity], pre, rg[sel[si].parity], lagW, strideW);
+            if (lg !== null) lags.push(lg / fs);
+          }
+          if (lags.length < 6) continue;
+          var medL = median(lags), near = 0;
+          for (var li = 0; li < lags.length; li++) if (Math.abs(lags[li] - medL) <= 0.001) near++;
+          if (Math.abs(medL) >= 0.002 && near >= 0.75 * lags.length) return true;
+        }
+      }
+      return false;
+    }
+    var tplBeats = beats;
+    if (opts.localTpl) {
+      var kSpan = Math.max(8, Math.round(LOCAL_TPL_S / T0)), kCenter = opts.localTpl === 'late' ? Math.round(0.7 * kHi) : 0;
+      tplBeats = beats.filter(function (b) { return Math.abs(b.k - kCenter) <= kSpan; });
+    }
     for (var pass = 0; pass < 4; pass++) {
-      var maxLag = Math.round((pass === 0 ? Math.min(0.022, 0.2 * T0) : 0.0015) * fs);
-      T = buildTemplates(env, beats, pre, post);
+      var maxLag = Math.round((pass === 0 ? (opts.localTpl ? Math.min(0.045, 0.3 * T0) : Math.min(0.022, 0.2 * T0)) : 0.0015) * fs);
+      T = buildTemplates(env, pass === 0 ? tplBeats : beats, pre, post);
       if (T.cnt[0] < 3 || T.cnt[1] < 3) break;
       ranges = [activeRange(T.tpl[0]), activeRange(T.tpl[1])];
       for (var r = 0; r < 2; r++) {
         ranges[r].a = Math.max(0, ranges[r].a - Math.round(0.001 * fs));
         ranges[r].b = Math.min(T.L - 1, ranges[r].b + Math.round(0.001 * fs));
       }
+      var wide = pass === 0 && opts.localTpl ? Math.max(1, Math.round(0.0001 * fs)) : 0;   // zweiter Versuch: weites Fenster, grob-dann-fein
       beats.forEach(function (b) {
-        var lag = alignBeat(env, Math.round(b.pos), T.tpl[b.parity], pre, ranges[b.parity], maxLag);
+        var lag = wide ? alignBeatWide(env, Math.round(b.pos), T.tpl[b.parity], pre, ranges[b.parity], maxLag, wide)
+          : alignBeat(env, Math.round(b.pos), T.tpl[b.parity], pre, ranges[b.parity], maxLag);
         if (lag !== null) b.pos = Math.round(b.pos) + lag;
       });
       // nach der Ausrichtung: Schlaege mit klarer Aehnlichkeit fuer die naechste Schablone verwenden
@@ -895,6 +1177,34 @@
       b.rho = beatCorrelation(env, b.pos, T.tpl[b.parity], pre, ranges[b.parity]);
       b.ok = b.rho >= rhoThr;
     });
+
+    // Fehlt das Ticken irgendwo 4 s oder laenger (Handy weggenommen, verrutscht)? Lieber keine Zahl als eine grobe:
+    // ablehnen und sagen, wo die Luecke liegt. Nicht im Suchbetrieb (der Ausschnitt ist dort nur 4,5 s lang).
+    // opts.trimSilence (Auswertung einer Datei): Fehlt das Ticken nur am Anfang oder am Ende (Vor- und Nachlauf der
+    // Aufnahme), wird nur das Stueck mit Ticken ausgewertet; eine Luecke mittendrin wird auch dann abgelehnt.
+    var sil = opts.probe ? null : findSilence(beats, fs, Tsamp, duration);
+    if (sil) {
+      // Fehlt das Ticken wirklich, oder passen die Schlaege nach einem Sprung der Aufnahme nur nicht mehr zur Schablone?
+      // Findet der zweite Versuch durchgehend klares Ticken, war es ein Sprung.
+      var altS = secondTry();
+      if (altS) return altS;
+      if (!opts.trimSilence || sil.stretches.some(function (s) { return s.where === 'middle'; })) {
+        return {
+          ok: false, code: 'silence', bph: bph,
+          reason: 'Das Ticken war mehrere Sekunden lang nicht zu hören. Handy und Uhr während der ganzen Messung ruhig lassen und nochmals messen.',
+          silence: { fromS: +sil.longest.fromS.toFixed(1), toS: +sil.longest.toS.toFixed(1), where: sil.longest.where, totalS: +duration.toFixed(1) }
+        };
+      }
+      // Nur das Stueck mit Ticken auswerten, und zwar von Grund auf neu: Raster und Schablonen dieses Durchgangs sind
+      // vom Rauschen mitbestimmt (der Anker des Rasters kann sogar mitten im Rauschen liegen).
+      var cutA = Math.max(0, Math.floor((sil.sound.fromS - 0.5 * T0) * fs)), cutB = Math.min(x.length, Math.ceil((sil.sound.toS + 0.5 * T0) * fs));
+      var o2 = {};
+      Object.keys(opts).forEach(function (key) { if (key !== 'trimSilence') o2[key] = opts[key]; });
+      var sub = analyzeBand(x.subarray(cutA, cutB), fs, o2, band);
+      if (sub.ok) sub.trimmed = { fromS: +(cutA / fs).toFixed(1), toS: +(cutB / fs).toFixed(1), totalS: +duration.toFixed(1) };
+      if (sub.silence) { sub.silence.fromS = +(sub.silence.fromS + cutA / fs).toFixed(1); sub.silence.toS = +(sub.silence.toS + cutA / fs).toFixed(1); sub.silence.totalS = +duration.toFixed(1); }
+      return sub;
+    }
 
     // 3) Geraeusche in den Schablonen.
     //    Bezugspunkt fuer Gang und Abfallfehler ist das Hauptgeraeusch (der lauteste Ton, meist der
@@ -1045,6 +1355,7 @@
       return { ok: false, reason: 'Auswertung nicht stabil. Bitte nochmals aufnehmen.', bph: bph };
     }
     var gaps = (fit.steps || []).map(function (s) { return { k: s.k, ms: +(s.dt * 1000).toFixed(2) }; });
+    var rawPoints = points;   // mit den Spruengen, fuer deren oertliche Messung (localStep)
     if (gaps.length) {   // Zeitpunkte um die Aussetzer bereinigen: Hälften und Papierstreifen sehen eine durchgehende Aufnahme
       points = points.map(function (p) {
         var t = p.t;
@@ -1076,6 +1387,28 @@
     }
     var rateSigma = rateSigmaFit;
     if (halves) rateSigma = Math.max(rateSigma, Math.abs(halves.rate[0] - halves.rate[1]) / 4);
+    // Ausgeglichene Aussetzer ehrlich einrechnen. Bei einer Uhr mit wanderndem Gang schaetzt der Ausgleich die Hoehe des
+    // Sprungs falsch (siehe localStep), und die Gegenprobe der Haelften merkt es nicht: Der Sprung hat den Unterschied
+    // schon geschluckt. Weicht die oertlich gemessene Hoehe um mehr ab, als ihre eigene Streuung erklaert (2 Sigma), wird
+    // der Rest als Unsicherheit des Gangs gerechnet: Ein Fehler d im Sprung an der Stelle p (0 bis 1) der Messdauer D
+    // verschiebt die Steigung um 6·p·(1−p)·d/D. Bei ruhigem Gang stimmen beide Werte ueberein, und es aendert sich nichts.
+    var rateSigmaStep = 0;
+    if (fit.steps && fit.steps.length && kSorted.length > 1) {
+      var kFirst = kSorted[0], spanK = kSorted[kSorted.length - 1] - kFirst;
+      var sts = fit.steps.slice().sort(function (a, b) { return a.k - b.k; }), gi = 0;
+      // Spruenge, die dichter als LOCAL_STEP_W Schlaege aufeinander folgen, als Gruppe: Es zaehlt ihre Summe
+      while (gi < sts.length && spanK > 0) {
+        var gj = gi, net = sts[gi].dt;
+        while (gj + 1 < sts.length && sts[gj + 1].k - sts[gj].k < LOCAL_STEP_W) { gj++; net += sts[gj].dt; }
+        var ls = localStep(rawPoints, fit, sts[gi].k, sts[gj].k);
+        if (ls) {
+          var excess = Math.abs(net - ls.dt) - 2 * ls.sigma, pf = ((sts[gi].k + sts[gj].k) / 2 - kFirst) / spanK;
+          if (excess > 0) rateSigmaStep = Math.max(rateSigmaStep, 86400 * 6 * pf * (1 - pf) * excess / (spanK * fit.T));
+        }
+        gi = gj + 1;
+      }
+      rateSigma = Math.sqrt(rateSigma * rateSigma + rateSigmaStep * rateSigmaStep);
+    }
     // Schwankt der Gang waehrend der Aufnahme deutlich mehr, als die Messgenauigkeit erklaert?
     var rateStable = !halves || Math.abs(halves.rate[0] - halves.rate[1]) <= Math.max(1.5, 12 * rateSigmaFit);
     var beHalvesOk = !halves || Math.abs(halves.beatErrorMs[0] - halves.beatErrorMs[1]) <= Math.max(0.3, 0.5 * beatErrorMs);
@@ -1139,6 +1472,27 @@
     // Die leise Ausloesung geht in schwachen Aufnahmen zuerst unter: dann keine sichere Amplitude
     if (label === 'schwach') amplitudeReliable = false;
 
+    // Zweiter Versuch (siehe secondTry): wenn der Zeitbezug springt (wanderMs > 2), wenn die Aufnahme einen Sprung hat
+    // und das Signal trotzdem als schwach gilt (dann haben sich die Schlaege an der unscharfen Schablone verteilt), oder
+    // wenn mehrere Spruenge gefunden sind: Zwei Aussetzer in einer Messung sind selten; meist ist es ein einziger, um den
+    // herum sich einzelne Schlaege falsch ausgerichtet haben.
+    if (wanderMs > 2 || (label === 'schwach' && gaps.length) || gaps.length >= 2) {
+      var alt = secondTry();
+      if (alt) return alt;
+    }
+    // Und wenn alles sauber aussieht? Ein Aussetzer von 25 bis 32 ms versteckt sich: Beide Lagen des Schlags (vor und nach
+    // dem Sprung) liegen noch im Fenster der Schablone. Sie zeigt dann den Schlag doppelt, alle Schlaege passen ohne
+    // Versatz dazu, der Sprung ist in den Zeitpunkten nicht zu sehen, und der Gang kommt um ueber 1 s/Tag falsch heraus,
+    // bei unauffaelligem ± (Versuch: kuenstliche Uhr, 30 ms mitten in 30 s). Die Sprung-Probe (jumpProbe) deckt das auf.
+    // Dann zaehlt der zweite Versuch; gelingt er nicht, gibt es nur einen groben Wert.
+    var jumpSuspect = false;
+    if (!opts.probe && !opts.localTpl && jumpProbe()) {   // auch bei schwachem Signal: Die doppelte Schablone drueckt die Aehnlichkeit unter die Grenze
+      var altJ = secondTry();
+      if (altJ) return altJ;
+      jumpSuspect = true;   // fuer analyze(): Dieses Band gewinnt nicht gegen eines ohne Verdacht, so klein sein ± auch aussieht
+      label = 'schwach'; quality.label = label; amplitudeReliable = false;
+    }
+
     // Lieber keine Zahl als eine falsche: zu unsicher -> ablehnen
     // Suchbetrieb (opts.probe): nur fragen, ob das Ticken klar ist; die Gangzahl darf dann ungenau sein
     if (opts.probe ? (detectedFraction < 0.5 || fit.used < 12) : (detectedFraction < 0.5 || fit.used < 20 || !(rateSigma <= 2))) {
@@ -1146,6 +1500,7 @@
       var wandered = !opts.probe && detectedFraction >= 0.5 && fit.used >= 20 && label !== 'schwach';
       return {
         ok: false,
+        code: wandered ? 'wander' : undefined,   // fuer die App: Eine laengere Messung kann helfen (sie verlaengert dann von selbst)
         reason: wandered ? 'Der Gang schwankte während der Messung zu stark für einen verlässlichen Wert. Uhr und Handy ruhig halten, nicht drücken, und nochmals messen, am besten 60 Sekunden lang.'
           : 'Signal zu schwach für eine verlässliche Messung. Mikrofon näher an die Krone, ruhiger Raum.',
         bph: bph,
@@ -1170,6 +1525,7 @@
       rateRaw: rateRaw,
       rateSigma: rateSigma,
       rateSigmaFit: rateSigmaFit,
+      rateSigmaStep: rateSigmaStep,   // Anteil aus ausgeglichenen Aussetzern (0, wenn keine oder bei ruhigem Gang)
       rateStable: rateStable,
       halves: halves,
       beatErrorMs: beatErrorMs,
@@ -1185,6 +1541,9 @@
       beatsTotal: beats.length,
       gaps: gaps,
       duration: duration,
+      trimmed: null,
+      jumpSuspect: jumpSuspect,   // Sprung-Probe schlug an, der zweite Versuch gelang nicht (dann ist label 'schwach')
+      secondTry: opts.localTpl || null,   // 'anchor' | 'late': Ergebnis des zweiten Versuchs (siehe secondTry)
       soundsPerBeat: peakCounts,
       band: [band.lo, band.hi],
       trace: trace,
@@ -1445,13 +1804,13 @@
   }
 
   var api = {
-    version: '0.2.6',
+    version: '0.2.7',
     analyze: analyze,
     analyzeQuartz: analyzeQuartz,
     probeQuartz: probeQuartz,
     detectBph: detectBph,
     CANDIDATE_BPH: CANDIDATE_BPH,
-    _internal: { fineEnvelope: fineEnvelope, bandEnvelope: bandEnvelope, chooseBand: chooseBand, highpass: highpass, templatePeaks: templatePeaks, trackBeats: trackBeats, movingAverage: movingAverage, approxMedian: approxMedian, buildTemplates: buildTemplates }
+    _internal: { fineEnvelope: fineEnvelope, bandEnvelope: bandEnvelope, chooseBand: chooseBand, highpass: highpass, templatePeaks: templatePeaks, trackBeats: trackBeats, movingAverage: movingAverage, approxMedian: approxMedian, buildTemplates: buildTemplates, findSilence: findSilence, limitBursts: limitBursts, SILENCE_S: SILENCE_S, LOCAL_TPL_S: LOCAL_TPL_S, localStep: localStep }
   };
   root.Tickwerk = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
