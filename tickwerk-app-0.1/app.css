@@ -535,3 +535,10 @@ main { padding-top: calc(14px + env(safe-area-inset-top)); }
 /* Zustand der Update-Suche in der Menüzeile */
 .menu-s[data-kind="ok"] { color: var(--lume); }
 .menu-s[data-kind="warn"] { color: var(--warn); }
+
+/* 0.6.5: Quarzuhr als Referenz (Seite der Uhr zeigt nur «Gang im Alltag»), Angebot auf der Eich-Seite */
+#scr-watch.quartz [data-mech] { display: none !important; }
+#scr-watch:not(.quartz) [data-quartz] { display: none !important; }
+.qoffer { display: flex; flex-direction: column; gap: 6px; }
+.qoffer:empty { display: none; }
+.qoffer .qtake { align-self: flex-start; height: auto; min-height: 36px; padding-top: 6px; padding-bottom: 6px; text-align: left; white-space: normal; }
