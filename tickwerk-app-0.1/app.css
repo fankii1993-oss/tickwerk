@@ -509,6 +509,7 @@ main { padding-top: calc(14px + env(safe-area-inset-top)); }
 .sigma.left { text-align: left; }
 .btn-link.file-btn { display: inline-flex; align-items: center; cursor: pointer; }
 .details .field { margin-top: 10px; }
+.details > .hint { margin-top: 10px; }
 .fold-body > .actions { align-items: center; }
 .fold-body > .actions > .info { margin: 0 -6px 0 auto; }
 #quartzOut:empty { display: none; }

@@ -769,6 +769,12 @@
     <button type="button" class="btn-primary btn-big" id="ncRec"><span class="prog" id="ncProg"></span><span class="btn-label" id="ncLabel">Eichung starten (60 Minuten)</span></button>
     <p class="status" id="ncOut" data-kind=""></p>
     <div class="actions"><button type="button" class="btn-ghost small" id="ncTake" hidden>Jetzt übernehmen</button></div>
+    <details class="card details" id="calWhy">
+      <summary>Warum dauert das 60 Minuten?</summary>
+      <p class="hint">1 ppm heisst: Die Uhr im Handy läuft in einer Stunde 3,6 Millisekunden davon, in 10 Minuten erst 0,6. Die Zeit aus dem Internet kommt aber nur auf einige Millisekunden genau an. Erst über eine Stunde wird die Abweichung deutlich grösser als dieser Fehler.</p>
+      <p class="hint">Mit einer Quarzuhr geht es schneller, weil das Mikrofon ihre Sekundenschritte viel genauer hört. Dafür kennt Tickwerk ihren Gang zuerst nicht.</p>
+      <p class="hint">Du musst die Stunde nicht abwarten: Sobald der Wert auf ± 5 ppm bestimmt ist, erscheint «Jetzt übernehmen». Das ist etwa so genau wie eine Eichung mit einer Quarzuhr, deren Gang Tickwerk nicht kennt.</p>
+    </details>
   </section>
 
   <section class="screen" id="scr-eichdatei" aria-label="Aus einer Aufnahme eichen" hidden>

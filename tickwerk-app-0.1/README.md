@@ -15,6 +15,7 @@ Seit dem 10.11.2026 legt Claude neue Versionen als Pull Request in den Ordner; �
 ## Neu in 0.6.7
 
 - **Eichung an einem Ort:** Mehr → Einstellungen → «Eichung» (bisher «Handy-Uhr eichen») zeigt oben den Stand der Eichung und darunter die Methoden als Liste: «Mit einer Quarzuhr», «Mit Internetzeit», «Aus einer Aufnahme», «Von Hand eintragen». Jede Methode hat ihre eigene Seite mit nur ihren Schritten; die Methode, von der die Eichung stammt, ist mit «aktuell» markiert. «Noch genauer eichen» (Gang der Quarzuhr) steht auf der Seite «Mit einer Quarzuhr».
+- **«Warum dauert das 60 Minuten?»:** Aufklapper auf der Seite «Mit Internetzeit eichen». Er erklärt, warum die Zeit aus dem Internet eine Stunde braucht (1 ppm sind 3,6 ms pro Stunde, eine Zeitabfrage ist nur auf einige Millisekunden genau) und dass sich der Wert ab ± 5 ppm früher übernehmen lässt.
 - **Nur die Anordnung ist neu:** Messung, Rechnung und gespeicherte Daten sind dieselben wie in 0.6.6. Wer eine laufende Eichung verlässt (Zurück), bricht sie wie bisher ab.
 - Die ältern Abschnitte unten nennen die Seite noch «Handy-Uhr eichen».
 
