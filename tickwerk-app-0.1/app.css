@@ -535,6 +535,10 @@ main { padding-top: calc(14px + env(safe-area-inset-top)); }
 /* Zustand der Update-Suche in der Menüzeile */
 .menu-s[data-kind="ok"] { color: var(--lume); }
 .menu-s[data-kind="warn"] { color: var(--warn); }
+/* Eichung (0.6.7): Liste der Methoden; «aktuell» markiert die Methode, von der die Eichung stammt */
+.now-tag { display: inline-block; margin-left: 8px; padding: 1px 6px; border-radius: 6px; background: rgba(184, 242, 138, 0.14); color: var(--lume); font: 500 10px var(--mono); letter-spacing: 0.06em; text-transform: uppercase; vertical-align: 2px; }
+.now-tag[hidden] { display: none; }
+label.btn-big.file-btn { display: flex; justify-content: center; cursor: pointer; }
 
 /* 0.6.5: Quarzuhr als Referenz (Seite der Uhr zeigt nur «Gang im Alltag»), Angebot auf der Eich-Seite */
 #scr-watch.quartz [data-mech] { display: none !important; }

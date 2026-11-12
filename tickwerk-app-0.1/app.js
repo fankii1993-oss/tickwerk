@@ -65,7 +65,7 @@
   var UHREN = window.TICKWERK_UHREN || [];
   var CFG = window.TICKWERK_CONFIG || {};
   var FLAVOR = CFG.flavor === 'store' ? 'store' : 'test';
-  var APP_VERSION = '0.6.6';
+  var APP_VERSION = '0.6.7';
   var PREFIX = typeof CFG.storage === 'string' && /^[a-z][a-z0-9.]{2,30}$/.test(CFG.storage) ? CFG.storage : 'tickwerk.v1';
   var KEYS = { watches: PREFIX + '.watches', meas: PREFIX + '.measurements', settings: PREFIX + '.settings', session: PREFIX + '.session', pro: PREFIX + '.pro', log: PREFIX + '.log' };
   var PRO_SKU = typeof CFG.proSku === 'string' && /^[a-z0-9._]{1,40}$/.test(CFG.proSku) ? CFG.proSku : 'tickwerk_pro';
@@ -389,7 +389,7 @@
     if (a.src === 'zeit') return T('Quelle: Internetzeit.') + ' ' + T('Genauigkeit: etwa ± {p} ppm (± {d} s/Tag).', v);
     return T('Quelle: Quarzuhr.') + ' ' + (a.src === 'hand' ? T('Genauigkeit der Messung: ± {p} ppm. Dazu kommt, wie genau du den Gang der Quarzuhr kennst.', v) :
       a.src === 'uhr' ? T('Genauigkeit: etwa ± {p} ppm (± {d} s/Tag), mit dem Gang der Quarzuhr aus «Gang im Alltag».', v) :
-        T('Genauigkeit: etwa ± {p} ppm (± {d} s/Tag), weil Tickwerk den Gang der Quarzuhr nicht kennt. Genauer: siehe «Noch genauer eichen».', v));
+        T('Genauigkeit: etwa ± {p} ppm (± {d} s/Tag), weil Tickwerk den Gang der Quarzuhr nicht kennt. Genauer: siehe «Mit einer Quarzuhr», «Noch genauer eichen».', v));
   }
   function clockShort() {   /* eine Zeile für «Mehr», die Werkzeuge und die Einstellungen */
     var c = calOf(micKey());
@@ -596,8 +596,8 @@
   }
 
   /* ---------- Navigation: Bildschirme als Stapel, Android-Zurück schliesst den obersten ---------- */
-  var SCREENS = ['measure', 'watches', 'watch', 'edit', 'lagen', 'lpos', 'reg', 'zeit', 'detektiv', 'guide', 'more', 'pro', 'history', 'settings', 'eichen'];
-  var NO_TABS = { edit: true, lagen: true, lpos: true, reg: true, zeit: true, detektiv: true, guide: true, eichen: true };
+  var SCREENS = ['measure', 'watches', 'watch', 'edit', 'lagen', 'lpos', 'reg', 'zeit', 'detektiv', 'guide', 'more', 'pro', 'history', 'settings', 'eichen', 'eichquarz', 'eichzeit', 'eichdatei', 'eichhand'];
+  var NO_TABS = { edit: true, lagen: true, lpos: true, reg: true, zeit: true, detektiv: true, guide: true, eichen: true, eichquarz: true, eichzeit: true, eichdatei: true, eichhand: true };
   var stack = [{ s: 'measure', p: {} }];
   var sheetOpen = null, afterPop = null, shownScreen = '';
   var tabs = Array.prototype.slice.call(document.querySelectorAll('.tabbar button'));
@@ -1318,7 +1318,7 @@
   }
   $('mStart').addEventListener('click', measureStart);
   $('mForce').addEventListener('click', recForceStart);
-  $('mQuartzGo').addEventListener('click', function () { $('mQuartz').hidden = true; go('eichen'); });
+  $('mQuartzGo').addEventListener('click', function () { $('mQuartz').hidden = true; go('eichquarz'); });
   $('mPos').addEventListener('change', function () { settings.pos = this.value; saveSettings(); });
   $('mDur').addEventListener('change', function () { settings.dur = parseInt(this.value, 10) || 30; saveSettings(); });
   $('mGuide').addEventListener('click', function () { go('guide'); });
@@ -1353,7 +1353,7 @@
     { id: 'gr', t: T('Gangreserve-Test'), s: T('Voll aufgezogen und nach 24 Stunden: Wie viel Kraft bleibt?'), pro: true },
     { id: 'zeit', t: T('Gang im Alltag'), s: T('Die Uhr über Tage mit der Atomzeit vergleichen') },
     { id: 'det', t: T('Werk-Detektiv'), s: T('Herausfinden, welches Werk in der Uhr steckt') },
-    { id: 'eichen', t: T('Handy-Uhr eichen'), s: '' }
+    { id: 'eichen', t: T('Eichung'), s: '' }
   ];
   /* Die Uhr, für die ein Werkzeug gilt: die unter «Messen» gewählte, sonst die einzige gespeicherte */
   function mechWatches() { return watches.filter(function (w) { return !w.quarz; }); }
@@ -2628,7 +2628,7 @@
     else txt = (gangOf(w) ? T(gangFit(gangOf(w), dr.rate) ? 'Das liegt innerhalb der Vorgabe ({t}).' : 'Das liegt ausserhalb der Vorgabe ({t}).', { t: gangText(gangOf(w)) }) + ' ' : '') +
       (dr.days < 1 ? T('Noch weniger als ein Tag: Nach ein paar Tagen wird der Wert genauer.') + ' ' : '') +
       (lastM ? T('Zum Vergleich die letzte Messung mit dem Mikrofon: {v} s/Tag ({p}).', { v: signed(lastM.rate, 1), p: POS[lastM.pos] }) + ' ' : '') +
-      (w.quarz ? T(dr.sigma <= QUARTZ_OK ? 'Genau genug für die Eichung: Unter Mehr → Einstellungen → Handy-Uhr eichen → «Noch genauer eichen» lässt sich dieser Gang übernehmen.' :
+      (w.quarz ? T(dr.sigma <= QUARTZ_OK ? 'Genau genug für die Eichung: Unter Mehr → Einstellungen → Eichung → «Mit einer Quarzuhr» lässt sich dieser Gang übernehmen.' :
         'Für die Eichung der Handy-Uhr braucht es ± {m} s/Tag oder besser: weiter vergleichen.', { m: fmt(QUARTZ_OK, 2) }) + ' ' : '') +
       (dr.net < dr.n && !netOn() ? T('Mit der genauen Zeit aus dem Internet wird der Wert genauer: Mehr → Einstellungen.') : '');
     txt = txt.trim();
@@ -3012,21 +3012,21 @@
     return NET_SVC_HOST ? T('Dafür gehen leere Anfragen an den öffentlichen Zeitdienst {a}. Antwortet er nicht, fragt Tickwerk {h}, den Server, von dem die App kommt. Beide sehen dabei die IP-Adresse deines Handys, wie bei jedem Aufruf einer Website. Über dich und deine Uhren wird nichts übertragen.', { a: NET_SVC_HOST, h: netHost() }) :
       T('Dafür geht eine leere Anfrage an {h}: den Server, von dem die App kommt. Er sieht dabei die IP-Adresse deines Handys, wie bei jedem Aufruf einer Website. Über dich und deine Uhren wird nichts übertragen.', { h: netHost() });
   }
-  var netAskFor = '';   /* Anlass der Frage: «zeit» (Zeitvergleich) oder «eichen» (Eichung mit Internetzeit) */
+  var netAskFor = '';   /* Anlass der Frage und zugleich der Bildschirm, auf dem sie gestellt wird: «zeit» (Zeitvergleich) oder «eichzeit» (Eichung mit Internetzeit) */
   function netAsk(why) {
     if (topScreen() !== why || sheetOpen) return;
     netAskFor = why;
-    $('ntEyebrow').textContent = T(why === 'eichen' ? 'Handy-Uhr eichen' : 'Gang im Alltag');
-    $('ntLead').textContent = T(why === 'eichen' ? 'Für die Eichung ohne Quarzuhr vergleicht Tickwerk den Takt des Mikrofons mit der genauen Zeit. Dafür fragt es die Zeit im Internet ab.' :
+    $('ntEyebrow').textContent = T(why === 'eichzeit' ? 'Eichung' : 'Gang im Alltag');
+    $('ntLead').textContent = T(why === 'eichzeit' ? 'Für die Eichung ohne Quarzuhr vergleicht Tickwerk den Takt des Mikrofons mit der genauen Zeit. Dafür fragt es die Zeit im Internet ab.' :
       'Die Uhr im Handy wird nur ab und zu gestellt und kann bis etwa zwei Sekunden danebenliegen. Genauer wird der Vergleich, wenn Tickwerk die Zeit im Internet abfragt.');
     $('ntHost').textContent = netWho();
-    $('ntNo').textContent = T(why === 'eichen' ? 'Nein, abbrechen' : 'Nein, Handy-Uhr nehmen');
+    $('ntNo').textContent = T(why === 'eichzeit' ? 'Nein, abbrechen' : 'Nein, Handy-Uhr nehmen');
     openSheet('netSheet');
   }
   function netChoose(yes) {
     settings.netTime = yes ? 'ja' : 'nein'; settings.netFor = yes ? NET_KEY : ''; saveSettings();
     closeSheet(function () {
-      if (netAskFor === 'eichen') { if (yes) calNetStart(); return; }
+      if (netAskFor === 'eichzeit') { if (yes) calNetStart(); return; }
       if (yes) netStart();
       zNet();
     });
@@ -3517,10 +3517,11 @@
     var m = settings.micLabel || T('gewählt');
     return ' · ' + (calOf(micKey()) ? T('Mikrofon: {m}', { m: m }) : T('Mikrofon: {m}, ungeeicht', { m: m }));
   }
-  /* ---------- Handy-Uhr eichen: eigene Seite. Stand der Eichung für das gewählte Mikrofon, mit Datum ---------- */
+  /* ---------- Eichung: eine Seite mit dem Stand (für das gewählte Mikrofon, mit Datum) und der Liste der Methoden;
+     jede Methode hat ihre eigene Seite (0.6.7): eichquarz, eichzeit, eichdatei, eichhand ---------- */
   function renderPpm() {
     var key = micKey(), m = settings.micLabel || T('gewählt'), c = calOf(key), has = isCal(c);
-    var noMic = T('Das Mikrofon «{m}» ist noch nicht geeicht. Tickwerk korrigiert seine Messungen erst nach «Quarzuhr messen» mit diesem Mikrofon.', { m: m });
+    var noMic = T('Das Mikrofon «{m}» ist noch nicht geeicht. Tickwerk korrigiert seine Messungen erst nach einer Eichung mit diesem Mikrofon.', { m: m });
     $('ppm').value = ppmOf(key);
     $('ppmFor').textContent = !key ? T('Gilt für das Standard-Mikrofon.') : c ? T('Gilt für das Mikrofon «{m}».', { m: m }) : noMic;
     $('calMic').textContent = key ? T('Mikrofon: {m}', { m: m }) : T('Standard-Mikrofon');
@@ -3531,6 +3532,9 @@
     $('calAge').hidden = !calOld(c);
     $('calAcc').hidden = !has; $('calAcc').textContent = has ? calAccText(c) : '';
     $('setCal').textContent = clockShort(); $('setCal').setAttribute('data-kind', calOld(c) ? 'warn' : '');
+    var kind = calKind(c), now = clockShort() + (has ? ' · ' + T(kind === 'z' ? 'Quelle: Internetzeit.' : kind === 'q' ? 'Quelle: Quarzuhr.' : 'Quelle: von Hand eingetragen.') : '');
+    Array.prototype.forEach.call(document.querySelectorAll('.cal-now'), function (e) { e.textContent = now; });
+    Array.prototype.forEach.call(document.querySelectorAll('#calMethods button[data-cal]'), function (b) { b.querySelector('.now-tag').hidden = b.dataset.cal !== kind; });
   }
   function quartzIdle() {
     $('quartzRec').classList.remove('running'); $('quartzRec').disabled = false;
@@ -3578,7 +3582,7 @@
     $('quartzRate').value = settings.quartzRate || 0;
     renderQuartzOffer();
     renderPpm();
-    if (!(rec && rec.owner === 'eichen')) quartzIdle();
+    if (!(rec && rec.owner === 'eichquarz')) quartzIdle();
     if (!(rec && rec.kind === 'zeit')) calIdle();
   }
   $('autoStart').addEventListener('change', function () { settings.autoStart = this.checked; saveSettings(); if (!rec && !lastShown) setStatus('status', idleHint(), ''); });
@@ -3608,11 +3612,12 @@
   /* Eichung mit einer Quarzuhr: gemessene Abweichung plus eigener Gang der Quarzuhr (geht sie vor, sind ihre Schritte kürzer).
      Sie gilt für das Mikrofon, das aufgenommen hat (bei einer Datei: das eingebaute). */
   function quartzPpm(raw) { return +(raw + settings.quartzRate / 0.0864).toFixed(1); }
-  function applyQuartz(q, key) {
-    if (!q || !q.ok) { logErr('eichen', (q && q.reason) || 'Keine Auswertung möglich.'); setStatus('quartzOut', T((q && q.reason) || 'Keine Auswertung möglich.'), 'err'); return; }
+  function applyQuartz(q, key, out) {
+    out = out || 'quartzOut';   /* Statuszeile: Seite «Mit einer Quarzuhr» oder «Aus einer Aufnahme» */
+    if (!q || !q.ok) { logErr('eichen', (q && q.reason) || 'Keine Auswertung möglich.'); setStatus(out, T((q && q.reason) || 'Keine Auswertung möglich.'), 'err'); return; }
     var raw = +q.ppm.toFixed(2), ppm = quartzPpm(raw);
     setClock(key, ppm, raw, q.sigmaPpm); saveSettings(); renderPpm(); renderQuartzOffer();
-    setStatus('quartzOut', T(ppm >= 0 ? 'Die Handy-Uhr geht {p} ppm vor (± {s} ppm), das sind {d} s/Tag' : 'Die Handy-Uhr geht {p} ppm nach (± {s} ppm), das sind {d} s/Tag',
+    setStatus(out, T(ppm >= 0 ? 'Die Handy-Uhr geht {p} ppm vor (± {s} ppm), das sind {d} s/Tag' : 'Die Handy-Uhr geht {p} ppm nach (± {s} ppm), das sind {d} s/Tag',
       { p: fmt(Math.abs(ppm), 1), s: fmt(Math.max(0.1, q.sigmaPpm), 1), d: fmt(Math.abs(ppm) * 0.0864, 2) }) +
       (settings.quartzRate ? T(', mit dem Gang der Quarzuhr verrechnet') : '') + '. ' + T('Tickwerk korrigiert das ab jetzt bei jeder Messung ({n} Schritte erkannt).', { n: q.steps }) +
       (q.inhibition ? ' ' + T('Deine Quarzuhr gleicht ihren Gang alle {n} s mit einem kleinen Sprung aus ({j} ms); das ist berücksichtigt.', { n: q.inhibition.everyS, j: fmt(Math.abs(q.inhibition.jumpMs), 1) }) : '') +
@@ -3741,7 +3746,7 @@
   }
   async function calNetStart() {
     if (rec || busy || opening || !EZ) return;
-    if (!netOn()) { netAsk('eichen'); return; }
+    if (!netOn()) { netAsk('eichzeit'); return; }
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setStatus('ncOut', T('Dieser Browser erlaubt hier keine Mikrofon-Aufnahme. Tickwerk über https öffnen, zum Beispiel in Chrome.'), 'err'); return;
     }
@@ -3761,7 +3766,7 @@
     var trk = stream.getAudioTracks()[0], tid = trk && trk.getSettings ? trk.getSettings().deviceId : '';
     usedMic = pick && !fell && (!tid || tid === settings.micId) ? settings.micId : '';
     var c = { key: usedMic, fs: 0, n: 0, pts: [], cur: null, wEnd: 0, syncs: [], fails: 0, start: performance.now(), next: 0, last: 0, kind: '', src: '', est: null, syncing: false, bad: '', stop: null, off: false };
-    var r = { owner: 'eichen', kind: 'zeit', stream: stream, ctx: null, timer: 0, cal: c,
+    var r = { owner: 'eichzeit', kind: 'zeit', stream: stream, ctx: null, timer: 0, cal: c,
       o: { onCancel: function () { if (c.stop) c.stop(); calIdle(); setStatus('ncOut', T('Abgebrochen.'), ''); } } };
     try { await calFrames(r); }
     catch (e) {
@@ -3770,7 +3775,7 @@
       setStatus('ncOut', T('Aufnahme konnte nicht starten') + (e && e.message ? ': ' + e.message : '.'), 'err'); return;
     }
     opening = false;
-    if (topScreen() !== 'eichen') { teardown(r); if (c.stop) c.stop(); calIdle(); return; }
+    if (topScreen() !== 'eichzeit') { teardown(r); if (c.stop) c.stop(); calIdle(); return; }
     rec = r; c.start = performance.now();
     try { if (navigator.wakeLock) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { wakeLock = null; }
     if (rec !== r) return;
@@ -3803,10 +3808,10 @@
   var QUARTZ_LABEL = T('Quarzuhr messen (2½ Minuten)');
   $('quartzRec').addEventListener('click', function () {
     if (rec && rec.kind === 'zeit') return;   /* es läuft eine Eichung mit Internetzeit */
-    if (rec && rec.owner === 'eichen') { recStop(true); return; }
+    if (rec && rec.owner === 'eichquarz') { recStop(true); return; }
     if (rec || busy || opening) return;
     recStart({
-      owner: 'eichen', dur: 150, settle: 1, noLive: true, opts: {},
+      owner: 'eichquarz', dur: 150, settle: 1, noLive: true, opts: {},
       onOpening: function () { $('quartzRec').disabled = true; setStatus('quartzOut', T('Mikrofon wird geöffnet …'), 'busy'); },
       onFail: function (msg) { $('quartzRec').disabled = false; setStatus('quartzOut', msg, 'err'); },
       onBegin: function () {
@@ -3825,12 +3830,12 @@
   $('quartzFile').addEventListener('change', function (e) {
     var f = e.target.files[0]; e.target.value = '';
     if (!f || rec || busy) return;
-    setStatus('quartzOut', T('Lese {f} …', { f: f.name }), 'busy');
+    setStatus('qfOut', T('Lese {f} …', { f: f.name }), 'busy');
     decodeFile(f).then(function (a) {
       var maxQ = Math.round(300 * a.sampleRate);
       return runJob({ kind: 'quartz', samples: a.samples.length > maxQ ? a.samples.subarray(0, maxQ) : a.samples, fs: a.sampleRate });
-    }).then(function (q) { applyQuartz(q, ''); }).catch(function () {
-      setStatus('quartzOut', f.size > MAX_FILE ? T('{f} ist zu gross (höchstens 150 MB).', { f: f.name }) : T('{f} konnte nicht gelesen werden.', { f: f.name }), 'err');
+    }).then(function (q) { applyQuartz(q, '', 'qfOut'); }).catch(function () {
+      setStatus('qfOut', f.size > MAX_FILE ? T('{f} ist zu gross (höchstens 150 MB).', { f: f.name }) : T('{f} konnte nicht gelesen werden.', { f: f.name }), 'err');
     });
   });
   $('exportBtn').addEventListener('click', function () {
@@ -4320,16 +4325,19 @@
   /* ---------- Was ist neu ----------
      Einmal nach einem Update zeigen, was dazugekommen ist und wo es zu finden ist; jederzeit unter «Mehr». Bei einer
      neuen Installation nicht (dort erklärt die Anleitung den Einstieg). settings.seenVersion merkt sich die Version. */
-  var NEWS_ORDER = ['0.6.6', '0.6.5', '0.6.4'];   /* neuste zuerst; die älteren stehen im Blatt darunter, falls ein Update übersprungen wurde */
+  var NEWS_ORDER = ['0.6.7', '0.6.6', '0.6.5', '0.6.4'];   /* neuste zuerst; die älteren stehen im Blatt darunter, falls ein Update übersprungen wurde */
   var NEWS = {
+    '0.6.7': [
+      { t: T('Eichung an einem Ort'), s: T('Unter Mehr → Einstellungen → «Eichung» steht oben der Stand und darunter jede Methode einzeln: mit einer Quarzuhr, mit Internetzeit, aus einer Aufnahme oder von Hand. Jede hat ihre eigene Seite.') }
+    ],
     '0.6.6': [
-      { t: T('Eichen ohne Quarzuhr'), s: T('Unter «Handy-Uhr eichen» gibt es neu «Mit Internetzeit eichen». Das Handy liegt eine Stunde am Ladegerät; Tickwerk vergleicht den Takt des Mikrofons mit der genauen Zeit aus dem Internet. Wie genau das Ergebnis ist, zeigt Tickwerk an; das Ziel nach einer Stunde ist etwa ± 1 ppm, das sind ± 0,1 s/Tag.') }
+      { t: T('Eichen ohne Quarzuhr'), s: T('Unter «Eichung» gibt es neu «Mit Internetzeit». Das Handy liegt eine Stunde am Ladegerät; Tickwerk vergleicht den Takt des Mikrofons mit der genauen Zeit aus dem Internet. Wie genau das Ergebnis ist, zeigt Tickwerk an; das Ziel nach einer Stunde ist etwa ± 1 ppm, das sind ± 0,1 s/Tag.') }
     ].concat(NET_SVC_HOST ? [
       { t: T('Zeit von einem öffentlichen Zeitdienst'), s: T('Die genaue Zeit holt Tickwerk neu zuerst beim öffentlichen Zeitdienst {a} und erst, wenn er nicht antwortet, beim Server der App. Darum fragt Tickwerk beim nächsten Mal nochmals, ob du einverstanden bist.', { a: NET_SVC_HOST }) }
     ] : []),
     '0.6.5': [
       { t: T('Genaue Zeit für den Gang im Alltag'), s: T('Auf Wunsch holt Tickwerk beim Zeitvergleich die genaue Zeit aus dem Internet. Die Uhr des Handys kann bis etwa zwei Sekunden danebenliegen; mit der genauen Zeit stimmt der Gang im Alltag schon nach wenigen Tagen. Tickwerk fragt beim nächsten Vergleich, ob du das möchtest.') },
-      { t: T('Quarzuhr als Referenz'), s: T('Eine Uhr lässt sich jetzt als Quarzuhr anlegen. Kennt Tickwerk nach etwa einer Woche ihren Gang, kannst du ihn unter «Handy-Uhr eichen» übernehmen: Die Eichung wird damit rund zehnmal genauer.') },
+      { t: T('Quarzuhr als Referenz'), s: T('Eine Uhr lässt sich jetzt als Quarzuhr anlegen. Kennt Tickwerk nach etwa einer Woche ihren Gang, kannst du ihn unter «Eichung» übernehmen: Die Eichung wird damit rund zehnmal genauer.') },
       { t: T('Werksvorgabe deines Werks'), s: T('Für rund 20 Werke kennt Tickwerk jetzt den Gang, den der Hersteller erlaubt, zum Beispiel von Seiko, Miyota, Orient, Oris und Rolex. Die Vorgabe steht beim Werk. Verglichen wird beim Gang im Alltag und im Lagen-Test, nicht bei der einzelnen Messung.') },
       { t: T('Modell fehlt?'), s: T('Findest du deine Uhr in der Suche nicht, kannst du sie beim Anlegen mit «Modell fehlt? Melden» per E-Mail melden.') }
     ],
@@ -4492,7 +4500,7 @@
 
   /* ---------- Start ---------- */
   var RENDER = { measure: renderMeasure, watches: renderWatches, watch: renderDetail, edit: renderEdit, lagen: renderLagen, lpos: renderLpos, reg: renderReg, zeit: renderZeit, detektiv: renderDetektiv, guide: function () {},
-    more: renderMore, pro: renderPro, history: renderHistory, settings: renderSettings, eichen: renderEichen };
+    more: renderMore, pro: renderPro, history: renderHistory, settings: renderSettings, eichen: renderEichen, eichquarz: renderEichen, eichzeit: renderEichen, eichdatei: renderEichen, eichhand: renderEichen };
   if (FLAVOR === 'test') {
     var row = document.createElement('span'), badge = document.createElement('span');
     row.className = 'eyebrow-row'; badge.className = 'test-badge'; badge.textContent = 'TEST';
@@ -4513,7 +4521,7 @@
     /* Eichung über ein halbes Jahr alt: höchstens einmal im Monat daran erinnern */
     if (calOld(calOf(micKey())) && (!settings.calNag || Date.now() - new Date(settings.calNag).getTime() > CAL_NAG_DAYS * 86400000)) {
       settings.calNag = new Date().toISOString(); saveSettings();
-      toast(T('Die Eichung der Handy-Uhr ist über sechs Monate alt. Neu eichen unter Mehr, «Handy-Uhr eichen».'));
+      toast(T('Die Eichung der Handy-Uhr ist über sechs Monate alt. Neu eichen unter Mehr, «Eichung».'));
     }
   }, 1200);
   if (FLAVOR === 'store') {

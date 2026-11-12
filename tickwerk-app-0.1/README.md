@@ -1,4 +1,4 @@
-# Tickwerk – Web-App 0.6.6 (Testversion)
+# Tickwerk – Web-App 0.6.7 (Testversion)
 
 Misst mit dem Handy-Mikrofon, wie genau eine mechanische Uhr geht: Gangabweichung, Abfallfehler, Amplitude, Schlagzahl. Die Aufnahme und die Messwerte bleiben auf dem Handy. Ins Internet gehen nur, wenn du in der App zustimmst, leere Zeitabfragen für den «Gang im Alltag» und für «Mit Internetzeit eichen»: an den öffentlichen Zeitdienst time.akamai.com und, wenn er nicht antwortet, an den Server, von dem die App kommt (siehe Datenschutzerklärung).
 
@@ -11,6 +11,12 @@ Seit dem 10.11.2026 legt Claude neue Versionen als Pull Request in den Ordner; �
 1. Im Repository den Ordner `tickwerk-app-0.1` öffnen.
 2. **Add file → Upload files**, den ganzen Inhalt dieses Pakets hineinziehen (Dateien und die Ordner `engine`, `fonts`, `icons`), **Commit changes**. Gleichnamige Dateien werden ersetzt; deine Uhren und Messungen bleiben auf dem Handy erhalten.
 3. App auf dem Handy öffnen. Nach ein paar Sekunden erscheint «Neue Version ist bereit»; unter Mehr auf **Neue Version: neu laden** tippen. Ab 0.6.3 lässt sich die Suche unter Mehr → **Nach Update suchen** auch von Hand anstossen.
+
+## Neu in 0.6.7
+
+- **Eichung an einem Ort:** Mehr → Einstellungen → «Eichung» (bisher «Handy-Uhr eichen») zeigt oben den Stand der Eichung und darunter die Methoden als Liste: «Mit einer Quarzuhr», «Mit Internetzeit», «Aus einer Aufnahme», «Von Hand eintragen». Jede Methode hat ihre eigene Seite mit nur ihren Schritten; die Methode, von der die Eichung stammt, ist mit «aktuell» markiert. «Noch genauer eichen» (Gang der Quarzuhr) steht auf der Seite «Mit einer Quarzuhr».
+- **Nur die Anordnung ist neu:** Messung, Rechnung und gespeicherte Daten sind dieselben wie in 0.6.6. Wer eine laufende Eichung verlässt (Zurück), bricht sie wie bisher ab.
+- Die ältern Abschnitte unten nennen die Seite noch «Handy-Uhr eichen».
 
 ## Neu in 0.6.6
 
