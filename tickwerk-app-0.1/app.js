@@ -65,7 +65,7 @@
   var UHREN = window.TICKWERK_UHREN || [];
   var CFG = window.TICKWERK_CONFIG || {};
   var FLAVOR = CFG.flavor === 'store' ? 'store' : 'test';
-  var APP_VERSION = '0.6.7';
+  var APP_VERSION = '0.6.8';
   var PREFIX = typeof CFG.storage === 'string' && /^[a-z][a-z0-9.]{2,30}$/.test(CFG.storage) ? CFG.storage : 'tickwerk.v1';
   var KEYS = { watches: PREFIX + '.watches', meas: PREFIX + '.measurements', settings: PREFIX + '.settings', session: PREFIX + '.session', pro: PREFIX + '.pro', log: PREFIX + '.log' };
   var PRO_SKU = typeof CFG.proSku === 'string' && /^[a-z0-9._]{1,40}$/.test(CFG.proSku) ? CFG.proSku : 'tickwerk_pro';
@@ -153,6 +153,9 @@
     if (typeof m.ppm === 'number' && isFinite(m.ppm)) out.ppm = m.ppm;
     /* Quelle der Eichung, mit der korrigiert wurde (q Quarzuhr, z Internetzeit, h von Hand), und ihre Unsicherheit in ppm */
     if (m.cq === 'q' || m.cq === 'z' || m.cq === 'h') { out.cq = m.cq; if (finite(m.cu, -1) >= 0 && m.cu < 100) out.cu = m.cu; }
+    /* bx: nur jeder zweite Schlag erkannt (zählt nicht); bf: zuerst die halbe Schlagzahl erkannt, dann mit der hinterlegten ausgewertet */
+    if (m.bx === 1) { out.bx = 1; out.beOk = false; out.ampOk = false; }
+    else if (finite(m.bf, 0) > 0 && Math.round(m.bf) * 2 === out.bph) out.bf = Math.round(m.bf);
     if (finite(m.fs, 0) > 0) out.fs = m.fs;
     if (str(m.eng, 20)) out.eng = str(m.eng, 20);
     if (str(m.app, 20)) out.app = str(m.app, 20);
@@ -397,7 +400,8 @@
     if (calOld(c)) return T('Eichung über sechs Monate alt: am besten neu eichen');
     return T('Geeicht: {p} ppm', { p: signed(c.ppm, 1) }) + (c.at ? ' · ' + dLong(new Date(c.at)) : '');
   }
-  function watchOpts(w, key) { return { liftAngle: w && w.liftAngle ? w.liftAngle : 52, bph: null, clockPpm: ppmOf(key == null ? usedMic : key) }; }
+  /* expectBph: die bei der Uhr hinterlegte Schlagzahl. Erkennt die Engine genau die Hälfte, wertet die Auswertung im Hintergrund nochmals mit ihr aus (worker.js, 0.6.8). */
+  function watchOpts(w, key) { return { liftAngle: w && w.liftAngle ? w.liftAngle : 52, bph: null, expectBph: w && w.bph > 0 ? w.bph : null, clockPpm: ppmOf(key == null ? usedMic : key) }; }
   function kalById(id) { for (var i = 0; i < KAL.length; i++) if (KAL[i].id === id) return KAL[i]; return null; }
   function calName(id) { var k = kalById(id); return k ? kName(k) : ''; }
   /* Werknamen in den anderen Sprachen: Namen sind meist Eigennamen, nur einige Wörter werden ersetzt (längere zuerst).
@@ -464,12 +468,12 @@
   }
   function measOf(w) { var id = w ? w.id : ''; return meas.filter(function (m) { return m.watchId === id; }); }
   /* Gewertet wird wie im Messprotokoll: gutes Signal, stabiler Gang, kleine Unsicherheit */
-  function counted(m) { return m.q !== 'schwach' && m.sigma <= (m.stable === false ? SIGMA_COUNT : SIGMA_SURE); }
+  function counted(m) { return !m.bx && m.q !== 'schwach' && m.sigma <= (m.stable === false ? SIGMA_COUNT : SIGMA_SURE); }
   /* Gezählt mit Vermerk: klare Klicks, aber der Gang schwankte während der Messung (Uhr oder Handhaltung) */
   function shaky(m) { return counted(m) && m.stable === false; }
   function shakyText() { return T('Gang könnte schwanken'); }
   /* Warum eine Messung nicht zählt */
-  function whyNot(m) { return m.q === 'schwach' ? T('Signal schwach') : T(m.stable === false ? 'Gang schwankt zu stark' : 'zu unsicher'); }
+  function whyNot(m) { return m.bx ? T('nur jeder zweite Schlag erkannt') : m.q === 'schwach' ? T('Signal schwach') : T(m.stable === false ? 'Gang schwankt zu stark' : 'zu unsicher'); }
 
   /* ---------- Pro ---------- */
   function isPro() { return FLAVOR === 'test' ? settings.testPro : !!proState; }
@@ -1026,6 +1030,7 @@
       bph: r.bph, q: r.quality.label, dur: +r.duration.toFixed(1),
       ppm: r.clockPpm || 0, fs: fs || null, eng: engineVersion || '', app: APP_VERSION
     };
+    if (r.bphHalf) { m.bx = 1; m.beOk = false; m.ampOk = false; } else if (r.bphFrom) m.bf = r.bphFrom;
     var cc = calOf(usedMic), ca = calAcc(cc);
     if (m.ppm && isCal(cc) && Math.abs(cc.ppm - m.ppm) < 0.05) { m.cq = calKind(cc); if (ca) m.cu = Math.round(ca.ppm * 10) / 10; }   /* womit geeicht war */
     if (c.sess) { m.sess = c.sess; if (c.lset) m.lset = c.lset; }
@@ -1264,7 +1269,8 @@
   /* Wertung einer gespeicherten Messung: { kind: good | okay | warn, text } */
   function rateVerdict(m) {
     var kind, text, short;
-    if (m.q === 'schwach') { kind = 'warn'; text = 'Nur ein grober Wert: das Signal ist schwach. Handy näher an die Krone und nochmals messen.'; short = 'Nur ein grober Wert: das Signal war schwach.'; }
+    if (m.bx) { kind = 'warn'; text = 'Tickwerk hat nur jeden zweiten Schlag gehört. Dieser Wert zählt nicht. Das Handy etwas anders an die Uhr legen, am besten an die Krone, und nochmals messen.'; short = 'Zählt nicht: nur jeder zweite Schlag erkannt.'; }
+    else if (m.q === 'schwach') { kind = 'warn'; text = 'Nur ein grober Wert: das Signal ist schwach. Handy näher an die Krone und nochmals messen.'; short = 'Nur ein grober Wert: das Signal war schwach.'; }
     else if (m.stable === false && m.sigma > SIGMA_COUNT) { kind = 'warn'; text = 'Der Gang schwankte während der Messung zu stark. Dieser Wert zählt nicht. Uhr und Handy ruhig halten und nochmals messen, am besten 60 s.'; short = 'Zählt nicht: Der Gang schwankte während der Messung zu stark.'; }
     else if (m.stable === false) { kind = 'warn'; text = 'Die Klicks waren klar, aber der Gang schwankte während der Messung, darum das grössere ±. Der Wert zählt mit dem Vermerk «Gang könnte schwanken». Genauer wird er mit 60 s und ruhig gehaltenem Handy.'; short = 'Zählt mit dem Vermerk «Gang könnte schwanken».'; }
     else if (m.sigma > SIGMA_SURE) { kind = 'warn'; text = 'Zu unsicher für eine Wertung (mehr als ±0,5 s/Tag). Länger messen und das Handy ruhig an die Krone halten.'; short = 'Zu unsicher für eine Wertung (mehr als ±0,5 s/Tag).'; }
@@ -1299,8 +1305,8 @@
     $('mBphNote').textContent = mismatch ? T('erwartet {bph}', { bph: thousands(expBph) }) : T('A/h');
     $('bphWarn').hidden = !mismatch;
     if (mismatch) {
-      $('bphWarnText').textContent = T('Tickwerk hat {a} A/h erkannt, für «{w}» sind {b} A/h hinterlegt. Möglicherweise steckt eine andere Version des Werks in der Uhr.',
-        { a: thousands(r.bph), w: w.name, b: thousands(expBph) });
+      $('bphWarnText').textContent = T(r.bphHalf || m.bx ? 'Tickwerk hat {a} A/h erkannt, für «{w}» sind {b} A/h hinterlegt: Wahrscheinlich hat das Mikrofon nur jeden zweiten Schlag gehört. Das Handy anders anlegen und nochmals messen. Schlägt die Uhr wirklich {a} A/h, kannst du das übernehmen.' :
+        'Tickwerk hat {a} A/h erkannt, für «{w}» sind {b} A/h hinterlegt. Möglicherweise steckt eine andere Version des Werks in der Uhr.', { a: thousands(r.bph), w: w.name, b: thousands(expBph) });
       $('bphFix').textContent = T('{bph} A/h übernehmen', { bph: thousands(r.bph) });
       $('bphFix').onclick = function () { w.bph = r.bph; saveWatches(); $('bphWarn').hidden = true; $('mBphNote').textContent = T('A/h'); renderMeasure(); };
     }
@@ -2147,6 +2153,7 @@
   function insightFor(list) {
     var ok = list.filter(counted), last = ok[ok.length - 1];
     if (!list.length) return { kind: 'neutral', t: 'Noch keine Messung', s: T('Am besten morgens nach dem Aufziehen messen und am Abend nochmals. So siehst du, wie stark der Gang mit dem Aufzug schwankt.') };
+    if (!last && list[list.length - 1].bx) return { kind: 'neutral', t: 'Noch kein sicherer Wert', s: T('Bei der letzten Messung hat Tickwerk nur jeden zweiten Schlag gehört. Das Handy etwas anders an die Uhr legen, am besten an die Krone, und nochmals messen.') };
     if (!last) return { kind: 'neutral', t: 'Noch kein sicherer Wert', s: T('Die bisherigen Messungen hatten ein schwaches Signal. Handy näher an die Krone halten und in einem ruhigen Raum messen.') };
     var pro = showsPro(last);
     if (pro && last.ampOk && last.amp && last.amp < 200 && HORIZ[last.pos]) {
@@ -3994,8 +4001,10 @@
     var rows = [head.map(function (h) { return csvText(h.charAt(0).toUpperCase() + h.slice(1)); })];
     list.forEach(function (m) {
       var d = new Date(m.date), notes = [];
-      if (m.stable === false) notes.push(counted(m) ? shakyText(m) : T('Gang schwankt zu stark'));
+      if (m.bx) notes.push(whyNot(m));
+      else if (m.stable === false) notes.push(counted(m) ? shakyText(m) : T('Gang schwankt zu stark'));
       else if (!counted(m)) notes.push(whyNot(m));
+      if (m.bf) notes.push(T('zuerst halbe Schlagzahl erkannt'));
       if (m.amp && !m.ampOk) notes.push(T('Amplitude unsicher'));
       if (!m.beOk) notes.push(T('Abfallfehler unsicher'));
       if (m.sess) notes.push(T('Lagen-Test'));
@@ -4325,8 +4334,12 @@
   /* ---------- Was ist neu ----------
      Einmal nach einem Update zeigen, was dazugekommen ist und wo es zu finden ist; jederzeit unter «Mehr». Bei einer
      neuen Installation nicht (dort erklärt die Anleitung den Einstieg). settings.seenVersion merkt sich die Version. */
-  var NEWS_ORDER = ['0.6.7', '0.6.6', '0.6.5', '0.6.4'];   /* neuste zuerst; die älteren stehen im Blatt darunter, falls ein Update übersprungen wurde */
+  var NEWS_ORDER = ['0.6.8', '0.6.7', '0.6.6', '0.6.5', '0.6.4'];   /* neuste zuerst; die älteren stehen im Blatt darunter, falls ein Update übersprungen wurde */
   var NEWS = {
+    '0.6.8': [
+      { t: T('Halbe Schlagzahl wird korrigiert'), s: T('Ist einer der zwei Schläge einer Uhr leiser, erkannte Tickwerk manchmal nur die halbe Schlagzahl, und Abfallfehler und Amplitude fehlten. Kennt Tickwerk die Schlagzahl der Uhr, wertet es die Aufnahme jetzt richtig aus. Gelingt das nicht, zählt die Messung nicht.') },
+      { t: T('Warum dauert das 60 Minuten?'), s: T('Die Seite «Mit Internetzeit eichen» erklärt in einem Aufklapper, warum die Eichung mit der Zeit aus dem Internet eine Stunde braucht.') }
+    ],
     '0.6.7': [
       { t: T('Eichung an einem Ort'), s: T('Unter Mehr → Einstellungen → «Eichung» steht oben der Stand und darunter jede Methode einzeln: mit einer Quarzuhr, mit Internetzeit, aus einer Aufnahme oder von Hand. Jede hat ihre eigene Seite.') }
     ],
