@@ -542,3 +542,5 @@ main { padding-top: calc(14px + env(safe-area-inset-top)); }
 .qoffer { display: flex; flex-direction: column; gap: 6px; }
 .qoffer:empty { display: none; }
 .qoffer .qtake { align-self: flex-start; height: auto; min-height: 36px; padding-top: 6px; padding-bottom: 6px; text-align: left; white-space: normal; }
+/* 0.6.6: Karte «Mit Internetzeit eichen» */
+#calNet > :not(summary) { margin-top: 12px; }

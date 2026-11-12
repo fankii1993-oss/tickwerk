@@ -2,7 +2,7 @@
 <html lang="de-CH">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; media-src 'self' blob:; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self' https://time.akamai.com; worker-src 'self'; manifest-src 'self'; media-src 'self' blob:; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0B0E12">
@@ -157,7 +157,7 @@
     <div class="due" id="dDue" hidden></div>
     <div class="card" data-quartz>
       <span class="card-title">Quarzuhr als Referenz</span>
-      <p class="hint">Mit dem Mikrofon misst Tickwerk nur mechanische Uhren. Vergleiche diese Uhr über etwa eine Woche mit der genauen Zeit: Dann kennt Tickwerk ihren Gang, und du kannst die Handy-Uhr damit genauer eichen (Mehr → Handy-Uhr eichen → «Noch genauer eichen»).</p>
+      <p class="hint">Mit dem Mikrofon misst Tickwerk nur mechanische Uhren. Vergleiche diese Uhr über etwa eine Woche mit der genauen Zeit: Dann kennt Tickwerk ihren Gang, und du kannst die Handy-Uhr damit genauer eichen (Mehr → Einstellungen → Handy-Uhr eichen → «Noch genauer eichen»).</p>
     </div>
     <div class="actions grow" data-mech>
       <button type="button" class="btn-primary" id="dMeasure">Jetzt messen</button>
@@ -658,6 +658,14 @@
     <div class="card">
       <label class="switch"><input type="checkbox" id="netOn"><span>Genaue Zeit aus dem Internet</span></label>
       <p class="hint" id="netHint"></p>
+      <div class="field" id="netPickBox" hidden>
+        <label for="netPick">Zeitquelle (nur in der Testversion)</label>
+        <select id="netPick">
+          <option value="">Automatisch: Zeitdienst, sonst Server der App</option>
+          <option value="a">Nur der öffentliche Zeitdienst</option>
+          <option value="s">Nur der Server der App</option>
+        </select>
+      </div>
     </div>
     <div class="card">
       <div class="field">
@@ -696,7 +704,7 @@
     <div class="bar"><button type="button" class="back" data-back><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span>Zurück</span></button></div>
     <div class="title-block">
       <h1>Handy-Uhr eichen</h1>
-      <p class="lead">Die Uhr im Handy gibt bei jeder Messung den Takt an, und sie geht selbst nicht ganz genau. Eine Quarzuhr zeigt, um wie viel. Danach korrigiert Tickwerk jede Messung.</p>
+      <p class="lead">Die Uhr im Handy gibt bei jeder Messung den Takt an, und sie geht selbst nicht ganz genau. Eine Quarzuhr oder die genaue Zeit aus dem Internet zeigt, um wie viel. Danach korrigiert Tickwerk jede Messung.</p>
     </div>
     <div class="card cal-card">
       <div class="row-between"><span class="eyebrow">Eichung</span><span class="mono-sub" id="calMic"></span></div>
@@ -713,6 +721,17 @@
     <button type="button" class="btn-primary btn-big" id="quartzRec"><span class="prog" id="quartzProg"></span><span class="btn-label" id="quartzLabel">Quarzuhr messen (2½ Minuten)</span></button>
     <p class="status" id="quartzOut" data-kind=""></p>
     <div class="actions center"><label class="btn-link file-btn">Stattdessen eine Aufnahme wählen<input type="file" id="quartzFile" accept="audio/*,.wav"></label></div>
+    <details class="card details" id="calNet">
+      <summary>Ohne Quarzuhr: mit Internetzeit eichen</summary>
+      <p class="hint">Tickwerk zählt, wie schnell das Mikrofon seine Messwerte liefert, und vergleicht das mit der genauen Zeit aus dem Internet. Das dauert 60 Minuten; nach etwa 10 Minuten gibt es einen ersten Wert. Der Ton selbst wird dabei weder ausgewertet noch gespeichert.</p>
+      <ol class="steps">
+        <li><span class="num">1</span><div><span class="step-t">WLAN und Ladegerät</span><span class="step-s">Das Handy im WLAN lassen und ans Ladegerät hängen. Der Bildschirm bleibt die ganze Zeit an.</span></div></li>
+        <li><span class="num">2</span><div><span class="step-t">Hinlegen und in Ruhe lassen</span><span class="step-s">Tickwerk nicht verlassen und den Bildschirm nicht sperren, sonst bricht die Eichung ab. Eine Uhr braucht es nicht.</span></div></li>
+      </ol>
+      <button type="button" class="btn-primary btn-big" id="ncRec"><span class="prog" id="ncProg"></span><span class="btn-label" id="ncLabel">Eichung starten (60 Minuten)</span></button>
+      <p class="status" id="ncOut" data-kind=""></p>
+      <div class="actions"><button type="button" class="btn-ghost small" id="ncTake" hidden>Jetzt übernehmen</button></div>
+    </details>
     <details class="card details" id="calMore">
       <summary>Noch genauer eichen</summary>
       <div class="field">
@@ -814,9 +833,9 @@
   <!-- ======================= Genaue Zeit aus dem Internet: Zustimmung (0.6.5) ======================= -->
   <div class="sheet" id="netSheet" hidden>
     <div class="sheet-panel" role="dialog" aria-modal="true" aria-labelledby="ntTitle">
-      <span class="eyebrow">Gang im Alltag</span>
+      <span class="eyebrow" id="ntEyebrow">Gang im Alltag</span>
       <h2 id="ntTitle">Genaue Zeit aus dem Internet?</h2>
-      <p>Die Uhr im Handy wird nur ab und zu gestellt und kann bis etwa zwei Sekunden danebenliegen. Genauer wird der Vergleich, wenn Tickwerk die Zeit im Internet abfragt.</p>
+      <p id="ntLead">Die Uhr im Handy wird nur ab und zu gestellt und kann bis etwa zwei Sekunden danebenliegen. Genauer wird der Vergleich, wenn Tickwerk die Zeit im Internet abfragt.</p>
       <p class="hint" id="ntHost"></p>
       <p class="hint">Ändern kannst du das jederzeit unter Mehr → Einstellungen.</p>
       <div class="actions"><button type="button" class="btn-primary" id="ntYes">Einverstanden</button><button type="button" class="btn-ghost" id="ntNo">Nein, Handy-Uhr nehmen</button></div>
@@ -865,6 +884,7 @@
 <script src="fr.js"></script>
 <script src="it.js"></script>
 <script src="report.js"></script>
+<script src="eichzeit.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -543,11 +543,14 @@
     section(T('Messbedingungen'), 90);
     var ppms = meas.filter(function (m) { return typeof m.ppm === 'number'; });
     var ppmUsed = ppms.filter(function (m) { return m.ppm; });
+    var calLast = ppmUsed.length ? ppmUsed[ppmUsed.length - 1] : {};   /* die Eichung der letzten korrigierten Messung: Wert, Quelle (cq), Unsicherheit (cu) */
     var fsList = meas.filter(function (m) { return m.fs; }).map(function (m) { return Math.round(m.fs / 100) / 10; });
     var cond = [
       [T('Messgerät'), T('Smartphone-Mikrofon, Web-App Tickwerk {a}, Mess-Engine {e}', { a: d.appVersion || '', e: d.engineVersion || '?' })],
       [T('Aufnahme'), recText()],
-      [T('Zeitbasis'), ppmUsed.length ? T('Uhr des Smartphones, mit Quarzuhr-Aufnahme um {v} ppm korrigiert', { v: signed(ppmUsed[ppmUsed.length - 1].ppm, 1) })
+      [T('Zeitbasis'), ppmUsed.length ? T(calLast.cq === 'z' ? 'Uhr des Smartphones, mit der Zeit aus dem Internet um {v} ppm korrigiert' :
+        calLast.cq === 'h' ? 'Uhr des Smartphones, um {v} ppm korrigiert (Wert von Hand eingetragen)' : 'Uhr des Smartphones, mit Quarzuhr-Aufnahme um {v} ppm korrigiert', { v: signed(calLast.ppm, 1) }) +
+        (typeof calLast.cu === 'number' ? ' ' + T('(Eichung auf ± {u} ppm genau)', { u: fmt(calLast.cu, 1) }) : '')
         : T('Uhr des Smartphones, nicht mit einer Referenz abgeglichen') + (ppms.length < meas.length ? ' ' + T('(bei älteren Messungen nicht gespeichert)') : '')],
       [T('Auswertung'), T('Gang aus dem Abstand der Schläge über die ganze Messung; Abfallfehler aus dem Versatz von Tick und Tack; Amplitude aus der Hebezeit und dem Hebewinkel ({lift})', { lift: deg(lift) })],
       [T('Nicht erfasst'), T('Temperatur, Aufzugszustand, Zeit seit dem letzten Aufziehen')]
@@ -584,7 +587,9 @@
     if (liftState === 'angenommen') notes.push(T('Der Hebewinkel des Werks ist nicht bekannt; gerechnet wurde mit {lift}. Die Amplitude ist deshalb nur ungefähr: 2° Unterschied im Hebewinkel ändern sie um rund 4 %.', { lift: deg(lift) }));
     else if (liftState === 'unbestätigt') notes.push(T('Der Hebewinkel ({lift}) stammt vom Basiswerk und ist nicht vom Hersteller bestätigt. 2° Unterschied ändern die Amplitude um rund 4 %.', { lift: deg(lift) }));
     if (d.kal && d.kal.coaxial) notes.push(T('Co-Axial-Hemmung: Die Amplitude ist nur ein Richtwert. Gang und Abfallfehler sind davon nicht betroffen.'));
-    notes.push(ppmUsed.length ? T('Die Zeitbasis ist das Smartphone; ihr Fehler wurde mit einer Quarzuhr bestimmt und abgezogen. Ein Rest von wenigen Zehntelsekunden pro Tag bleibt möglich.')
+    notes.push(ppmUsed.length ? T(calLast.cq === 'z' ? 'Die Zeitbasis ist das Smartphone; ihr Fehler wurde mit der Zeit aus dem Internet bestimmt und abgezogen. Ein Rest von wenigen Zehntelsekunden pro Tag bleibt möglich.' :
+      calLast.cq === 'h' ? 'Die Zeitbasis ist das Smartphone; ihr Fehler wurde von Hand eingetragen und abgezogen. Wie genau dieser Wert ist, ist nicht bekannt.' :
+        'Die Zeitbasis ist das Smartphone; ihr Fehler wurde mit einer Quarzuhr bestimmt und abgezogen. Ein Rest von wenigen Zehntelsekunden pro Tag bleibt möglich.')
       : T('Die Zeitbasis ist die Uhr des Smartphones. Ihr Fehler steckt in jedem Gangwert und kann einige Sekunden pro Tag betragen (1 ppm entspricht 0,086 s/Tag).'));
     notes.push(T('Jede Messung dauert 20 bis 60 Sekunden und zeigt den Zustand in diesem Moment. Der Gang über 24 Stunden hängt zusätzlich von Aufzug, Temperatur und Tragen ab und kann davon abweichen.'));
     notes.push(T('Kein Chronometer-Zertifikat: Die Norm ISO 3159 verlangt unter anderem einen mittleren Tagesgang von −4 bis +6 s/Tag, ermittelt während 15 Tagen in 5 Lagen und bei 3 Temperaturen durch eine anerkannte Prüfstelle. Der Bereich dient hier nur als Vergleich.'));

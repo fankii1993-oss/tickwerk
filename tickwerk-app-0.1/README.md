@@ -1,6 +1,6 @@
-# Tickwerk – Web-App 0.6.5 (Testversion)
+# Tickwerk – Web-App 0.6.6 (Testversion)
 
-Misst mit dem Handy-Mikrofon, wie genau eine mechanische Uhr geht: Gangabweichung, Abfallfehler, Amplitude, Schlagzahl. Die Aufnahme und die Messwerte bleiben auf dem Handy. Ins Internet geht nur, wenn du in der App zustimmst, eine leere Zeitabfrage für den «Gang im Alltag»: an den Server, von dem die App kommt (siehe Datenschutzerklärung).
+Misst mit dem Handy-Mikrofon, wie genau eine mechanische Uhr geht: Gangabweichung, Abfallfehler, Amplitude, Schlagzahl. Die Aufnahme und die Messwerte bleiben auf dem Handy. Ins Internet gehen nur, wenn du in der App zustimmst, leere Zeitabfragen für den «Gang im Alltag» und für «Mit Internetzeit eichen»: an den öffentlichen Zeitdienst time.akamai.com und, wenn er nicht antwortet, an den Server, von dem die App kommt (siehe Datenschutzerklärung).
 
 Das ist die **Testversion** für GitHub: Pro lässt sich unter Mehr → Tickwerk Pro mit einem Schalter ein- und ausschalten, oben steht «TEST». Die Store-Version für Google Play wird getrennt gebaut (Kauf über Google Play, eigene Daten).
 
@@ -11,6 +11,15 @@ Seit dem 10.11.2026 legt Claude neue Versionen als Pull Request in den Ordner; �
 1. Im Repository den Ordner `tickwerk-app-0.1` öffnen.
 2. **Add file → Upload files**, den ganzen Inhalt dieses Pakets hineinziehen (Dateien und die Ordner `engine`, `fonts`, `icons`), **Commit changes**. Gleichnamige Dateien werden ersetzt; deine Uhren und Messungen bleiben auf dem Handy erhalten.
 3. App auf dem Handy öffnen. Nach ein paar Sekunden erscheint «Neue Version ist bereit»; unter Mehr auf **Neue Version: neu laden** tippen. Ab 0.6.3 lässt sich die Suche unter Mehr → **Nach Update suchen** auch von Hand anstossen.
+
+## Neu in 0.6.6
+
+- **Mit Internetzeit eichen (ohne Quarzuhr):** Unter «Handy-Uhr eichen». Das Handy liegt 60 Minuten am Ladegerät, der Bildschirm bleibt an. Tickwerk zählt, wie viele Samples das Mikrofon liefert, und stempelt sie mit der laufenden Uhr der Seite; jede Minute kommt eine Zeitabfrage dazu. Daraus folgt, um wie viel der Takt des Mikrofons von der wahren Zeit abweicht. Der Ton selbst wird weder ausgewertet noch gespeichert. Nach etwa 10 Minuten gibt es einen vorläufigen Wert; übernommen wird er, wenn er auf ± 5 ppm oder besser bestimmt ist («Jetzt übernehmen» oder nach 60 Minuten von selbst). Erwartet nach 60 Minuten im WLAN: etwa ± 0,3 bis ± 1 ppm (gerechnet an künstlichen Daten; auf einem Handy noch nicht gemessen). Verlässt man Tickwerk oder sperrt den Bildschirm, bricht die Eichung ab.
+- **Welche Samples gezählt werden:** die der Mikrofon-Spur selbst (`MediaStreamTrackProcessor`). Das ist der Takt, in dem auch die Messungen aufgenommen werden, auch mit einem angesteckten Mikrofon. Kann der Browser das nicht, zählt Tickwerk die Blöcke des Aufnahme-Worklets (Takt der Tonausgabe; beim eingebauten Mikrofon derselbe). Die Rechnung steht in `eichzeit.js`: Je 10 Sekunden zählt der Block mit der kleinsten Verspätung; verlorene Blöcke (Sprünge) werden erkannt und herausgerechnet.
+- **Öffentlicher Zeitdienst:** Die genaue Zeit holt Tickwerk neu zuerst bei `time.akamai.com` (Adresse `https://time.akamai.com/?iso&ms`, Antwort: Datum und Zeit in UTC mit Millisekunden) und erst, wenn er nicht antwortet oder nichts Brauchbares liefert, beim Server der App (Kopfzeilen `X-Timer` oder `Date`). Weil ein Empfänger dazukommt, fragt die App nochmals nach der Zustimmung. Nur an diese eine Adresse erlaubt die App Anfragen (Content-Security-Policy).
+- **Server der App, robuster:** `X-Timer` nennt auch die Bearbeitungszeit des Servers (`VE`); Tickwerk rechnet sie ein. Passen die Antworten nicht zusammen (etwa weil die Kopfzeile aus einem Zwischenspeicher käme), fragt Tickwerk nochmals mit eindeutigen Anfragen und nimmt als letzten Versuch die Kopfzeile `Date`. Wechselt die Quelle der Zeit mitten in einer Eichung, wird jede Quelle für sich gerechnet.
+- **Quelle der Eichung:** Die Eich-Seite, die Diagnose, die Tabelle (CSV, zwei neue Spalten «Geeicht mit» und «Eichung genau auf ± (ppm)») und das Messprotokoll (Zeile «Zeitbasis») zeigen, ob mit Quarzuhr, mit Internetzeit oder von Hand geeicht ist, und wie genau. Die Diagnose nennt zur letzten Eichung mit Internetzeit Dauer, Zahl der Zeitabfragen, die zwei Teilwerte (Mikrofon gegen Handy-Uhr, Handy-Uhr gegen Zeit) und erkannte Sprünge.
+- **Testseite «GPS-Zeit prüfen»** (`gps-test.html`, nur in der Testversion, in der App nicht verlinkt): prüft, ob die Zeitstempel der Ortung vom GPS kommen oder nur von der Uhr des Handys, und wie stark sie streuen. Der Standort wird weder angezeigt noch gespeichert noch übertragen.
 
 ## Neu in 0.6.5
 
@@ -143,6 +152,8 @@ Aufgeräumt: Die Funktionen sind dieselben wie in 0.6.1, sie sind aber leichter 
 - `worker.js` + `engine/tickwerk-engine.js` – Auswertung im Hintergrund
 - `kaliber.js` – Werke und Modellkatalog für die Suche
 - `report.js` + `logo.js` – Messprotokoll als PDF
+- `eichzeit.js` – Rechnung für «Mit Internetzeit eichen»
+- `gps-test.html`, `gps-test.js` – Testseite «GPS-Zeit prüfen» (nur Testversion)
 - `en.js`, `fr.js`, `it.js` – englische, französische und italienische Texte (deutscher Text → Übersetzung, gebaut aus `i18n/`)
 - `datenschutz.html`, `privacy.html`, `privacy-fr.html`, `privacy-it.html` – Datenschutzerklärung in vier Sprachen
 - `sw.js`, `manifest.webmanifest`, `icons/` – Installation und Offline-Betrieb
