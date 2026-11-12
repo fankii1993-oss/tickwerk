@@ -144,7 +144,7 @@
         <button type="button" class="round" id="dEdit" aria-label="Uhr bearbeiten">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>
         </button>
-        <button type="button" class="round" id="dShare" aria-label="Messprotokoll als PDF teilen">
+        <button type="button" class="round" id="dShare" aria-label="Messprotokoll als PDF teilen" data-mech>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>
         </button>
       </span>
@@ -155,22 +155,26 @@
       <button type="button" class="btn-link left" id="dDetective" hidden>Werk bestimmen mit dem Werk-Detektiv</button>
     </div>
     <div class="due" id="dDue" hidden></div>
-    <div class="actions grow">
+    <div class="card" data-quartz>
+      <span class="card-title">Quarzuhr als Referenz</span>
+      <p class="hint">Mit dem Mikrofon misst Tickwerk nur mechanische Uhren. Vergleiche diese Uhr über etwa eine Woche mit der genauen Zeit: Dann kennt Tickwerk ihren Gang, und du kannst die Handy-Uhr damit genauer eichen (Mehr → Handy-Uhr eichen → «Noch genauer eichen»).</p>
+    </div>
+    <div class="actions grow" data-mech>
       <button type="button" class="btn-primary" id="dMeasure">Jetzt messen</button>
       <button type="button" class="btn-ghost" id="dLagen">Lagen-Test<span class="pro-tag">Pro</span></button>
     </div>
     <span class="pdfbar" id="dShareBar" hidden></span>
-    <div class="tiles3">
+    <div class="tiles3" data-mech>
       <div class="tile"><span class="eyebrow">Schlagzahl</span><span class="tile-v" id="dBph">–</span><button type="button" class="info" data-info="bph" aria-label="Erklärung: Schlagzahl"></button></div>
       <div class="tile"><span class="eyebrow">Hebewinkel</span><span class="tile-v" id="dLift">–</span><button type="button" class="info" data-info="lift" aria-label="Erklärung: Hebewinkel"></button></div>
       <div class="tile"><span class="eyebrow">Messungen</span><span class="tile-v" id="dCount">0</span></div>
     </div>
-    <div class="card">
+    <div class="card" data-mech>
       <div class="row-between"><span class="card-title">Gangabweichung<button type="button" class="info" data-info="rate" aria-label="Erklärung: Gangabweichung"></button></span><span class="mono-sub" id="dRange"></span></div>
       <div class="bars" id="dBars"></div>
       <div class="bar-labels" id="dBarLabels" aria-hidden="true"></div>
     </div>
-    <div class="insight" id="dInsight" hidden></div>
+    <div class="insight" id="dInsight" data-mech hidden></div>
     <details class="card fold dtime" id="dTimeCard" data-fold="dt">
       <summary><span class="fold-t"><span class="card-title">Gang im Alltag</span></span><span class="fold-r"><span class="mono-sub" id="dtSub"></span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></span></summary>
       <div class="fold-body">
@@ -189,12 +193,13 @@
         </div>
       </div>
     </details>
-    <details class="card fold dgr" id="dGrCard" data-fold="gr">
+    <details class="card fold dgr" id="dGrCard" data-fold="gr" data-mech>
       <summary><span class="fold-t"><span class="card-title">Gangreserve-Test<span class="pro-tag">Pro</span></span></span><span class="fold-r"><span class="mono-sub" id="grSub"></span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></span></summary>
       <div class="fold-body">
         <p class="hint" id="grText"></p>
         <ul class="rows lrows" id="grRows" hidden></ul>
         <p class="verdict-line left" id="grVerdict" data-kind="" hidden><span class="dot"></span><span id="grVerdictText"></span></p>
+        <p class="hint" id="grIso" hidden></p>
         <div class="actions">
           <button type="button" class="btn-ghost small" id="grGo">Voll aufgezogen: jetzt messen</button>
           <button type="button" class="btn-link" id="grStop" hidden>Uhr ist stehen geblieben</button>
@@ -207,7 +212,7 @@
         </div>
       </div>
     </details>
-    <details class="card fold dlagen" id="dLagenCard" data-fold="lg" hidden>
+    <details class="card fold dlagen" id="dLagenCard" data-fold="lg" data-mech hidden>
       <summary><span class="fold-t"><span class="card-title">Letzter Lagen-Test</span></span><span class="fold-r"><span class="mono-sub" id="dlSub"></span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></span></summary>
       <div class="fold-body">
         <span class="mono-sub" id="dlDate"></span>
@@ -216,6 +221,8 @@
           <div class="metric"><dt>Lagendifferenz<button type="button" class="info" data-info="spread" aria-label="Erklärung: Lagendifferenz"></button></dt><dd id="dlSpread">–</dd><small>s/Tag</small></div>
           <div class="metric"><dt>Abfallfehler<button type="button" class="info" data-info="be" aria-label="Erklärung: Abfallfehler"></button></dt><dd id="dlBe">–</dd><small>ms, Mittel</small></div>
           <div class="metric"><dt>Amplitude<button type="button" class="info" data-info="amp" aria-label="Erklärung: Amplitude"></button></dt><dd id="dlAmp">–</dd><small>waagrecht / senkrecht</small></div>
+          <div class="metric wide"><dt>ETA-Stufe zum Vergleich<button type="button" class="info" data-info="grade" aria-label="Erklärung: ETA-Stufen"></button></dt><dd id="dlGrade">–</dd><small id="dlGradeSub"></small></div>
+          <div class="metric wide" id="dlGangBox" hidden><dt>Werksvorgabe</dt><dd id="dlGang">–</dd><small id="dlGangSub"></small></div>
         </dl>
         <ul class="rows lrows" id="dlRows"></ul>
         <p class="hint" id="dlNote" hidden></p>
@@ -227,7 +234,7 @@
         <span class="pdfbar" id="dlPdfBar" hidden></span>
       </div>
     </details>
-    <details class="card fold" id="dListCard" data-fold="ms">
+    <details class="card fold" id="dListCard" data-fold="ms" data-mech>
       <summary><span class="fold-t"><span class="card-title">Letzte Messungen</span></span><span class="fold-r"><span class="mono-sub" id="dListSub"></span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></span></summary>
       <div class="fold-body">
         <ul class="rows" id="dList"></ul>
@@ -249,17 +256,21 @@
     </div>
     <h1 id="watchFormTitle">Uhr hinzufügen</h1>
     <form class="form" id="watchForm" autocomplete="off">
-      <div class="field find">
+      <div class="field find" id="wFindBox">
         <label for="wFind">Modell oder Werk suchen</label>
         <input type="search" id="wFind" placeholder="z. B. Submariner, PRX, Speedmaster, 2824" enterkeyhint="search"
                role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="wFindList" spellcheck="false">
         <ul class="suggest" id="wFindList" role="listbox" aria-label="Vorschläge" hidden></ul>
         <p class="hint" id="wFindNote"></p>
+        <button type="button" class="btn-link left" id="wMissing" hidden>Modell fehlt? Melden</button>
       </div>
       <div class="field">
         <label for="wName">Name</label>
         <input type="text" id="wName" placeholder="z. B. Omega Seamaster" required maxlength="60">
       </div>
+      <label class="switch"><input type="checkbox" id="wQuartz"><span>Quarzuhr</span></label>
+      <p class="hint">Für eine Uhr mit Batterie. Mit dem Mikrofon misst Tickwerk nur mechanische Uhren; eine Quarzuhr dient als Referenz: für «Gang im Alltag» und um die Handy-Uhr genauer zu eichen.</p>
+      <div class="form" id="wMech">
       <div class="field find">
         <label for="wCalFind">Kaliber (Werk)</label>
         <div class="combo">
@@ -288,6 +299,7 @@
         </div>
       </div>
       <p class="hint">Der Hebewinkel wirkt nur auf die Amplitude. Unbekannt: 52 Grad lassen. Die Schlagzahl erkennt Tickwerk selbst und meldet sich, wenn sie nicht zur Angabe passt.</p>
+      </div>
       <button type="submit" class="btn-primary btn-big" id="wSave">Speichern</button>
       <button type="button" class="btn-ghost btn-big danger" id="wDelete" hidden>Uhr löschen</button>
     </form>
@@ -316,6 +328,8 @@
         <div class="metric"><dt>Senkrecht − waagrecht<button type="button" class="info" data-info="hv" aria-label="Erklärung: Senkrecht gegenüber waagrecht"></button></dt><dd id="lgHV">–</dd><small>s/Tag</small></div>
         <div class="metric"><dt>Abfallfehler<button type="button" class="info" data-info="be" aria-label="Erklärung: Abfallfehler"></button></dt><dd id="lgBe">–</dd><small>ms, Mittel</small></div>
         <div class="metric"><dt>Amplitude<button type="button" class="info" data-info="amp" aria-label="Erklärung: Amplitude"></button></dt><dd id="lgAmp">–</dd><small id="lgAmpNote">waagrecht / senkrecht</small></div>
+        <div class="metric wide"><dt>ETA-Stufe zum Vergleich<button type="button" class="info" data-info="grade" aria-label="Erklärung: ETA-Stufen"></button></dt><dd id="lgGrade">–</dd><small id="lgGradeSub"></small></div>
+        <div class="metric wide" id="lgGangBox" hidden><dt>Werksvorgabe</dt><dd id="lgGang">–</dd><small id="lgGangSub"></small></div>
       </dl>
       <canvas class="plot" id="lagenChart" height="190" aria-label="Gang je Lage"></canvas>
       <p class="verdict" id="lgVerdict"></p>
@@ -474,10 +488,11 @@
     </div>
     <div class="title-block">
       <h1 class="h1-sm" id="zTitle">Mit der Atomzeit vergleichen</h1>
-      <p class="lead" id="zLead">Die Uhrzeit des Handys kommt aus dem Netz und ist auf Sekundenbruchteile genau.</p>
+      <p class="lead" id="zLead"></p>
+      <button type="button" class="btn-link left" id="zRetry" hidden>Nochmals versuchen</button>
     </div>
     <div class="card zclock">
-      <span class="eyebrow">Zeit des Handys</span>
+      <span class="eyebrow" id="zClockT">Zeit des Handys</span>
       <span class="zclock-t" id="zClock">--:--:--</span>
     </div>
     <div id="zStep1">
@@ -496,6 +511,7 @@
         <span class="eyebrow">Abweichung</span>
         <div class="big-row center"><span class="big big-md" id="zOff">–</span><span class="big-unit">s</span></div>
         <p class="hint center" id="zOffText"></p>
+        <p class="hint center" id="zSrc"></p>
       </div>
       <button type="button" class="btn-primary btn-big" id="zSave">Speichern</button>
       <button type="button" class="btn-ghost btn-big" id="zAgain">Nochmals tippen</button>
@@ -640,6 +656,10 @@
       <p class="hint">Ist der Wert nach der gewählten Dauer unsicherer als ±0,5 s/Tag, misst Tickwerk weiter, höchstens bis 60 Sekunden.</p>
     </div>
     <div class="card">
+      <label class="switch"><input type="checkbox" id="netOn"><span>Genaue Zeit aus dem Internet</span></label>
+      <p class="hint" id="netHint"></p>
+    </div>
+    <div class="card">
       <div class="field">
         <label for="micSel">Mikrofon<span class="pro-tag">Pro</span></label>
         <select id="micSel"><option value="">Standard (vom Handy gewählt)</option></select>
@@ -682,6 +702,7 @@
       <div class="row-between"><span class="eyebrow">Eichung</span><span class="mono-sub" id="calMic"></span></div>
       <div class="big-row"><span class="big big-md" id="calVal">–</span><span class="big-unit">ppm</span></div>
       <p class="hint" id="calSub"></p>
+      <p class="hint" id="calAcc" hidden></p>
       <p class="hint" id="calAge" data-kind="warn" hidden>Die Eichung ist über sechs Monate alt. Die Uhr im Handy verändert sich mit der Zeit ein wenig: am besten neu eichen.</p>
     </div>
     <ol class="steps">
@@ -697,7 +718,14 @@
       <div class="field">
         <label for="quartzRate">Gang der Quarzuhr</label>
         <div class="inline"><input type="number" id="quartzRate" value="0" step="0.01" min="-10" max="10" inputmode="decimal"><span class="unit">s/Tag</span></div>
-        <p class="hint">Unbekannt: 0 lassen, dann ist die Eichung auf etwa ±0,5 s/Tag genau. Genauer: die Quarzuhr heute mit time.is vergleichen und nach 1 bis 2 Wochen nochmals. Die Abweichung geteilt durch die Tage hier eintragen (geht sie vor: plus).</p>
+        <p class="hint" id="qFrom" hidden></p>
+        <p class="hint">Unbekannt: 0 lassen, dann ist die Eichung auf etwa ±0,5 s/Tag genau. Kennst du den Gang deiner Quarzuhr, trag ihn hier ein (geht sie vor: plus).</p>
+      </div>
+      <div class="field">
+        <span class="field-t">Gang aus «Gang im Alltag» übernehmen</span>
+        <div class="qoffer" id="qOffer"></div>
+        <p class="hint" id="qNone">Tickwerk kann den Gang deiner Quarzuhr selbst bestimmen: Leg sie als Quarzuhr an und vergleiche sie über etwa eine Woche mit der genauen Zeit. Danach steht ihr Gang hier zum Übernehmen.</p>
+        <div class="actions"><button type="button" class="btn-ghost small" id="qAdd">Quarzuhr anlegen</button></div>
       </div>
     </details>
     <details class="card details" id="calHand">
@@ -764,6 +792,34 @@
       <h2 id="nsTitle"></h2>
       <ul class="news" id="nsList"></ul>
       <div class="actions"><button type="button" class="btn-primary" id="nsClose">Verstanden</button></div>
+    </div>
+  </div>
+
+  <!-- ======================= Modell fehlt? (0.6.5) ======================= -->
+  <div class="sheet" id="missSheet" hidden>
+    <div class="sheet-panel" role="dialog" aria-modal="true" aria-labelledby="msTitle">
+      <span class="eyebrow">Katalog</span>
+      <h2 id="msTitle">Modell fehlt?</h2>
+      <p>Melde, welche Uhr fehlt. Mit Werk und Quelle kommt sie am schnellsten in den Katalog.</p>
+      <div class="form">
+        <div class="field"><label for="msModel">Marke und Modell</label><input type="text" id="msModel" maxlength="80" autocomplete="off"></div>
+        <div class="field"><label for="msCal">Werk (falls bekannt)</label><input type="text" id="msCal" maxlength="80" autocomplete="off"></div>
+        <div class="field"><label for="msSrc">Quelle oder Hinweis (falls bekannt)</label><input type="text" id="msSrc" maxlength="200" autocomplete="off"></div>
+      </div>
+      <p class="hint">Tickwerk öffnet dein Mailprogramm mit diesem Text. Gesendet wird erst, wenn du dort auf Senden tippst.</p>
+      <div class="actions"><a class="btn-primary btn-a" id="msSend" href="#">E-Mail schreiben</a><button type="button" class="btn-ghost" id="msClose">Abbrechen</button></div>
+    </div>
+  </div>
+
+  <!-- ======================= Genaue Zeit aus dem Internet: Zustimmung (0.6.5) ======================= -->
+  <div class="sheet" id="netSheet" hidden>
+    <div class="sheet-panel" role="dialog" aria-modal="true" aria-labelledby="ntTitle">
+      <span class="eyebrow">Gang im Alltag</span>
+      <h2 id="ntTitle">Genaue Zeit aus dem Internet?</h2>
+      <p>Die Uhr im Handy wird nur ab und zu gestellt und kann bis etwa zwei Sekunden danebenliegen. Genauer wird der Vergleich, wenn Tickwerk die Zeit im Internet abfragt.</p>
+      <p class="hint" id="ntHost"></p>
+      <p class="hint">Ändern kannst du das jederzeit unter Mehr → Einstellungen.</p>
+      <div class="actions"><button type="button" class="btn-primary" id="ntYes">Einverstanden</button><button type="button" class="btn-ghost" id="ntNo">Nein, Handy-Uhr nehmen</button></div>
     </div>
   </div>
 

@@ -1,6 +1,6 @@
-# Tickwerk – Web-App 0.6.3 (Testversion)
+# Tickwerk – Web-App 0.6.5 (Testversion)
 
-Misst mit dem Handy-Mikrofon, wie genau eine mechanische Uhr geht: Gangabweichung, Abfallfehler, Amplitude, Schlagzahl. Die Aufnahme bleibt auf dem Handy; die App schickt nichts ins Internet.
+Misst mit dem Handy-Mikrofon, wie genau eine mechanische Uhr geht: Gangabweichung, Abfallfehler, Amplitude, Schlagzahl. Die Aufnahme und die Messwerte bleiben auf dem Handy. Ins Internet geht nur, wenn du in der App zustimmst, eine leere Zeitabfrage für den «Gang im Alltag»: an den Server, von dem die App kommt (siehe Datenschutzerklärung).
 
 Das ist die **Testversion** für GitHub: Pro lässt sich unter Mehr → Tickwerk Pro mit einem Schalter ein- und ausschalten, oben steht «TEST». Die Store-Version für Google Play wird getrennt gebaut (Kauf über Google Play, eigene Daten).
 
@@ -11,6 +11,25 @@ Seit dem 10.11.2026 legt Claude neue Versionen als Pull Request in den Ordner; �
 1. Im Repository den Ordner `tickwerk-app-0.1` öffnen.
 2. **Add file → Upload files**, den ganzen Inhalt dieses Pakets hineinziehen (Dateien und die Ordner `engine`, `fonts`, `icons`), **Commit changes**. Gleichnamige Dateien werden ersetzt; deine Uhren und Messungen bleiben auf dem Handy erhalten.
 3. App auf dem Handy öffnen. Nach ein paar Sekunden erscheint «Neue Version ist bereit»; unter Mehr auf **Neue Version: neu laden** tippen. Ab 0.6.3 lässt sich die Suche unter Mehr → **Nach Update suchen** auch von Hand anstossen.
+
+## Neu in 0.6.5
+
+- **Genaue Zeit für den Gang im Alltag:** Die Uhr des Handys wird nur ab und zu gestellt und kann bis etwa zwei Sekunden danebenliegen. Beim Zeitvergleich holt Tickwerk darum auf Wunsch die genaue Zeit aus dem Internet. Beim ersten Vergleich fragt die App, ob du einverstanden bist; ändern lässt es sich unter Einstellungen → «Genaue Zeit aus dem Internet». Über der Uhr steht, woher die Zeit kommt, wie genau sie ist (zum Beispiel «± 0,02 s») und um wie viel die Uhr des Handys abweicht. Ohne Internet oder ohne Zustimmung gilt wie bisher die Uhr des Handys, mit dem Vermerk «Handy-Uhr» beim Vergleich.
+- **Wie die Zeitabfrage geht:** einige leere Anfragen (HEAD) an den Server, von dem die App kommt, am Service Worker vorbei. Ausgewertet wird die Kopfzeile `X-Timer` (auf Mikrosekunden) oder, wenn es sie nicht gibt, `Date` (ganze Sekunden; die Abfragen kreisen dann den Sekundenwechsel ein). Jede Antwort grenzt den Unterschied zur eigenen Uhr ein; der Schnitt aller Bereiche ist das Ergebnis, seine halbe Breite die Unsicherheit. Widersprechen sich die Antworten, gilt die Abfrage als gescheitert. Unter Mehr → «Diagnose teilen» steht, welche Kopfzeile kam, wie viele Antworten, die Unsicherheit und die Laufzeit.
+- **Auswertung gewichtet:** Jeder Vergleich merkt sich, ob er mit der genauen Zeit oder mit der Uhr des Handys gemacht wurde. Ein Vergleich mit genauer Zeit zählt rund zwölfmal so viel. Reihen, die nur mit der Handy-Uhr gemacht sind, zeigen darum eine grössere Unsicherheit als bisher (± 0,5 s für die Handy-Uhr statt nur ± 0,15 s für den Tipp).
+- **Quarzuhr als Referenz:** Beim Anlegen einer Uhr gibt es den Schalter «Quarzuhr». Eine Quarzuhr hat nur «Gang im Alltag»; unter «Messen» lässt sie sich nicht wählen. Gratis sind eine Uhr zum Messen und eine Quarzuhr möglich.
+- **Gang der Quarzuhr übernehmen:** Kennt Tickwerk den Gang einer Quarzuhr auf ± 0,05 s/Tag oder besser (etwa eine Woche mit genauer Zeit), bietet «Handy-Uhr eichen» → «Noch genauer eichen» an, ihn zu übernehmen. Die Eichung ist dann nicht mehr durch den unbekannten Gang der Quarzuhr begrenzt (rund ± 6 ppm), sondern auf unter ± 1 ppm genau. Die Eich-Seite zeigt neu Quelle und Genauigkeit der Eichung.
+- **Werksvorgabe des Werks:** Für 19 Werke (Seiko, Miyota, Orient, Oris, Rolex, Tudor, STP) kennt Tickwerk den Gang, den der Hersteller erlaubt. Die Vorgabe steht beim Werk; verglichen wird beim Gang im Alltag und beim Mittel des Lagen-Tests, nicht bei der einzelnen Messung.
+- **Modell fehlt?** In der Suche beim Anlegen einer Uhr: öffnet das Mailprogramm mit einem vorbereiteten Text. Gesendet wird erst, wenn du dort auf Senden tippst.
+- Katalog: Seiko 4R35/4R36 und NH35/NH36 sowie 4R34 und NH34 sind getrennte Werke (160 Werke, 444 Modelle).
+
+## Neu in 0.6.4
+
+- **Viel mehr Uhren und Werke:** 444 Modelle von 114 Marken und 158 Werke, darunter viele ältere. Aufgenommen ist nur, wofür eine Quelle das verbaute Werk nennt.
+- **Vergleich mit den ETA-Stufen:** Der Lagen-Test zeigt, welche Stufe (Standard, Elaboré, Top) das Ergebnis erfüllen würde: Mittel und grösste Abweichung zwischen den Lagen, in den Lagen, die ETA für die Stufe prüft. Das (i) erklärt die Zeilen. «Top» braucht den Test mit 6 Lagen.
+- **Gangreserve-Test:** Der Unterschied zwischen voll aufgezogen und nach 24 Stunden (Isochronismus) wird mit den Vorgaben der ETA-Stufen verglichen.
+- **Markenkaliber finden:** Die Suche findet Werke auch unter dem Namen, den die Marke ihnen gibt.
+- **Hebewinkel:** Bei jedem Werk steht, ob der Hebewinkel bestätigt oder unbestätigt ist.
 
 ## Neu in 0.6.3
 
@@ -124,8 +143,8 @@ Aufgeräumt: Die Funktionen sind dieselben wie in 0.6.1, sie sind aber leichter 
 - `worker.js` + `engine/tickwerk-engine.js` – Auswertung im Hintergrund
 - `kaliber.js` – Werke und Modellkatalog für die Suche
 - `report.js` + `logo.js` – Messprotokoll als PDF
-- `en.js` – englische Texte (deutscher Text → englischer Text, gebaut aus `i18n/`)
-- `datenschutz.html`, `privacy.html` – Datenschutzerklärung auf Deutsch und Englisch
+- `en.js`, `fr.js`, `it.js` – englische, französische und italienische Texte (deutscher Text → Übersetzung, gebaut aus `i18n/`)
+- `datenschutz.html`, `privacy.html`, `privacy-fr.html`, `privacy-it.html` – Datenschutzerklärung in vier Sprachen
 - `sw.js`, `manifest.webmanifest`, `icons/` – Installation und Offline-Betrieb
 - `fonts/` – Schriften (SIL Open Font License, siehe OFL-Dateien)
 

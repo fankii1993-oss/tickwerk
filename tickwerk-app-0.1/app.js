@@ -65,12 +65,12 @@
   var UHREN = window.TICKWERK_UHREN || [];
   var CFG = window.TICKWERK_CONFIG || {};
   var FLAVOR = CFG.flavor === 'store' ? 'store' : 'test';
-  var APP_VERSION = '0.6.3';
+  var APP_VERSION = '0.6.5';
   var PREFIX = typeof CFG.storage === 'string' && /^[a-z][a-z0-9.]{2,30}$/.test(CFG.storage) ? CFG.storage : 'tickwerk.v1';
   var KEYS = { watches: PREFIX + '.watches', meas: PREFIX + '.measurements', settings: PREFIX + '.settings', session: PREFIX + '.session', pro: PREFIX + '.pro', log: PREFIX + '.log' };
   var PRO_SKU = typeof CFG.proSku === 'string' && /^[a-z0-9._]{1,40}$/.test(CFG.proSku) ? CFG.proSku : 'tickwerk_pro';
   var BACKEND = typeof CFG.billingBackend === 'string' && /^https:\/\/[A-Za-z0-9.\-]+(:\d+)?(\/[A-Za-z0-9._\-\/]*)?$/.test(CFG.billingBackend) ? CFG.billingBackend : '';
-  var PRICE = typeof CFG.price === 'string' ? CFG.price.slice(0, 20) : 'CHF 9.–';
+  var PRICE = typeof CFG.price === 'string' ? CFG.price.slice(0, 20) : 'CHF 9.99';
   var FREE_PER_WEEK = 3, FREE_HISTORY = 5, FREE_DETAIL = 3, MAX_MEAS = 3000, MAX_WATCHES = 200, TRACE_KEEP = 40;
   var POS = { ZO: T('Zifferblatt oben'), ZU: T('Zifferblatt unten'), KU: T('Krone unten'), KO: T('Krone oben'), KL: T('Krone links'), KR: T('Krone rechts') };
   var POS_HINT = {
@@ -113,10 +113,16 @@
       liftAngle: lift >= 30 && lift <= 70 ? lift : 52, bph: bph >= 3600 && bph <= 72000 ? Math.round(bph) : null };
     /* Zeitvergleiche (Gang im Alltag): Zeitpunkt und Abweichung der Uhr in Sekunden */
     var tv = (Array.isArray(w.tv) ? w.tv : []).slice(-100).map(function (x) {
-      var d = new Date(str(x && x.t, 40)), o = finite(x && x.o, NaN);
-      return !isNaN(d.getTime()) && isFinite(o) && Math.abs(o) < 86400 ? { t: d.toISOString(), o: Math.round(o * 100) / 100 } : null;
+      var d = new Date(str(x && x.t, 40)), o = finite(x && x.o, NaN), u = finite(x && x.u, NaN);
+      if (isNaN(d.getTime()) || !isFinite(o) || !(Math.abs(o) < 86400)) return null;
+      var v = { t: d.toISOString(), o: Math.round(o * 100) / 100 };
+      /* Quelle der Zeit: q «n» ist die genaue Zeit aus dem Internet, u ihre Unsicherheit in Sekunden. Ohne q: die Uhr des Handys. */
+      if (x.q === 'n' && u >= 0 && u <= 1) { v.q = 'n'; v.u = Math.round(u * 1000) / 1000; }
+      return v;
     }).filter(Boolean).sort(function (a, b) { return new Date(a.t) - new Date(b.t); });
     if (tv.length) out.tv = tv;
+    /* Quarzuhr: Referenz für «Gang im Alltag» und für die Eichung. Mit dem Mikrofon wird sie nicht gemessen. */
+    if (w.quarz === true) { out.quarz = true; out.kaliberId = ''; out.bph = null; }
     /* Gangreserve-Test: Kennung, Zeitpunkt der ersten Messung (voll aufgezogen), allenfalls «stehen geblieben» */
     if (w.gr && typeof w.gr === 'object' && typeof w.gr.id === 'string' && /^[A-Za-z0-9]{1,24}$/.test(w.gr.id)) {
       var g0 = new Date(str(w.gr.t0, 40)), gs = new Date(str(w.gr.stop, 40));
@@ -193,6 +199,11 @@
     lang: LANGS.indexOf(S.lang) >= 0 ? S.lang : 'auto',
     quartzRate: Math.abs(finite(S.quartzRate, 0)) <= 10 ? finite(S.quartzRate, 0) : 0,
     quartzRaw: Math.abs(finite(S.quartzRaw, NaN)) < 500 ? S.quartzRaw : null,
+    quartzSrc: S.quartzSrc === 'uhr' ? 'uhr' : '',   /* woher der Gang der Quarzuhr stammt: «uhr» aus Gang im Alltag, «hand» eingetragen, leer unbekannt */
+    quartzSig: finite(S.quartzSig, -1) >= 0 && S.quartzSig <= 5 ? S.quartzSig : null,   /* seine Unsicherheit in s/Tag */
+    calSig: finite(S.calSig, -1) >= 0 && S.calSig < 50 ? S.calSig : null,   /* Unsicherheit der Messung an der Quarzuhr in ppm (eingebautes Mikrofon) */
+    netTime: S.netTime === 'ja' || S.netTime === 'nein' ? S.netTime : '',   /* genaue Zeit aus dem Internet: ja, nein oder noch nicht gefragt */
+    netLast: cleanNetLast(S.netLast),   /* letzte Zeitabfrage, nur für die Diagnose */
     testPro: S.testPro !== false,
     free: cleanFree(S.free),
     micId: str(S.micId, 200), micLabel: str(S.micLabel, 100),
@@ -202,6 +213,8 @@
     extend: S.extend !== false,   /* unsichere Messung von selbst verlängern (bis 60 s) */
     seenVersion: /^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(str(S.seenVersion, 12)) ? S.seenVersion : ''   /* bis zu welcher Version «Was ist neu» gezeigt wurde */
   };
+  if (settings.quartzSrc === 'uhr' && settings.quartzSig == null) settings.quartzSrc = '';
+  if (!settings.quartzSrc && settings.quartzRate) settings.quartzSrc = 'hand';
   var session = cleanSession(load(KEYS.session, null));
   var proState = cleanPro(load(KEYS.pro, null));
   var lastId = meas.reduce(function (a, m) { return Math.max(a, m.id); }, 0);
@@ -220,7 +233,7 @@
      Die letzten 20 Fehler: Zeit, Art, fester Text der App (m, wird beim Anzeigen übersetzt) und allenfalls eine technische
      Angabe des Browsers oder Zahlen dazu (x). Nie Namen von Uhren oder Dateien. Das Protokoll bleibt im Handy, bis man
      die Diagnose selbst teilt. */
-  var LOG_MAX = 20, LOG_KINDS = { js: 1, mikro: 1, mess: 1, eichen: 1, datei: 1 };
+  var LOG_MAX = 20, LOG_KINDS = { js: 1, mikro: 1, mess: 1, eichen: 1, datei: 1, zeit: 1 };
   function logLine(v, max) { return String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, max || 160); }
   function cleanLog(v) {
     return (Array.isArray(v) ? v : []).slice(-LOG_MAX).map(function (e) {
@@ -313,19 +326,28 @@
       if (n >= 8 || k.length > 200 || !/^[\w.+\/=-]+$/.test(k) || k === '__proto__' || k === 'constructor' || k === 'prototype' || !v || typeof v !== 'object') return;
       var p = finite(v.ppm, NaN), r = finite(v.raw, NaN);
       if (!(Math.abs(p) < 500)) return;
-      out[k] = { ppm: p, raw: Math.abs(r) < 500 ? r : null, at: isoDate(v.at) }; n++;
+      var sg = finite(v.sig, -1);
+      out[k] = { ppm: p, raw: Math.abs(r) < 500 ? r : null, at: isoDate(v.at), sig: sg >= 0 && sg < 50 ? sg : null }; n++;
     });
     return out;
   }
+  function cleanNetLast(v) {
+    var at = v && typeof v === 'object' ? isoDate(v.at) : '';
+    if (!at) return null;
+    var num = function (x, lo, hi) { return Math.round(Math.max(lo, Math.min(hi, finite(x, 0)))); };
+    return { at: at, ok: v.ok === true, src: v.src === 'x' || v.src === 'd' ? v.src : '', n: num(v.n, 0, 99), unc: num(v.unc, 0, 9999), rtt: num(v.rtt, 0, 99999),
+      ph: num(v.ph, -9e8, 9e8), why: logLine(str(v.why, 60), 60) };
+  }
   function micKey() { return isPro() && settings.micId ? settings.micId : ''; }
-  function calOf(key) { return key ? settings.cal[key] || null : { ppm: settings.ppm, raw: settings.quartzRaw, at: settings.calAt }; }
+  function calOf(key) { return key ? settings.cal[key] || null : { ppm: settings.ppm, raw: settings.quartzRaw, at: settings.calAt, sig: settings.calSig }; }
   function ppmOf(key) { var c = calOf(key); return c && c.ppm ? c.ppm : 0; }
   /* Eichung setzen, mit dem Datum von heute. Null von Hand (ohne Messung) heisst: keine Eichung. */
-  function setClock(key, ppm, raw) {
+  function setClock(key, ppm, raw, sig) {
     var none = !ppm && raw == null, at = none ? '' : new Date().toISOString();
-    if (!key) { settings.ppm = ppm; settings.quartzRaw = raw; settings.calAt = at; return; }
+    sig = raw != null && sig >= 0 && sig < 50 ? Math.round(sig * 100) / 100 : null;   /* Unsicherheit der Messung in ppm; von Hand eingetragen: unbekannt */
+    if (!key) { settings.ppm = ppm; settings.quartzRaw = raw; settings.calAt = at; settings.calSig = sig; return; }
     if (none) { delete settings.cal[key]; return; }
-    settings.cal[key] = { ppm: ppm, raw: raw, at: at };
+    settings.cal[key] = { ppm: ppm, raw: raw, at: at, sig: sig };
     var ks = Object.keys(settings.cal);
     if (ks.length > 8) delete settings.cal[ks[0]];   /* höchstens 8 Mikrofone, das älteste fällt weg */
   }
@@ -333,6 +355,24 @@
   var CAL_OLD_DAYS = 183, CAL_NAG_DAYS = 30;
   function isCal(c) { return !!c && (c.raw != null || !!c.ppm); }
   function calOld(c) { return isCal(c) && !!c.at && Date.now() - new Date(c.at).getTime() > CAL_OLD_DAYS * 86400000; }
+  /* Wie genau ist die Eichung? Die Messung an der Quarzuhr selbst ist auf Zehntel ppm genau. Begrenzt wird die Eichung durch
+     den Gang der Quarzuhr: unbekannt sind das typisch ±0,5 s/Tag (rund ±6 ppm); aus «Gang im Alltag» übernommen gilt dessen
+     Unsicherheit. Von Hand eingetragene Werte: unbekannt (null). */
+  var QUARTZ_UNKNOWN = 0.5, QUARTZ_OK = 0.05;   /* s/Tag: Gang einer unbekannten Quarzuhr; so genau muss ein übernommener Gang sein */
+  function calAcc(c) {
+    if (!isCal(c) || c.raw == null) return null;
+    var m = c.sig != null ? Math.max(0.1, c.sig) : 0.3;
+    var q = settings.quartzSrc === 'uhr' ? settings.quartzSig : settings.quartzSrc === 'hand' ? null : QUARTZ_UNKNOWN;
+    return { ppm: q == null ? m : Math.sqrt(m * m + (q / 0.0864) * (q / 0.0864)), src: settings.quartzSrc };
+  }
+  function calAccText(c) {
+    var a = calAcc(c);
+    if (!a) return T('Quelle: von Hand eingetragen. Wie genau der Wert ist, weiss Tickwerk nicht.');
+    var v = { p: fmt(a.ppm, a.ppm < 2 ? 1 : 0), d: fmt(a.ppm * 0.0864, 2) };
+    return T('Quelle: Quarzuhr.') + ' ' + (a.src === 'hand' ? T('Genauigkeit der Messung: ± {p} ppm. Dazu kommt, wie genau du den Gang der Quarzuhr kennst.', v) :
+      a.src === 'uhr' ? T('Genauigkeit: etwa ± {p} ppm (± {d} s/Tag), mit dem Gang der Quarzuhr aus «Gang im Alltag».', v) :
+        T('Genauigkeit: etwa ± {p} ppm (± {d} s/Tag), weil Tickwerk den Gang der Quarzuhr nicht kennt. Genauer: siehe «Noch genauer eichen».', v));
+  }
   function clockShort() {   /* eine Zeile für «Mehr», die Werkzeuge und die Einstellungen */
     var c = calOf(micKey());
     if (!isCal(c)) return T('Noch nicht geeicht');
@@ -342,44 +382,45 @@
   function watchOpts(w, key) { return { liftAngle: w && w.liftAngle ? w.liftAngle : 52, bph: null, clockPpm: ppmOf(key == null ? usedMic : key) }; }
   function kalById(id) { for (var i = 0; i < KAL.length; i++) if (KAL[i].id === id) return KAL[i]; return null; }
   function calName(id) { var k = kalById(id); return k ? kName(k) : ''; }
-  /* Werknamen in den anderen Sprachen: Namen sind meist Eigennamen, nur einige Wörter werden ersetzt (längere zuerst) */
+  /* Werknamen in den anderen Sprachen: Namen sind meist Eigennamen, nur einige Wörter werden ersetzt (längere zuerst).
+     «Chronograph» nur als Angabe in der Klammer, nicht im Modellnamen («Navitimer B01 Chronograph» bleibt, wie es ist). */
   var KAL_WORDS = {
     en: [['Basis ', 'based on '], ['Nachbau ', 'clone of '], ['(auch ', '(also '], ['(Handaufzug, 80 h)', '(manual winding, 80 h)'], ['(Handaufzug)', '(manual winding)'],
       ['Handaufzug', 'manual winding'], ['mechanisch, z. B. ', 'mechanical, e.g. '], ['-Familie', ' family'], ['(aktuell, 72 h)', '(current, 72 h)'], ['(5 Tage)', '(5 days)'],
       ['Manufakturwerk', 'in-house movement'], ['Manufaktur, 5 Tage', 'in-house, 5 days'], ['Pellaton-Aufzug', 'Pellaton winding'], ['z. B. ', 'e.g. '],
-      ['Chronograph', 'chronograph'], ['(3 Zeiger, ab ca. ', '(3 hands, from about '], ['ab ca. ', 'from about '], ['bis ca. ', 'until about '], ['ohne Datum', 'no date'], [' mit Datum', ' with date'],
+      ['(Chronograph', '(chronograph'], ['-Chronograph)', ' chronograph)'], ['(3 Zeiger, ab ca. ', '(3 hands, from about '], ['ab ca. ', 'from about '], ['bis ca. ', 'until about '], ['ohne Datum', 'no date'], [' mit Datum', ' with date'],
       ['(ab ', '(from '], [', ab ', ', from '], [', bis ', ', until '], ['(aktuell)', '(current)'], ['ältere Ausführung', 'older version'], ['Kaliber ', 'caliber '],
       ['«', '“'], ['»', '”']],
     fr: [['Basis ', 'base '], ['Nachbau ', 'copie '], ['(auch ', '(aussi '], ['(Handaufzug, 80 h)', '(remontage manuel, 80 h)'], ['(Handaufzug)', '(remontage manuel)'],
       ['Handaufzug', 'remontage manuel'], ['mechanisch, z. B. ', 'mécanique, p. ex. '], ['-Familie', ' (famille)'], ['(aktuell, 72 h)', '(actuel, 72 h)'], ['(5 Tage)', '(5 jours)'],
       ['Manufakturwerk', 'mouvement manufacture'], ['Manufaktur, 5 Tage', 'manufacture, 5 jours'], ['Pellaton-Aufzug', 'remontage Pellaton'], ['z. B. ', 'p. ex. '],
-      ['Chronograph', 'chronographe'], ['(3 Zeiger, ab ca. ', '(3 aiguilles, dès env. '], ['ab ca. ', 'dès env. '], ['bis ca. ', 'jusqu’à env. '], ['ohne Datum', 'sans date'], [' mit Datum', ' avec date'],
+      ['(Chronograph', '(chronographe'], ['-Chronograph)', ', chronographe)'], ['(3 Zeiger, ab ca. ', '(3 aiguilles, dès env. '], ['ab ca. ', 'dès env. '], ['bis ca. ', 'jusqu’à env. '], ['ohne Datum', 'sans date'], [' mit Datum', ' avec date'],
       ['(ab ', '(dès '], [', ab ', ', dès '], [', bis ', ', jusqu’à '], ['(aktuell)', '(actuel)'], ['ältere Ausführung', 'ancienne version'], ['Kaliber ', 'calibre ']],
     it: [['Basis ', 'base '], ['Nachbau ', 'copia '], ['(auch ', '(anche '], ['(Handaufzug, 80 h)', '(carica manuale, 80 h)'], ['(Handaufzug)', '(carica manuale)'],
       ['Handaufzug', 'carica manuale'], ['mechanisch, z. B. ', 'meccanico, ad es. '], ['-Familie', ' (famiglia)'], ['(aktuell, 72 h)', '(attuale, 72 h)'], ['(5 Tage)', '(5 giorni)'],
       ['Manufakturwerk', 'movimento di manifattura'], ['Manufaktur, 5 Tage', 'manifattura, 5 giorni'], ['Pellaton-Aufzug', 'carica Pellaton'], ['z. B. ', 'ad es. '],
-      ['Chronograph', 'cronografo'], ['(3 Zeiger, ab ca. ', '(3 lancette, da ca. '], ['ab ca. ', 'da ca. '], ['bis ca. ', 'fino a ca. '], ['ohne Datum', 'senza data'], [' mit Datum', ' con data'],
+      ['(Chronograph', '(cronografo'], ['-Chronograph)', ', cronografo)'], ['(3 Zeiger, ab ca. ', '(3 lancette, da ca. '], ['ab ca. ', 'da ca. '], ['bis ca. ', 'fino a ca. '], ['ohne Datum', 'senza data'], [' mit Datum', ' con data'],
       ['(ab ', '(da '], [', ab ', ', da '], [', bis ', ', fino a '], ['(aktuell)', '(attuale)'], ['ältere Ausführung', 'versione precedente'], ['Kaliber ', 'calibro ']]
   };
   function enName(s) { if (LANG === 'de' || !s) return s; (KAL_WORDS[LANG] || []).forEach(function (p) { s = s.split(p[0]).join(p[1]); }); return s; }
   function kName(k) { return k ? enName(k.name) : ''; }
   /* Quellenangaben der Werke (nur im Messprotokoll): Fachbegriffe ersetzen, Namen bleiben */
   var SRC_WORDS = {
-    en: [['ETA Technische Mitteilung', 'ETA technical communication'], ['watchguy.co.uk Hebewinkel-Liste', 'watchguy.co.uk lift angle list'],
+    en: [['ETA Technische Mitteilung', 'ETA technical communication'], ['Omega Technische Anleitung', 'Omega technical guide'], ['watchguy.co.uk Hebewinkel-Liste', 'watchguy.co.uk lift angle list'],
       ['Watchguy-Hebewinkelliste', 'Watchguy lift angle list'], ['(als unbestätigt markiert)', '(marked as unconfirmed)'],
       ['(laut Forum mit ETA-Dokument)', '(per forum post with ETA document)'], ['Miyota-Datenblatt', 'Miyota data sheet'], ['Omega-Forum', 'Omega forum'],
       ['Rolex-Forum; Familie 32xx', 'Rolex forum; 32xx family'], [' bei Watchguy', ' at Watchguy'], ['Schlagzahl: ', 'Beat rate: '], ['(Schlagzahl)', '(beat rate)'],
       ['(Hebewinkel)', '(lift angle)'], ['vom Basiswerk', 'from the base movement'], ['vom verwandten', 'from the related'],
       ['von Omega 8800 / 2500 übernommen', 'taken from Omega 8800 / 2500'], ['Händlerangaben', 'dealer information'], ['Gangreserve', 'power reserve'],
       ['Messung Tickwerk', 'Tickwerk measurement'], ["25'200 A/h", '25,200 bph'], ['Basis ', 'based on '], [' bis ', ' to ']],
-    fr: [['ETA Technische Mitteilung', 'communication technique ETA'], ['watchguy.co.uk Hebewinkel-Liste', 'watchguy.co.uk, liste des angles de levée'],
+    fr: [['ETA Technische Mitteilung', 'communication technique ETA'], ['Omega Technische Anleitung', 'guide technique Omega'], ['watchguy.co.uk Hebewinkel-Liste', 'watchguy.co.uk, liste des angles de levée'],
       ['Watchguy-Hebewinkelliste', 'Watchguy, liste des angles de levée'], ['(als unbestätigt markiert)', '(marqué comme non confirmé)'],
       ['(laut Forum mit ETA-Dokument)', '(selon un forum, avec document ETA)'], ['Miyota-Datenblatt', 'fiche technique Miyota'], ['Omega-Forum', 'forum Omega'],
       ['Rolex-Forum; Familie 32xx', 'forum Rolex ; famille 32xx'], [' bei Watchguy', ' chez Watchguy'], ['Schlagzahl: ', 'Fréquence : '], ['(Schlagzahl)', '(fréquence)'],
       ['(Hebewinkel)', '(angle de levée)'], ['vom Basiswerk', 'du mouvement de base'], ['vom verwandten', 'du mouvement apparenté'],
       ['von Omega 8800 / 2500 übernommen', 'repris d’Omega 8800 / 2500'], ['Händlerangaben', 'indications du revendeur'], ['Gangreserve', 'réserve de marche'],
       ['Messung Tickwerk', 'mesure Tickwerk'], ['Basis ', 'base '], [' bis ', ' à ']],
-    it: [['ETA Technische Mitteilung', 'comunicazione tecnica ETA'], ['watchguy.co.uk Hebewinkel-Liste', 'watchguy.co.uk, elenco degli angoli di alzata'],
+    it: [['ETA Technische Mitteilung', 'comunicazione tecnica ETA'], ['Omega Technische Anleitung', 'guida tecnica Omega'], ['watchguy.co.uk Hebewinkel-Liste', 'watchguy.co.uk, elenco degli angoli di alzata'],
       ['Watchguy-Hebewinkelliste', 'Watchguy, elenco degli angoli di alzata'], ['(als unbestätigt markiert)', '(segnato come non confermato)'],
       ['(laut Forum mit ETA-Dokument)', '(secondo un forum, con documento ETA)'], ['Miyota-Datenblatt', 'scheda tecnica Miyota'], ['Omega-Forum', 'forum Omega'],
       ['Rolex-Forum; Familie 32xx', 'forum Rolex; famiglia 32xx'], [' bei Watchguy', ' su Watchguy'], ['Schlagzahl: ', 'Frequenza: '], ['(Schlagzahl)', '(frequenza)'],
@@ -398,6 +439,7 @@
   }
   function watchSub(w) {
     if (!w) return T('Hebewinkel 52° angenommen · Schlagzahl automatisch');
+    if (w.quarz) return T('Quarzuhr');
     var k = kalById(w.kaliberId);
     if (k && k.messbar === false) return kName(k) + ' · ' + T('nicht messbar');
     return (k ? kName(k) : T('Werk unbekannt')) + ' · ' + (w.bph ? thousands(w.bph) + ' ' + T('A/h') : T('Schlagzahl automatisch')) + ' · ' + deg(w.liftAngle);
@@ -607,7 +649,7 @@
   tabs.forEach(function (b) { b.addEventListener('click', function () { switchTab(b.dataset.tab); }); });
   Array.prototype.forEach.call(document.querySelectorAll('[data-back]'), function (b) { b.addEventListener('click', back); });
   Array.prototype.forEach.call(document.querySelectorAll('[data-go]'), function (b) { b.addEventListener('click', function () { go(b.dataset.go); }); });
-  ['watchSheet', 'proSheet', 'infoSheet', 'toolSheet'].forEach(function (id) {
+  ['watchSheet', 'proSheet', 'infoSheet', 'toolSheet', 'missSheet', 'netSheet'].forEach(function (id) {
     $(id).addEventListener('click', function (e) { if (e.target === $(id)) closeSheet(); });
   });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && sheetOpen) closeSheet(); });
@@ -619,7 +661,8 @@
   /* ---------- Erklärungen: (i) neben einem Wert öffnet ein kurzes Blatt mit Richtwerten ---------- */
   var INFO = {
     rate: { t: 'Gangabweichung', s: 'So viele Sekunden geht die Uhr pro Tag vor (+) oder nach (−), hochgerechnet aus der Messung. Der Wert gilt für die gemessene Lage und den jetzigen Aufzug. Im Alltag wechseln beide; darum lohnt sich der Lagen-Test.',
-      r: [['good', '−4 bis +6 s/Tag', 'Chronometer-Bereich (Norm der COSC)'], ['okay', 'bis ±30 s/Tag', 'in Ordnung; viele Werke sind ab Werk nur auf etwa ±10 bis ±40 s/Tag eingestellt'], ['warn', 'über ±30 s/Tag', 'regulieren lassen; bei sehr grossen Werten auf Magnetismus prüfen lassen']],
+      r: [['good', '−4 bis +6 s/Tag', 'Chronometer-Bereich (Norm der COSC)'], ['okay', 'bis ±30 s/Tag', 'in Ordnung; viele Werke sind ab Werk nur auf etwa ±10 bis ±40 s/Tag eingestellt'], ['warn', 'über ±30 s/Tag', 'regulieren lassen; bei sehr grossen Werten auf Magnetismus prüfen lassen'],
+        ['', '±4 / ±7 / ±12 s/Tag', 'Vorgaben von ETA für die Stufen Top, Elaboré und Standard, als Mittel mehrerer Lagen. Den Vergleich zeigt der Lagen-Test.']],
       n: 'Das ± hinter dem Wert zeigt, wie genau die Messung selbst ist. Längere Messungen sind genauer.' },
     be: { t: 'Abfallfehler', s: 'Der Unterschied zwischen Tick und Tack in Millisekunden. Bei einer gut eingestellten Uhr schwingt die Unruh nach beiden Seiten gleich weit aus der Ruhelage; dann sind Tick und Tack gleich lang.',
       r: [['good', 'bis 0,5 ms', 'sehr gut'], ['okay', '0,5 bis 1,0 ms', 'in Ordnung'], ['warn', 'über 1,0 ms', 'hoch: beim nächsten Service einstellen lassen']],
@@ -633,6 +676,8 @@
     lift: { t: 'Hebewinkel', s: 'Der Winkel, um den sich die Unruh weiterdreht, während der Anker sie antreibt. Er ist eine Angabe des Herstellers. Tickwerk misst, wie lange dieser Antrieb dauert, und rechnet daraus die Amplitude.',
       r: [['', '50° bis 53°', 'viele Schweizer Werke (ETA, Sellita) und Seiko NH35'], ['', 'unbekannt', '52° lassen; die Amplitude ist dann ein Richtwert']],
       n: 'Ein falscher Hebewinkel verschiebt nur die Amplitude, nicht den Gang und nicht den Abfallfehler.' },
+    grade: { t: 'ETA-Stufen', s: 'ETA liefert seine Werke in den Stufen Standard, Elaboré, Top und Chronomètre aus. Je Stufe ist vorgegeben, in wie vielen Lagen das Werk eingestellt wird und wie gross das Mittel der Gänge und die grösste Differenz zwischen diesen Lagen sein dürfen. Tickwerk vergleicht deinen Lagen-Test mit diesen Vorgaben.',
+      n: 'Ein Vergleich, kein Zertifikat. Die Vorgaben gelten für Werke von ETA, wie sie das Werk verlassen; eine getragene Uhr kann anders laufen. Bei anderen Werken sind sie ein Massstab zum Einordnen. Gerechnet wird in den Lagen von ETA: Standard mit Zifferblatt oben und Krone links, Elaboré dazu mit Krone unten, Top dazu mit Zifferblatt unten und Krone oben.' },
     spread: { t: 'Lagendifferenz', s: 'Der Unterschied zwischen der schnellsten und der langsamsten Lage. Er zeigt, wie gleichmässig die Uhr in allen Lagen läuft.',
       r: [['good', 'bis 10 s/Tag', 'sehr gleichmässig (Chronometer-Norm)'], ['okay', '10 bis 20 s/Tag', 'üblich für eine Uhr ohne Zertifikat'], ['warn', 'über 20 s/Tag', 'ein Uhrmacher kann prüfen, ob ein Service nötig ist']] },
     hv: { t: 'Senkrecht − waagrecht', s: 'Der mittlere Gang der senkrechten Lagen minus das Mittel der waagrechten. So siehst du, wie sich die Uhr am Arm (eher senkrecht) gegenüber flach auf dem Tisch verhält.',
@@ -640,29 +685,33 @@
       n: 'Tipp: Geht die Uhr am Tag vor, kann sie nachts in der Lage liegen, in der sie nachgeht, und umgekehrt.' },
     tape: { t: 'Papierstreifen', s: 'Jeder Punkt ist ein Schlag: grün der Tick, blau der Tack. Waagrecht läuft die Zeit, senkrecht steht die Abweichung vom genauen Takt. So zeichnet auch eine Zeitwaage beim Uhrmacher.',
       r: [['', 'Spur steigt', 'die Uhr geht vor'], ['', 'Spur fällt', 'die Uhr geht nach'], ['', 'zwei Spuren mit Abstand', 'Abfallfehler: Tick und Tack sind ungleich lang'], ['', 'Punkte streuen stark', 'unruhiges Signal oder unruhiger Gang'], ['', 'Spur wellig', 'der Gang schwankt während der Messung: wegen der Uhr oder weil das Handy nicht ruhig an der Krone liegt']] },
-    daily: { t: 'Gang im Alltag', s: 'So viel geht die Uhr pro Tag vor oder nach, während du sie trägst: mit allen Lagen, Temperaturen und dem Aufzug durchs Tragen. Dazu vergleichst du die Uhr mit der genauen Zeit des Handys, heute und nach ein paar Tagen.',
-      r: [['', 'nach 1 Tag', 'auf etwa ± 0,2 s/Tag genau'], ['', 'nach 7 Tagen', 'auf etwa ± 0,03 s/Tag genau']],
+    daily: { t: 'Gang im Alltag', s: 'So viel geht die Uhr pro Tag vor oder nach, während du sie trägst: mit allen Lagen, Temperaturen und dem Aufzug durchs Tragen. Dazu vergleichst du die Uhr mit der genauen Zeit, heute und nach ein paar Tagen. Am genauesten ist die Zeit aus dem Internet; die Uhr des Handys allein kann bis etwa zwei Sekunden danebenliegen.',
+      r: [['', 'nach 1 Tag', 'auf etwa ± 0,2 s/Tag genau'], ['', 'nach 7 Tagen', 'auf etwa ± 0,03 s/Tag genau'],
+        ['', 'mit der Uhr des Handys', 'etwa dreimal so unsicher: ± 0,7 s/Tag nach 1 Tag, ± 0,1 s/Tag nach 7 Tagen']],
       n: 'Die Messung mit dem Mikrofon zeigt den Gang in einer Lage, in diesem Moment. Beide Werte ergänzen sich; ein Unterschied von ein paar Sekunden ist normal.' },
     gr: { t: 'Gangreserve-Test', s: 'Die Zugfeder gibt ihre Kraft nicht gleichmässig ab: Wenn sie abläuft, fällt die Amplitude, und der Gang kann sich ändern. Der Test misst die Uhr voll aufgezogen und nach 24 Stunden, freiwillig auch nach 36 Stunden. Dazwischen liegt die Uhr ruhig: nicht tragen, nicht aufziehen.',
-      r: [['good', 'bis 50° weniger', 'kräftige Zugfeder, gute Schmierung'], ['okay', '50° bis 80° weniger', 'üblich bei vielen Uhren'], ['warn', 'über 80° weniger', 'beim nächsten Service ansprechen']],
+      r: [['good', 'bis 50° weniger', 'kräftige Zugfeder, gute Schmierung'], ['okay', '50° bis 80° weniger', 'üblich bei vielen Uhren'], ['warn', 'über 80° weniger', 'beim nächsten Service ansprechen'],
+        ['', '±10 / ±15 / ±20 s/Tag', 'so viel darf sich der Gang in 24 Stunden ändern: Vorgaben von ETA für die Stufen Top, Elaboré und Standard (Isochronismus)']],
       n: 'Faustregel für die Messung nach 24 Stunden. Der Gang sollte sich dabei um weniger als 5 s/Tag ändern. Gemessen wird immer mit dem Zifferblatt oben, damit die Werte vergleichbar sind.' },
     signal: { t: 'Signal', s: 'Wie klar Tickwerk das Ticken hört: wie viele Schläge es erkennt und wie deutlich sie sich vom Rauschen abheben.',
       r: [['good', 'stark', 'alle Werte sicher'], ['okay', 'mittel', 'Gang sicher, Amplitude und Abfallfehler meist auch'], ['warn', 'schwach', 'zählt nicht: Handy fester an die Krone halten, ruhiger Raum']] }
   };
   var INFO_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.6h.01"/></svg>';
   Array.prototype.forEach.call(document.querySelectorAll('button.info[data-info]'), function (b) { b.innerHTML = INFO_ICON; });
-  function openInfo(key) {
+  function openInfo(key, rows, even) {
     var d = own(INFO, key) ? INFO[key] : null;
     if (!d) return;
     $('isTitle').textContent = T(d.t); $('isText').textContent = T(d.s);
     var ul = $('isRanges'); ul.innerHTML = '';
-    (d.r || []).forEach(function (r) {
+    ul.className = 'ranges' + (even ? ' even' : '');   /* Blatt «ETA-Stufen»: erste Spalte überall gleich breit */
+    rows = rows || d.r || [];   /* eigene Zeilen sind schon übersetzt; T() lässt sie dann unverändert */
+    rows.forEach(function (r) {
       var li = document.createElement('li'); li.className = r[0] || 'plain';
       var a = document.createElement('span'); a.className = 'rg-v'; a.textContent = T(r[1]);
       var b = document.createElement('span'); b.className = 'rg-t'; b.textContent = T(r[2]);
       li.appendChild(a); li.appendChild(b); ul.appendChild(li);
     });
-    ul.hidden = !(d.r && d.r.length);
+    ul.hidden = !rows.length;
     $('isNote').textContent = d.n ? T(d.n) : ''; $('isNote').hidden = !d.n;
     openSheet('infoSheet');
   }
@@ -670,8 +719,21 @@
     var b = e.target && e.target.closest ? e.target.closest('button.info[data-info]') : null;
     if (!b) return;
     e.preventDefault(); e.stopPropagation();
+    if (b.dataset.info === 'grade') { openInfo('grade', gradeRows(gradeFor(b)), true); return; }
+    if (b.dataset.info === 'rate') {   /* mit der Werksvorgabe des Werks der Uhr, wenn der Katalog eine kennt */
+      var gg = gangOf(detailWatch() || currentWatch());
+      if (gg) { openInfo('rate', INFO.rate.r.concat([['', gangRange(gg), gangWho(gg) + (own(GANG_ART, gg[3]) ? ' (' + GANG_ART[gg[3]] + ')' : '') + '. ' + T('Der Vergleich steht beim Gang im Alltag und im Lagen-Test, nicht bei der einzelnen Messung.')]])); return; }
+    }
     openInfo(b.dataset.info);
   }, true);
+  /* Welcher Lagen-Test gemeint ist: auf der Seite der Uhr der letzte dieser Uhr, sonst der laufende */
+  function gradeFor(btn) {
+    if (btn.closest('#dLagenCard')) {
+      var w = detailWatch(), L = w ? lastLagenOf(measOf(w)) : null;
+      if (L) return etaGrade(L.set, L.byPos);
+    } else if (session) return etaGrade(SETS[session.set], sessByPos());
+    return etaGrade([], {});
+  }
   $('isClose').addEventListener('click', function () { closeSheet(); });
 
   /* ---------- Aufnahme ---------- */
@@ -1253,7 +1315,7 @@
   function openWatchSheet() {
     if (rec || busy) return;
     var ul = $('wsList'); ul.innerHTML = '';
-    watches.concat([null]).forEach(function (w) {
+    mechWatches().concat([null]).forEach(function (w) {
       var li = document.createElement('li'), b = document.createElement('button');
       b.type = 'button';
       b.innerHTML = '<span>' + esc(w ? w.name : UNKNOWN.name) + '</span><small>' + esc(watchSub(w)) + '</small>';
@@ -1274,7 +1336,8 @@
     { id: 'eichen', t: T('Handy-Uhr eichen'), s: '' }
   ];
   /* Die Uhr, für die ein Werkzeug gilt: die unter «Messen» gewählte, sonst die einzige gespeicherte */
-  function toolWatch() { return currentWatch() || (watches.length === 1 ? watches[0] : null); }
+  function mechWatches() { return watches.filter(function (w) { return !w.quarz; }); }
+  function toolWatch() { var m = mechWatches(); return currentWatch() || (m.length === 1 ? m[0] : null); }
   function toolSub(tool) {
     var w = toolWatch();
     if (tool.id === 'eichen') return { text: clockShort(), due: calOld(calOf(micKey())) };
@@ -1591,6 +1654,56 @@
     return out;
   }
   function sessByPos() { return byPosOf(sessMeas()); }
+  /* ---------- Vergleich mit den Qualitätsstufen von ETA (0.6.4) ----------
+     ETA liefert seine Werke in Stufen aus. Je Stufe ist vorgegeben, in welchen Lagen eingestellt wird, wie gross das Mittel
+     der Gänge und wie gross die grösste Differenz zwischen diesen Lagen sein dürfen:
+       Standard  CH, 6H              Mittel ±12 s/Tag, Differenz höchstens 30 s/Tag
+       Elaboré   CH, 6H, 9H          Mittel ±7 s/Tag,  Differenz höchstens 20 s/Tag
+       Top       CH, FH, 6H, 9H, 3H  Mittel ±4 s/Tag,  Differenz höchstens 15 s/Tag
+     (CH = Zifferblatt oben, FH = Zifferblatt unten, 6H = Krone links, 9H = Krone unten, 3H = Krone oben.)
+     Tickwerk rechnet je Stufe genau in deren Lagen, mit den Werten, wie sie angezeigt werden (auf 0,1 s/Tag gerundet).
+     Die vierte Stufe «Chronomètre» braucht das Zertifikat der COSC und wird nicht vergeben. Ein Vergleich, kein Zertifikat. */
+  var ETA_GRADES = [
+    { name: 'Top', pos: ['ZO', 'ZU', 'KL', 'KU', 'KO'], mean: 4, spread: 15 },
+    { name: 'Elaboré', pos: ['ZO', 'KL', 'KU'], mean: 7, spread: 20 },
+    { name: 'Standard', pos: ['ZO', 'KL'], mean: 12, spread: 30 }
+  ];
+  function etaGrade(set, byPos) {
+    var out = { grade: null, rows: [], any: false };
+    ETA_GRADES.forEach(function (g) {
+      var miss = g.pos.filter(function (p) { var m = byPos[p]; return set.indexOf(p) < 0 || !(m && counted(m)); });
+      var row = { g: g, miss: miss, mean: null, spread: null, ok: false };
+      if (!miss.length) {
+        var rates = g.pos.map(function (p) { return byPos[p].rate; });
+        row.mean = Math.round(avg(rates) * 10) / 10;
+        row.spread = Math.round((Math.max.apply(null, rates) - Math.min.apply(null, rates)) * 10) / 10;
+        row.ok = Math.abs(row.mean) <= g.mean && row.spread <= g.spread;
+        out.any = true;
+        if (row.ok && !out.grade) out.grade = g;
+      }
+      out.rows.push(row);
+    });
+    return out;
+  }
+  /* Kachel «ETA-Stufe zum Vergleich»: Wert und kleine Zeile darunter */
+  function gradeTile(set, eta, dd, small) {
+    var top = eta.rows[0];
+    dd.textContent = eta.grade ? eta.grade.name : eta.any ? T('keine Stufe') : '–';
+    small.textContent = !eta.any ? T('nicht prüfbar: Lagen fehlen oder zählen nicht') :
+      (eta.grade ? T('Vorgabe von ETA in {n} Lagen erfüllt', { n: eta.grade.pos.length }) : T('Vorgaben von ETA nicht erfüllt')) +
+      (eta.grade !== top.g && top.miss.length && set.indexOf('KO') < 0 ? ' · ' + T('«Top» nicht prüfbar: Test mit 6 Lagen nötig.') : '');
+  }
+  /* Zeilen für das Erklärblatt: je Stufe die Vorgabe und was gemessen wurde */
+  function gradeRows(eta) {
+    var rows = eta.rows.map(function (r) {
+      var txt = T('{n} Lagen: Mittel innerhalb ±{a} s/Tag, Differenz höchstens {b} s/Tag.', { n: r.g.pos.length, a: r.g.mean, b: r.g.spread }) + ' ' +
+        (r.miss.length ? T('Nicht prüfbar, es fehlt: {p}.', { p: r.miss.map(function (p) { return POS[p]; }).join(', ') }) :
+          T(r.ok ? 'Erfüllt: Mittel {m}, Differenz {d}.' : 'Nicht erfüllt: Mittel {m}, Differenz {d}.', { m: signed(r.mean, 1), d: fmt(r.spread, 1) }));
+      return [r.miss.length ? 'plain' : r.ok ? 'good' : 'warn', r.g.name, txt];
+    });
+    rows.push(['plain', 'Chronomètre', T('Wie Top, dazu geprüft und zertifiziert von der COSC. Das kann Tickwerk nicht ersetzen.')]);
+    return rows;
+  }
   function lagenStats(set, byPos) {
     var rows = set.map(function (p) { return { pos: p, m: byPos[p] || null }; });
     var ok = rows.filter(function (r) { return r.m && counted(r.m); });
@@ -1609,6 +1722,7 @@
       st.spread = st.hi.m.rate - st.lo.m.rate;
     }
     if (h.length && v.length) st.hv = avg(v.map(rate)) - avg(h.map(rate));
+    st.eta = etaGrade(set, byPos);
     return st;
   }
   /* Nächste Lage: zuerst eine offene, sonst eine schwache zum Wiederholen */
@@ -1697,6 +1811,8 @@
       $('lgHV').textContent = st.hv == null ? '–' : signed(st.hv, 1);
       $('lgBe').textContent = st.be == null ? '–' : fmt(st.be, 2);
       $('lgAmp').textContent = st.ampH == null && st.ampV == null ? '–' : (st.ampH != null ? Math.round(st.ampH) + '°' : '–') + ' / ' + (st.ampV != null ? Math.round(st.ampV) + '°' : '–');
+      gradeTile(set, st.eta, $('lgGrade'), $('lgGradeSub'));
+      gangTile(w, st, $('lgGangBox'), $('lgGang'), $('lgGangSub'));
       $('lgVerdict').textContent = lagenVerdict(st);
       drawLagenChart(st);
     }
@@ -1968,6 +2084,17 @@
       var list = measOf(w), st = watchStatus(w, list), show = st.last || list[list.length - 1];
       var b = document.createElement('button');
       b.type = 'button'; b.className = 'wcard';
+      if (w.quarz) {   /* Quarzuhr: statt Messungen der Gang im Alltag */
+        var qd = dailyRate(w.tv || []), qn = (w.tv || []).length;
+        b.innerHTML = '<span class="wcard-top"><span><span class="wcard-name">' + esc(w.name) + '</span><span class="mono-sub">' + esc(T('Quarzuhr')) + '</span></span>' +
+          '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></span>' +
+          '<span class="wcard-mid"><span class="wcard-rate"><span class="wcard-num"><b>' + (qd ? esc(signed(qd.rate, 2)) : '–') + '</b><span>' + esc(T('s/Tag')) + '</span></span></span></span>' +
+          '<span class="wcard-foot">' + esc(qn ? T('Gang im Alltag') + ' · ' + plural(qn, 'Vergleich', 'Vergleiche') : T('Noch kein Vergleich')) + '</span>' +
+          (dueText(w) ? '<span class="wcard-due">' + esc(dueText(w)) + '</span>' : '');
+        b.addEventListener('click', function () { go('watch', { id: w.id }); });
+        box.appendChild(b);
+        return;
+      }
       b.innerHTML = '<span class="wcard-top"><span><span class="wcard-name">' + esc(w.name) + '</span><span class="mono-sub">' + esc(calName(w.kaliberId) || T('Werk unbekannt')) + '</span></span>' +
         '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></span>' +
         '<span class="wcard-mid"><span class="wcard-rate"><span class="wcard-num"><b>' + (show ? esc(signed(show.rate, 1)) : '–') + '</b><span>' + esc(T('s/Tag')) + '</span></span>' +
@@ -1978,9 +2105,14 @@
       box.appendChild(b);
     });
   }
+  /* Gratis: eine Uhr zum Messen. Dazu darf eine Quarzuhr als Referenz kommen (für «Gang im Alltag» und die Eichung). */
   function addWatch() {
-    if (!isPro() && watches.length >= 1) { requirePro('watches'); return; }
+    if (!isPro() && mechWatches().length >= 1) { requirePro('watches'); return; }
     go('edit', {});
+  }
+  function addQuartz() {
+    if (!isPro() && watches.length > mechWatches().length) { requirePro('watches'); return; }
+    go('edit', { quartz: true });
   }
   $('wAdd').addEventListener('click', addWatch);
   $('wAddFirst').addEventListener('click', addWatch);
@@ -2045,8 +2177,9 @@
     if (!w) { setTimeout(function () { popTo('watches'); }, 0); return; }
     var k = kalById(w.kaliberId), list = measOf(w), st = liftState(w);
     $('dName').textContent = w.name;
-    $('dCal').textContent = (k ? kName(k) : T('Werk unbekannt')) + (k && k.messbar === false ? ' · ' + T('nicht messbar') : '');
-    $('dDetective').hidden = !!k;
+    $('scr-watch').classList.toggle('quartz', !!w.quarz);   /* Quarzuhr: nur «Gang im Alltag», der Rest der Seite gilt mechanischen Uhren */
+    $('dCal').textContent = w.quarz ? T('Quarzuhr') : (k ? kName(k) : T('Werk unbekannt')) + (k && k.messbar === false ? ' · ' + T('nicht messbar') : '');
+    $('dDetective').hidden = !!k || !!w.quarz;
     var bphSeen = list.length ? list[list.length - 1].bph : 0;
     $('dBph').innerHTML = esc(w.bph ? thousands(w.bph) : bphSeen ? thousands(bphSeen) : '–') + '<small>' + esc(T(w.bph ? 'A/h hinterlegt' : bphSeen ? 'A/h erkannt' : 'automatisch')) + '</small>';
     $('dLift').innerHTML = esc(deg(w.liftAngle)) + '<small>' + esc(T(st || 'bestätigt')) + '</small>';
@@ -2082,7 +2215,7 @@
     /* Klappkarten: beim Öffnen der Seite so, wie zuletzt gelassen; ein Werkzeug klappt seine Karte auf und zeigt sie */
     if (!p.folds) {
       p.folds = true;
-      Object.keys(FOLDS).forEach(function (k) { setFold(k, p.focus === k ? true : settings.fold[k]); });
+      Object.keys(FOLDS).forEach(function (k) { setFold(k, p.focus === k || (w.quarz && k === 'dt') ? true : settings.fold[k]); });
       if (own(FOLDS, p.focus)) setTimeout(function () { if (topScreen() === 'watch') $(FOLDS[p.focus]).scrollIntoView({ block: 'start' }); }, 0);
     }
   }
@@ -2135,6 +2268,8 @@
     $('dlSpread').textContent = st.spread == null ? '–' : fmt(st.spread, 1);
     $('dlBe').textContent = !pro ? 'Pro' : st.be == null ? '–' : fmt(st.be, 2);
     $('dlAmp').textContent = !pro ? 'Pro' : st.ampH == null && st.ampV == null ? '–' : (st.ampH != null ? Math.round(st.ampH) + '°' : '–') + ' / ' + (st.ampV != null ? Math.round(st.ampV) + '°' : '–');
+    gradeTile(L.set, st.eta, $('dlGrade'), $('dlGradeSub'));
+    gangTile(w, st, $('dlGangBox'), $('dlGang'), $('dlGangSub'));
     var ul = $('dlRows'); ul.innerHTML = '';
     st.rows.forEach(function (r) {
       var li = document.createElement('li'), m = r.m;
@@ -2423,25 +2558,33 @@
   $('wDetective').addEventListener('click', function () { var t = top(); if (t.s === 'edit') go('detektiv', { from: 'edit', id: t.p.id || '' }); });
   $('dDetective').addEventListener('click', function () { var w = detailWatch(); if (w) go('detektiv', { from: 'watch', id: w.id }); });
 
-  /* ---------- Gang im Alltag: Zeitvergleich mit der genauen Zeit des Handys ----------
-     Die Uhrzeit des Handys kommt aus dem Netz. Man tippt, wenn der Sekundenzeiger der Uhr auf der 12 steht;
-     die Abweichung (Uhr minus Handy) wird gespeichert. Aus mehreren Vergleichen über Tage folgt der Gang im
+  /* ---------- Gang im Alltag: Zeitvergleich mit der genauen Zeit ----------
+     Die genaue Zeit kommt, wenn der Nutzer einverstanden ist, aus dem Internet (siehe «Genaue Zeit aus dem Internet»),
+     sonst von der Uhr des Handys. Man tippt, wenn der Sekundenzeiger der Uhr auf der 12 steht;
+     die Abweichung (Uhr minus genaue Zeit) wird gespeichert. Aus mehreren Vergleichen über Tage folgt der Gang im
      Alltag (Gerade durch die Abweichungen). Die Reaktionszeit beim Tippen ist jedes Mal ähnlich und hebt sich auf. */
   var TAP_SIGMA = 0.15;   /* Streuung eines Tipps in Sekunden (geschätzt) */
-  var MIN_SPAN_H = 6;     /* Gang erst ab 6 Stunden zwischen erstem und letztem Vergleich (zwei Tipps: etwa ±0,9 s/Tag) */
+  var HANDY_SIGMA = 0.5;  /* so genau ist die Uhr des Handys etwa (Sekunden, geschätzt): Android stellt sie erst nach, wenn sie rund 2 s danebenliegt */
+  var MIN_SPAN_H = 6;     /* Gang erst ab 6 Stunden zwischen erstem und letztem Vergleich (zwei Tipps mit genauer Zeit: etwa ±0,9 s/Tag) */
   var REPLACE_MIN = 10;   /* ein neuer Vergleich innert 10 Minuten ersetzt den vorherigen */
+  /* Unsicherheit eines Vergleichs (Varianz in s²): der Tipp, dazu die Uhr, gegen die verglichen wurde (genaue Zeit: ihre
+     eigene kleine Unsicherheit; Handy-Uhr: HANDY_SIGMA). Die Gerade durch die Vergleiche wird damit gewichtet: Ein Vergleich
+     mit genauer Zeit zählt rund zwölfmal so viel wie einer mit der Handy-Uhr. */
+  function tvVar(v) { var c = v.q === 'n' ? (v.u || 0) : HANDY_SIGMA; return TAP_SIGMA * TAP_SIGMA + c * c; }
   function dailyRate(tv) {
     if (!tv || tv.length < 2) return null;
     var t0 = new Date(tv[0].t).getTime();
     if (new Date(tv[tv.length - 1].t).getTime() - t0 < MIN_SPAN_H * 3600000) return null;
-    var xs = tv.map(function (v) { return (new Date(v.t).getTime() - t0) / 86400000; }), ys = tv.map(function (v) { return v.o; });
-    var n = xs.length, mx = avg(xs), my = avg(ys), sxx = 0, sxy = 0, i;
-    for (i = 0; i < n; i++) { sxx += (xs[i] - mx) * (xs[i] - mx); sxy += (xs[i] - mx) * (ys[i] - my); }
+    var xs = tv.map(function (v) { return (new Date(v.t).getTime() - t0) / 86400000; }), ys = tv.map(function (v) { return v.o; }), ws = tv.map(function (v) { return 1 / tvVar(v); });
+    var n = xs.length, sw = 0, mx = 0, my = 0, sxx = 0, sxy = 0, i;
+    for (i = 0; i < n; i++) { sw += ws[i]; mx += ws[i] * xs[i]; my += ws[i] * ys[i]; }
+    mx /= sw; my /= sw;
+    for (i = 0; i < n; i++) { sxx += ws[i] * (xs[i] - mx) * (xs[i] - mx); sxy += ws[i] * (xs[i] - mx) * (ys[i] - my); }
     if (!(sxx > 0)) return null;
-    var rate = sxy / sxx, ss = 0;
-    for (i = 0; i < n; i++) { var r = ys[i] - (my + rate * (xs[i] - mx)); ss += r * r; }
-    var s = n > 2 ? Math.max(TAP_SIGMA, Math.sqrt(ss / (n - 2))) : TAP_SIGMA;
-    return { rate: rate, sigma: s / Math.sqrt(sxx), days: xs[n - 1] - xs[0], n: n };
+    var rate = sxy / sxx, chi = 0;
+    for (i = 0; i < n; i++) { var r = ys[i] - (my + rate * (xs[i] - mx)); chi += ws[i] * r * r; }
+    var f = n > 2 ? Math.max(1, Math.sqrt(chi / (n - 2))) : 1;   /* streuen die Vergleiche stärker als erwartet, zählt die beobachtete Streuung */
+    return { rate: rate, sigma: f / Math.sqrt(sxx), days: xs[n - 1] - xs[0], n: n, net: tv.filter(function (v) { return v.q === 'n'; }).length };
   }
   function daysText(d) {
     if (d < 1) { var h = Math.max(1, Math.round(d * 24)); return plural(h, 'Stunde', 'Stunden'); }
@@ -2461,13 +2604,19 @@
     if (!tv.length) txt = T('Wie geht die Uhr, wenn du sie trägst? Vergleiche sie heute mit der genauen Zeit und nach 1 bis 7 Tagen nochmals. Tickwerk rechnet daraus den Gang im Alltag.');
     else if (!dr && tv.length === 1) txt = T('Erster Vergleich am {d}: Uhr {o} s. Nach mindestens einem Tag nochmals vergleichen, die Uhr bis dahin nicht stellen.', { d: dateStr(last.t), o: signed(last.o, 1) });
     else if (!dr) txt = T('Die Vergleiche liegen noch zu nahe beieinander. Den Gang zeigt Tickwerk, sobald zwischen dem ersten und dem letzten mindestens {h} Stunden liegen. Am besten morgen nochmals vergleichen.', { h: MIN_SPAN_H });
-    else txt = (dr.days < 1 ? T('Noch weniger als ein Tag: Nach ein paar Tagen wird der Wert genauer.') + ' ' : '') +
-      (lastM ? T('Zum Vergleich die letzte Messung mit dem Mikrofon: {v} s/Tag ({p}).', { v: signed(lastM.rate, 1), p: POS[lastM.pos] }) : '');
+    else txt = (gangOf(w) ? T(gangFit(gangOf(w), dr.rate) ? 'Das liegt innerhalb der Vorgabe ({t}).' : 'Das liegt ausserhalb der Vorgabe ({t}).', { t: gangText(gangOf(w)) }) + ' ' : '') +
+      (dr.days < 1 ? T('Noch weniger als ein Tag: Nach ein paar Tagen wird der Wert genauer.') + ' ' : '') +
+      (lastM ? T('Zum Vergleich die letzte Messung mit dem Mikrofon: {v} s/Tag ({p}).', { v: signed(lastM.rate, 1), p: POS[lastM.pos] }) + ' ' : '') +
+      (w.quarz ? T(dr.sigma <= QUARTZ_OK ? 'Genau genug für die Eichung: Unter Mehr → Handy-Uhr eichen → «Noch genauer eichen» lässt sich dieser Gang übernehmen.' :
+        'Für die Eichung der Handy-Uhr braucht es ± {m} s/Tag oder besser: weiter vergleichen.', { m: fmt(QUARTZ_OK, 2) }) + ' ' : '') +
+      (dr.net < dr.n && !netOn() ? T('Mit der genauen Zeit aus dem Internet wird der Wert genauer: Mehr → Einstellungen.') : '');
+    txt = txt.trim();
     $('dtText').textContent = txt; $('dtText').hidden = !txt;
     var ul = $('dtRows'); ul.innerHTML = '';
     tv.slice(-5).reverse().forEach(function (v) {
       var li = document.createElement('li');
-      li.innerHTML = '<span class="r-l">' + esc(dateStr(v.t)) + '</span><span class="r-r">' + esc(T('Uhr {o} s', { o: signed(v.o, 1) })) + '</span>';
+      li.innerHTML = '<span class="r-l">' + esc(dateStr(v.t)) + '<small>' + esc(T(v.q === 'n' ? 'Internetzeit' : 'Handy-Uhr')) + '</small></span>' +
+        '<span class="r-r">' + esc(T('Uhr {o} s', { o: signed(v.o, 1) })) + '</span>';
       ul.appendChild(li);
     });
     $('dtReset').hidden = !tv.length;
@@ -2586,6 +2735,17 @@
       T('Der Gang ändert sich stark, wenn die Kraft nachlässt. Ein Uhrmacher kann das beim Service verbessern.');
     return { kind: kind, text: head + ' ' + tail + (drop == null ? ' ' + T('Ohne sichere Amplitude zählt nur der Gang.') : '') };
   }
+  /* Isochronismus (0.6.4): ETA gibt je Stufe vor, wie stark sich der Gang zwischen voll aufgezogen und 24 Stunden später
+     ändern darf (Top ±10, Elaboré ±15, Standard ±20 s/Tag). Der Test misst genau diese beiden Zeitpunkte. Ein Vergleich:
+     Tickwerk misst nur mit dem Zifferblatt oben. Nicht, wenn die Uhr stehen geblieben ist. */
+  var ETA_ISO = [['Top', 10], ['Elaboré', 15], ['Standard', 20]];
+  function grIso(w) {
+    var ms = grMeas(w);
+    if (!ms[0] || !ms[1] || (w.gr && w.gr.stop)) return '';
+    var d = Math.round((ms[1].rate - ms[0].rate) * 10) / 10, g = ETA_ISO.filter(function (x) { return Math.abs(d) <= x[1]; })[0];
+    return g ? T('Zum Vergleich: Der Gang hat sich in 24 Stunden um {v} s/Tag geändert. Das erfüllt die Vorgabe von ETA für die Stufe «{g}» (±{x} s/Tag).', { v: signed(d, 1), g: g[0], x: g[1] }) :
+      T('Zum Vergleich: Der Gang hat sich in 24 Stunden um {v} s/Tag geändert. Das liegt ausserhalb der Vorgaben von ETA (Standard: ±20 s/Tag).', { v: signed(d, 1) });
+  }
   function renderGrCard(w) {
     var ms = grMeas(w), nx = grNext(w), vd = grVerdict(w), started = !!(w.gr && w.gr.t0), ul = $('grRows');
     $('grSub').textContent = !started ? '' : nx ? T('läuft') : T('abgeschlossen');
@@ -2605,6 +2765,8 @@
     }
     $('grVerdict').hidden = !vd;
     if (vd) { $('grVerdict').setAttribute('data-kind', vd.kind); $('grVerdictText').textContent = vd.text; }
+    var iso = started ? grIso(w) : '';
+    $('grIso').textContent = iso; $('grIso').hidden = !iso;
     var go = $('grGo');
     go.hidden = started && (!nx || !nx.due);
     go.textContent = !started ? T('Voll aufgezogen: jetzt messen') : nx ? T('Jetzt messen: {s}', { s: GR_NAMES[nx.step] }) : '';
@@ -2668,42 +2830,193 @@
     return '';
   }
 
+  /* ---------- Genaue Zeit aus dem Internet (0.6.5) ----------
+     Android stellt die Uhr des Handys nur ab und zu; sie kann bis rund zwei Sekunden danebenliegen. Für den Zeitvergleich
+     fragt Tickwerk darum, wenn der Nutzer einverstanden ist, die Zeit bei dem Server ab, von dem die App selbst kommt:
+     eine leere Anfrage (HEAD, am Service Worker vorbei, nichts aus dem Zwischenspeicher). Jede Antwort grenzt den
+     Unterschied «Zeit des Servers minus eigene Uhr» ein, denn der Server hat sie zwischen Absenden und Ankunft gestempelt:
+       Kopfzeile X-Timer (Auslieferungsnetz Fastly, auf Mikrosekunden): der Unterschied liegt in einem Bereich von der Breite
+         der Laufzeit.
+       Kopfzeile Date (nur ganze Sekunden): der Bereich ist eine Sekunde breiter. Die Abfragen werden darum so gelegt, dass
+         sie den Sekundenwechsel des Servers einkreisen; jede halbiert den Bereich etwa.
+     Der Schnitt aller Bereiche ist das Ergebnis, seine halbe Breite die Unsicherheit. Widersprechen sich die Antworten
+     (leerer Schnitt, etwa wegen einer zwischengespeicherten Antwort), gilt die Abfrage als gescheitert, und Tickwerk nimmt
+     wie bisher die Uhr des Handys. Gerechnet wird gegen die laufende Uhr der Seite (performance.now): Sie springt nicht,
+     wenn Android die Handy-Uhr stellt. Verschieben sich die zwei Uhren gegeneinander (Handy-Uhr gestellt, Handy hat
+     geschlafen), gilt die Abfrage nicht mehr. */
+  var PERF0 = Date.now() - performance.now();
+  function pClock(t) { return PERF0 + (t == null ? performance.now() : t); }   /* die Uhr der Seite als Zeit in ms */
+  var NET_URL = 'config.js', NET_TIMEOUT = 4000, NET_MAX_AGE = 10 * 60000, NET_SKEW = 100, NET_FLOOR = 10, NET_SLACK = 25, NET_COARSE = 400;
+  var net = null;      /* letzte gelungene Abfrage: off (Zeit des Servers minus Uhr der Seite), unc, at, skew, src, n, rtt; alles in ms */
+  var netRun = null;   /* laufende Abfrage */
+  /* Uhr des Handys minus Uhr der Seite. Zwischen dem Ablesen der zwei Uhren kann das Programm kurz stehen (das ergäbe einen
+     scheinbaren Sprung): darum die Uhr der Seite davor und danach ablesen und die engste von bis zu drei Ablesungen nehmen. */
+  function netSkew() {
+    for (var i = 0, best = 0, gap = Infinity; i < 3 && gap >= 2; i++) {
+      var a = performance.now(), d = Date.now(), b = performance.now();
+      if (b - a < gap) { gap = b - a; best = d - (PERF0 + (a + b) / 2); }
+    }
+    return best;
+  }
+  function netOn() { return settings.netTime === 'ja'; }
+  function netFor(perfTs, skew) { return net && Math.abs(net.at - perfTs) < NET_MAX_AGE && Math.abs(net.skew - skew) < NET_SKEW ? net : null; }
+  function netValid() { return !!netFor(performance.now(), netSkew()); }
+  function netHost() { return location.hostname || T('dieser Server'); }
+  function netNote(ok, why) {
+    settings.netLast = cleanNetLast({ at: new Date().toISOString(), ok: ok, src: ok ? net.src : '', n: ok ? net.n : 0, unc: ok ? net.unc : 0, rtt: ok ? net.rtt : 0,
+      ph: ok ? netSkew() - net.off : 0, why: ok ? '' : why });
+    saveSettings();
+  }
+  function netProbe(unique) {
+    var ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    var timer = setTimeout(function () { if (ctl) ctl.abort(); }, NET_TIMEOUT);
+    var url = NET_URL + (unique ? '?zeit=' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8) : '');
+    var t0 = performance.now();
+    return fetch(url, { method: 'HEAD', cache: 'no-store', credentials: 'omit', signal: ctl ? ctl.signal : undefined }).then(function (res) {
+      var t1 = performance.now(); clearTimeout(timer);
+      var x = /^S(\d{9,11}(?:\.\d{1,9})?)(?:,|$)/.exec(res.headers.get('x-timer') || ''), d = Date.parse(res.headers.get('date') || '');
+      return { t0: pClock(t0), t1: pClock(t1), x: x ? parseFloat(x[1]) * 1000 : NaN, d: isFinite(d) ? d : NaN };
+    }, function (e) { clearTimeout(timer); throw e; });
+  }
+  function netStart() {
+    if (netRun) return netRun;
+    var lo = -Infinity, hi = Infinity, n = 0, bad = 0, rtt = Infinity, mode = '', maxN = 8, first = NaN, moved = false;
+    function fail(why) {
+      if (navigator.onLine !== false) logErr('zeit', 'Zeitabfrage gescheitert', why + ' · ' + (mode || '-') + ' · ' + n + '/' + bad);
+      netNote(false, why);
+    }
+    function take(p) {
+      var r = p.t1 - p.t0, v = mode === 'x' ? p.x : p.d;
+      if (!isFinite(v) || !(r >= 0)) { bad++; return; }
+      /* gestempelt zwischen Absenden (t0) und Ankunft der Antwort (t1); Date nennt nur die begonnene Sekunde */
+      lo = Math.max(lo, v - p.t1); hi = Math.min(hi, v + (mode === 'x' ? 0 : 1000) - p.t0);
+      /* Die Zeit des Servers muss sich von Antwort zu Antwort bewegen. Bleibt sie stehen (zwischengespeicherte Antwort), sähe
+         das eine Sekunde lang aus wie ein Sekundenwechsel, der gleich kommt: Der Bereich würde von selbst immer enger. */
+      if (!n) first = v; else if (v > first) moved = true;
+      n++; if (r < rtt) rtt = r;
+    }
+    function pause() {
+      if (mode !== 'd' || !isFinite(lo) || !isFinite(hi)) return n ? 40 : 0;
+      /* nur mit Date: so absenden, dass der Sekundenwechsel des Servers in die Mitte des offenen Bereichs fällt */
+      var ph = (pClock() + Math.min(rtt, 1000) / 2 + (lo + hi) / 2) % 1000;
+      return (1000 - (ph < 0 ? ph + 1000 : ph)) % 1000;
+    }
+    function finish() {
+      var w = hi - lo;
+      if (n < 3) return fail(n ? 'zu wenige Antworten' : 'keine Antwort');
+      if (w < -NET_SLACK) return fail('Antworten widersprechen sich');
+      if (!moved) return fail('Zeit des Servers steht');
+      if (w / 2 > NET_COARSE) return fail('zu ungenau');
+      net = { off: (lo + hi) / 2, unc: Math.max(NET_FLOOR, Math.abs(w) / 2 + (w < 0 ? NET_FLOOR : 0)), at: performance.now(), skew: netSkew(), src: mode, n: n, rtt: Math.round(rtt) };
+      netNote(true, '');
+    }
+    function step() {
+      if (n + bad >= maxN || bad > 2 || hi - lo < -NET_SLACK || (n >= 4 && moved && hi - lo < (mode === 'x' ? 30 : Math.min(rtt, 300) + 30))) return finish();
+      return new Promise(function (ok) { setTimeout(ok, pause()); }).then(function () { return netProbe(mode !== 'x'); }).then(function (p) {
+        if (!mode) {
+          mode = isFinite(p.x) ? 'x' : isFinite(p.d) ? 'd' : '';
+          if (!mode) throw new Error('Kopfzeilen');
+          maxN = mode === 'x' ? 8 : 12;
+        }
+        take(p);
+      }, function (e) { if (!n) throw e; bad++; }).then(step);
+    }
+    netRun = step().then(null, function (e) { fail(e && e.message === 'Kopfzeilen' ? 'keine Zeit in der Antwort' : n ? 'abgebrochen' : 'keine Antwort'); })
+      .then(function () { netRun = null; zNet(); });
+    return netRun;
+  }
+  /* Einmal fragen, ob Tickwerk die Zeit im Internet abfragen darf; später unter «Einstellungen» zu ändern */
+  function netAsk() {
+    if (topScreen() !== 'zeit' || sheetOpen) return;
+    $('ntHost').textContent = T('Dafür geht eine leere Anfrage an {h}: den Server, von dem die App kommt. Er sieht dabei die IP-Adresse deines Handys, wie bei jedem Aufruf einer Website. Über dich und deine Uhren wird nichts übertragen.', { h: netHost() });
+    openSheet('netSheet');
+  }
+  function netChoose(yes) {
+    settings.netTime = yes ? 'ja' : 'nein'; saveSettings();
+    closeSheet(function () { if (yes) netStart(); zNet(); });
+  }
+  $('ntYes').addEventListener('click', function () { netChoose(true); });
+  $('ntNo').addEventListener('click', function () { netChoose(false); });
+
   var zTimer = 0;
   function zStop() { clearInterval(zTimer); zTimer = 0; }
   function pad2(x) { return (x < 10 ? '0' : '') + x; }
   function hms(d) { return pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds()); }
   function hm(d) { return pad2(d.getHours()) + ':' + pad2(d.getMinutes()); }
-  function zTick() { $('zClock').textContent = hms(new Date()); }
+  function secs(ms) { return fmt(ms / 1000, 2); }
+  function zTick() { $('zClock').textContent = hms(new Date(netValid() ? pClock() + net.off : Date.now())); }
+  /* Stand der Zeitquelle: Text über der Uhr, Beschriftung der Uhr, «Nochmals versuchen» */
+  function zNet() {
+    var t = top(); if (t.s !== 'zeit') return;
+    var ok = netValid(), txt;
+    if (ok) {
+      var ph = netSkew() - net.off;
+      txt = T('Die genaue Zeit kommt aus dem Internet (± {u} s).', { u: secs(net.unc) }) + ' ' +
+        (Math.abs(ph) <= Math.max(net.unc, 50) ? T('Die Uhr des Handys stimmt damit überein.') :
+          T(ph > 0 ? 'Die Uhr des Handys geht {s} s vor.' : 'Die Uhr des Handys geht {s} s nach.', { s: secs(Math.abs(ph)) }));
+    } else if (netRun) txt = T('Tickwerk holt die genaue Zeit aus dem Internet …');
+    else if (!netOn()) txt = T('Tickwerk nimmt die Uhr des Handys; sie kann bis etwa zwei Sekunden danebenliegen. Genauer geht es mit der Zeit aus dem Internet: Mehr → Einstellungen.');
+    else txt = T(navigator.onLine === false ? 'Kein Internet: Tickwerk nimmt die Uhr des Handys. Sie kann bis etwa zwei Sekunden danebenliegen.' :
+      'Die genaue Zeit liess sich nicht holen: Tickwerk nimmt die Uhr des Handys. Sie kann bis etwa zwei Sekunden danebenliegen.');
+    $('zLead').textContent = txt;
+    $('zClockT').textContent = T(ok ? 'Genaue Zeit' : 'Zeit des Handys');
+    $('zRetry').hidden = ok || !!netRun || !netOn();
+    if (t.p.tapP != null) zShow(t.p);
+  }
   function renderZeit(p) {
     var w = findWatch(p.id);
     if (!w) { setTimeout(back, 0); return; }
     $('zBackLabel').textContent = w.name;
     zShow(p);
     zStop(); zTick(); zTimer = setInterval(zTick, 100);
+    if (!settings.netTime && !p.asked) { p.asked = true; setTimeout(netAsk, 0); }
+    else if (netOn() && !netValid()) netStart();
+    zNet();
+  }
+  /* Welche Zeit gilt für den Tipp? Die genaue, wenn eine Abfrage zu ihm passt (auch eine kurz danach); sonst die Uhr des Handys */
+  function zTime(p) {
+    var a = netOn() ? netFor(p.tapP, p.skew) : null;
+    return a ? { t: pClock(p.tapP) + a.off, q: 'n', u: a.unc / 1000 } : { t: p.tapW, q: '', u: 0 };
   }
   function zShow(p) {
-    $('zStep1').hidden = !!p.tap; $('zStep2').hidden = !p.tap;
-    if (!p.tap) return;
+    var has = p.tapP != null;
+    $('zStep1').hidden = has; $('zStep2').hidden = !has;
+    if (!has) return;
+    var z = zTime(p), wait = !z.q && netOn() && !!netRun;   /* die Abfrage läuft noch: kurz warten, statt mit der Handy-Uhr zu rechnen */
+    p.tap = z.t; p.q = z.q; p.u = z.u;
+    p.min = Math.round(z.t / 60000) * 60000 + (p.adj || 0) * 60000;   /* die Uhr zeigt die nächste volle Minute; mit − und + verschoben */
     $('zWatch').textContent = hm(new Date(p.min));
     var off = (p.min - p.tap) / 1000;
-    $('zOff').textContent = signed(off, 1);
-    $('zOffText').textContent = Math.abs(off) < 0.05 ? T('Die Uhr geht auf die Sekunde genau.') : T(off > 0 ? 'Die Uhr geht {s} s vor.' : 'Die Uhr geht {s} s nach.', { s: fmt(Math.abs(off), 1) });
+    $('zOff').textContent = wait ? '…' : signed(off, 1);
+    $('zOffText').textContent = wait ? T('Tickwerk holt noch die genaue Zeit …') :
+      Math.abs(off) < 0.05 ? T('Die Uhr geht auf die Sekunde genau.') : T(off > 0 ? 'Die Uhr geht {s} s vor.' : 'Die Uhr geht {s} s nach.', { s: fmt(Math.abs(off), 1) });
+    $('zSrc').textContent = wait ? '' : z.q ? T('Verglichen mit der genauen Zeit aus dem Internet (± {u} s).', { u: secs(z.u * 1000) }) : T('Verglichen mit der Uhr des Handys.');
+    $('zSave').disabled = wait;
   }
-  /* Zeitpunkt des Tippens: Berührung (pointerdown), mit der Zeit des Ereignisses statt der Zeit der Verarbeitung */
+  /* Zeitpunkt des Tippens: Berührung (pointerdown), mit der Zeit des Ereignisses statt der Zeit der Verarbeitung.
+     Gemerkt wird er auf der Uhr der Seite (für die genaue Zeit) und auf der Uhr des Handys (falls es keine genaue gibt). */
   $('zTap').addEventListener('pointerdown', function (e) {
-    var t = top(); if (t.s !== 'zeit' || t.p.tap) return;
-    var lag = performance.now() - e.timeStamp;
-    var tap = Date.now() - (lag > 0 && lag < 1000 ? lag : 0);
-    t.p.tap = tap; t.p.min = Math.round(tap / 60000) * 60000;   /* die Uhr zeigt die nächste volle Minute */
+    var t = top(); if (t.s !== 'zeit' || t.p.tapP != null) return;
+    var now = performance.now(), lag = now - e.timeStamp;
+    if (!(lag > 0 && lag < 1000)) lag = 0;
+    t.p.tapP = now - lag; t.p.tapW = Date.now() - lag; t.p.skew = netSkew(); t.p.adj = 0;
+    if (netOn() && !netFor(t.p.tapP, t.p.skew) && !netRun) netStart();   /* Abfrage fehlt oder gilt nicht mehr: gleich holen, sie gilt auch für diesen Tipp */
     try { if (navigator.vibrate) navigator.vibrate(30); } catch (err) { /* egal */ }
-    zShow(t.p);
+    zNet(); zShow(t.p);
   });
-  $('zMinus').addEventListener('click', function () { var t = top(); if (t.s === 'zeit' && t.p.tap) { t.p.min -= 60000; zShow(t.p); } });
-  $('zPlus').addEventListener('click', function () { var t = top(); if (t.s === 'zeit' && t.p.tap) { t.p.min += 60000; zShow(t.p); } });
-  $('zAgain').addEventListener('click', function () { var t = top(); if (t.s === 'zeit') { t.p.tap = null; zShow(t.p); } });
+  $('zMinus').addEventListener('click', function () { var t = top(); if (t.s === 'zeit' && t.p.tapP != null) { t.p.adj = (t.p.adj || 0) - 1; zShow(t.p); } });
+  $('zPlus').addEventListener('click', function () { var t = top(); if (t.s === 'zeit' && t.p.tapP != null) { t.p.adj = (t.p.adj || 0) + 1; zShow(t.p); } });
+  $('zAgain').addEventListener('click', function () { var t = top(); if (t.s === 'zeit') { t.p.tapP = null; zShow(t.p); } });
+  $('zRetry').addEventListener('click', function () { if (topScreen() === 'zeit' && netOn() && !netRun) { netStart(); zNet(); } });
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState !== 'visible' || topScreen() !== 'zeit') return;
+    if (netOn() && !netValid() && !netRun) netStart();
+    zNet();
+  });
   $('zSave').addEventListener('click', function () {
-    var t = top(); if (t.s !== 'zeit' || !t.p.tap) return;
+    var t = top(); if (t.s !== 'zeit' || t.p.tapP == null) return;
     var w = findWatch(t.p.id); if (!w) return;
+    zShow(t.p); if ($('zSave').disabled) return;
     var off = Math.round((t.p.min - t.p.tap) / 10) / 100, tv = (w.tv || []).slice();
     /* Kurz nacheinander nochmals verglichen: der neue Vergleich ersetzt den vorherigen (sonst ergäben zwei Tipps im Minutenabstand einen unsinnigen Gang) */
     if (tv.length && t.p.tap - new Date(tv[tv.length - 1].t).getTime() < REPLACE_MIN * 60000) tv.pop();
@@ -2712,7 +3025,9 @@
       var expect = prev.o + (dr ? dr.rate * (t.p.tap - new Date(prev.t).getTime()) / 86400000 : 0);
       if (Math.abs(off - expect) > 60 && window.confirm(T('Die Abweichung hat sich stark verändert ({d} s). Hast du die Uhr gestellt, oder ist sie stehen geblieben? «OK» beginnt eine neue Reihe mit diesem Vergleich.', { d: signed(off - prev.o, 0) }))) tv = [];
     }
-    w.tv = tv.concat([{ t: new Date(t.p.tap).toISOString(), o: off }]).slice(-100);
+    var v = { t: new Date(t.p.tap).toISOString(), o: off };
+    if (t.p.q === 'n') { v.q = 'n'; v.u = Math.round(t.p.u * 1000) / 1000; }
+    w.tv = tv.concat([v]).slice(-100);
     saveWatches();
     toast(T('Gespeichert: Uhr {o} s.', { o: signed(off, 1) }));
     back();
@@ -2721,12 +3036,34 @@
   /* ---------- Uhr hinzufügen und bearbeiten ---------- */
   var nameAuto = false;
   function byName(a, b) { return a.localeCompare(b, 'de', { numeric: true, sensitivity: 'base' }); }
+  /* ---------- Werksvorgabe für den Gang (0.6.5) ----------
+     Manche Hersteller nennen, wie viel ihr Werk pro Tag vor- oder nachgehen darf. Steht das im Katalog (Feld «gang»:
+     [von, bis, wer, art]), zeigt Tickwerk die Vorgabe beim Werk und vergleicht dort, wo es ehrlich ist: beim Gang im
+     Alltag und beim Mittel des Lagen-Tests. Eine einzelne Messung in einer Lage wird nicht daran gemessen. */
+  var GANG_ART = { arm: T('am Arm getragen'), aufzug: T('kurz nach vollem Aufzug gemessen'), zo: T('voll aufgezogen, Zifferblatt oben'), uhr: T('für die fertige Uhr'),
+    cosc: T('Mittel aus fünf Lagen'), lagen5: T('in fünf Lagen geprüft') };
+  function gangOfCal(k) { var g = k && k.messbar !== false ? k.gang : null; return Array.isArray(g) && g.length >= 3 && isFinite(g[0]) && isFinite(g[1]) && g[0] < g[1] ? g : null; }
+  function gangOf(w) { return w ? gangOfCal(kalById(w.kaliberId)) : null; }
+  function gangNum(v) { return v === 0 ? '0' : signed(v, 0); }
+  function gangRange(g) { return T('{a} bis {b} s/Tag', { a: gangNum(g[0]), b: gangNum(g[1]) }); }
+  function gangWho(g) { return g[2] === 'COSC' ? T('Chronometer-Norm der COSC') : T('Werksvorgabe von {v}', { v: String(g[2]).slice(0, 30) }); }
+  function gangText(g) { return T('{w}: {r}', { w: gangWho(g), r: gangRange(g) }) + (own(GANG_ART, g[3]) ? ' (' + GANG_ART[g[3]] + ')' : ''); }
+  function gangFit(g, rate) { var r = Math.round(rate * 10) / 10; return r >= g[0] && r <= g[1]; }
+  /* Kachel «Werksvorgabe» im Lagen-Test: nur, wenn das Werk eine Vorgabe hat und es ein Mittel gibt */
+  function gangTile(w, st, box, dd, small) {
+    var g = gangOf(w);
+    box.hidden = !g || st.mean == null;
+    if (box.hidden) return;
+    dd.textContent = T(gangFit(g, st.mean) ? 'erfüllt' : 'nicht erfüllt');
+    small.textContent = gangText(g) + ' · ' + T('Mittel der Lagen {m} s/Tag', { m: signed(st.mean, 1) });
+  }
   function calInfo(k) {
     if (!k) return '';
     if (k.messbar === false) return T(k.notiz || 'Dieses Werk lässt sich nicht messen.');
     var s = (k.hebewinkel != null ? T('Hebewinkel {a}', { a: deg(k.hebewinkel) }) + (k.sicher ? '' : ' (' + T('unbestätigt') + ')') : T('Hebewinkel unbekannt, 52° angenommen')) +
       ' · ' + (k.bph ? thousands(k.bph) + ' ' + T('A/h') : T('Schlagzahl wird erkannt'));
-    return s + (k.notiz ? '. ' + T(k.notiz) : '');
+    var g = gangOfCal(k);
+    return s + (k.notiz ? '. ' + T(k.notiz) : '') + (g ? (k.notiz ? ' ' : '. ') + gangText(g) + '.' : '');
   }
   function applyCal(k, keepValues) {
     $('wCalNote').textContent = calInfo(k);
@@ -2928,6 +3265,7 @@
     p.init = true;
     var w = p.id ? findWatch(p.id) : null;
     nameAuto = false; $('watchForm').reset(); $('wFind').value = ''; hideSuggest(); hideCalList(); setCal(null); defaultFindNote();
+    $('wQuartz').checked = w ? !!w.quarz : !!p.quartz; quartzForm();
     if (w) {
       $('wName').value = w.name; setCal(kalById(w.kaliberId)); $('wLift').value = w.liftAngle; $('wBph').value = w.bph ? String(w.bph) : '';
       applyCal(kalById(w.kaliberId), true);
@@ -2937,23 +3275,28 @@
       $('watchFormTitle').textContent = T('Uhr hinzufügen'); $('wSave').textContent = T('Speichern'); $('wDelete').hidden = true;
     }
   }
+  /* Quarzuhr: Werk, Hebewinkel und Schlagzahl gibt es nicht */
+  function quartzForm() { var q = $('wQuartz').checked; $('wMech').hidden = q; $('wFindBox').hidden = q; }
+  $('wQuartz').addEventListener('change', quartzForm);
   $('watchForm').addEventListener('submit', function (e) {
     e.preventDefault();
     var t = top(); if (t.s !== 'edit') return;
     var name = $('wName').value.trim();
     if (!name) return;
     var lift = parseFloat(String($('wLift').value).replace(',', '.'));
-    var editing = t.p.id && findWatch(t.p.id);
-    var w = cleanWatch({ id: editing ? editing.id : 'w' + Date.now().toString(36), name: name, kaliberId: $('wCal').value,
-      liftAngle: isFinite(lift) ? lift : 52, bph: $('wBph').value ? parseInt($('wBph').value, 10) : null, tv: editing ? editing.tv : undefined, gr: editing ? editing.gr : undefined });
+    var editing = t.p.id && findWatch(t.p.id), isQ = $('wQuartz').checked;
+    var w = cleanWatch({ id: editing ? editing.id : 'w' + Date.now().toString(36), name: name, kaliberId: isQ ? '' : $('wCal').value, quarz: isQ,
+      liftAngle: isFinite(lift) && !isQ ? lift : 52, bph: $('wBph').value && !isQ ? parseInt($('wBph').value, 10) : null, tv: editing ? editing.tv : undefined, gr: editing && !isQ ? editing.gr : undefined });
+    /* Gratis: eine Uhr zum Messen und eine Quarzuhr als Referenz. Geprüft wird beim Anlegen und wenn eine Uhr die Art wechselt. */
+    if (!isPro() && (!editing || !!editing.quarz !== isQ) && watches.filter(function (x) { return !!x.quarz === isQ && x !== editing; }).length >= 1) { requirePro('watches'); return; }
     if (editing) watches = watches.map(function (x) { return x.id === editing.id ? w : x; });
     else {
-      if (!isPro() && watches.length >= 1) { requirePro('watches'); return; }
       if (watches.length >= MAX_WATCHES) { toast(T('Tickwerk speichert höchstens {n} Uhren.', { n: MAX_WATCHES })); return; }
       watches.push(w);
     }
     saveWatches();
-    if (!editing) setWatch(w.id);
+    if (isQ && settings.watchId === w.id) setWatch('');   /* eine Quarzuhr ist nie die Uhr unter «Messen» */
+    if (!editing && !isQ) setWatch(w.id);
     toast(editing ? T('Gespeichert.') : T('«{w}» hinzugefügt.', { w: w.name }));
     back();
   });
@@ -3027,6 +3370,8 @@
   }
   function renderSettings() {
     $('langSel').value = settings.lang; $('autoStart').checked = settings.autoStart; $('extendOn').checked = settings.extend;
+    $('netOn').checked = netOn();
+    $('netHint').textContent = T('Für «Gang im Alltag» fragt Tickwerk die Zeit bei {h} ab, dem Server, von dem die App kommt. Er sieht dabei die IP-Adresse deines Handys, sonst nichts. Ausgeschaltet nimmt Tickwerk die Uhr des Handys; sie kann bis etwa zwei Sekunden danebenliegen.', { h: netHost() });
     renderMic(); renderPpm();
   }
   /* ---------- Mikrofon wählen (Pro) ---------- */
@@ -3086,19 +3431,57 @@
       T(c.ppm >= 0 ? 'Die Handy-Uhr geht {d} s/Tag vor' : 'Die Handy-Uhr geht {d} s/Tag nach', { d: fmt(Math.abs(c.ppm) * 0.0864, 2) }) + ' · ' +
       (c.at ? T(c.raw != null ? 'geeicht am {d}' : 'eingetragen am {d}', { d: dLong(new Date(c.at)) }) : T('Datum der Eichung unbekannt'));
     $('calAge').hidden = !calOld(c);
+    $('calAcc').hidden = !has; $('calAcc').textContent = has ? calAccText(c) : '';
     $('setCal').textContent = clockShort(); $('setCal').setAttribute('data-kind', calOld(c) ? 'warn' : '');
   }
   function quartzIdle() {
     $('quartzRec').classList.remove('running'); $('quartzRec').disabled = false;
     $('quartzLabel').textContent = QUARTZ_LABEL; bar($('quartzProg'), 0);
   }
+  /* Gang der Quarzuhr aus «Gang im Alltag»: Ist er für eine als Quarzuhr angelegte Uhr genau genug, lässt er sich übernehmen */
+  function renderQuartzOffer() {
+    var box = $('qOffer'), qs = watches.filter(function (w) { return w.quarz; });
+    box.innerHTML = '';
+    qs.forEach(function (w) {
+      var dr = dailyRate(w.tv || []), p = document.createElement('p');
+      p.className = 'hint';
+      if (dr && dr.sigma <= QUARTZ_OK) {
+        var b = document.createElement('button');
+        b.type = 'button'; b.className = 'btn-ghost small qtake';
+        b.textContent = T('Gang von «{w}» übernehmen: {v} s/Tag', { w: w.name, v: signed(dr.rate, 2) });
+        b.addEventListener('click', function () { quartzTake(w.id); });
+        box.appendChild(b);
+        p.textContent = T('{n} über {d}, ± {s} s/Tag. Nur richtig, wenn du die Handy-Uhr mit dieser Quarzuhr geeicht hast.', { n: plural(dr.n, 'Vergleich', 'Vergleiche'), d: daysText(dr.days), s: fmt(dr.sigma, 2) });
+      } else if (dr) {
+        p.textContent = T('«{w}»: Der Gang ist noch nicht genau genug (± {s} s/Tag, nötig sind ± {m}). Weiter vergleichen, am besten über eine Woche und mit der genauen Zeit aus dem Internet.',
+          { w: w.name, s: fmt(dr.sigma, 2), m: fmt(QUARTZ_OK, 2) });
+      } else p.textContent = T('«{w}»: Noch kein Gang. Die Uhr unter «Meine Uhren» zweimal im Abstand von einigen Tagen vergleichen (Gang im Alltag).', { w: w.name });
+      box.appendChild(p);
+    });
+    $('qNone').hidden = qs.length > 0; $('qAdd').hidden = qs.length > 0;
+    $('qFrom').hidden = settings.quartzSrc !== 'uhr';
+    if (settings.quartzSrc === 'uhr') $('qFrom').textContent = T('Übernommen aus «Gang im Alltag» (± {s} s/Tag).', { s: fmt(settings.quartzSig, 2) });
+  }
+  function quartzTake(id) {
+    var w = findWatch(id), dr = w ? dailyRate(w.tv || []) : null;
+    if (!dr || dr.sigma > QUARTZ_OK) return;
+    var v = Math.round(dr.rate * 100) / 100;
+    if (Math.abs(v) > 10) { toast(T('Mehr als 10 s/Tag ist für eine Quarzuhr unüblich: Bitte die Vergleiche prüfen.')); return; }
+    settings.quartzRate = v; settings.quartzSrc = 'uhr'; settings.quartzSig = Math.round(dr.sigma * 1000) / 1000;
+    $('quartzRate').value = v;
+    quartzRecalc(); renderQuartzOffer();
+    toast(T('Übernommen: Die Quarzuhr geht {v} s/Tag.', { v: signed(v, 2) }));
+  }
+  $('qAdd').addEventListener('click', addQuartz);
   function renderEichen() {
     $('quartzRate').value = settings.quartzRate || 0;
+    renderQuartzOffer();
     renderPpm();
     if (!(rec && rec.owner === 'eichen')) quartzIdle();
   }
   $('autoStart').addEventListener('change', function () { settings.autoStart = this.checked; saveSettings(); if (!rec && !lastShown) setStatus('status', idleHint(), ''); });
   $('extendOn').addEventListener('change', function () { settings.extend = this.checked; saveSettings(); });
+  $('netOn').addEventListener('change', function () { settings.netTime = this.checked ? 'ja' : 'nein'; saveSettings(); });
   $('fileIn').addEventListener('change', function (e) {
     var f = e.target.files[0]; e.target.value = '';
     if (!f || rec || busy) return;
@@ -3125,7 +3508,7 @@
   function applyQuartz(q, key) {
     if (!q || !q.ok) { logErr('eichen', (q && q.reason) || 'Keine Auswertung möglich.'); setStatus('quartzOut', T((q && q.reason) || 'Keine Auswertung möglich.'), 'err'); return; }
     var raw = +q.ppm.toFixed(2), ppm = quartzPpm(raw);
-    setClock(key, ppm, raw); saveSettings(); renderPpm();
+    setClock(key, ppm, raw, q.sigmaPpm); saveSettings(); renderPpm();
     setStatus('quartzOut', T(ppm >= 0 ? 'Die Handy-Uhr geht {p} ppm vor (± {s} ppm), das sind {d} s/Tag' : 'Die Handy-Uhr geht {p} ppm nach (± {s} ppm), das sind {d} s/Tag',
       { p: fmt(Math.abs(ppm), 1), s: fmt(Math.max(0.1, q.sigmaPpm), 1), d: fmt(Math.abs(ppm) * 0.0864, 2) }) +
       (settings.quartzRate ? T(', mit dem Gang der Quarzuhr verrechnet') : '') + '. ' + T('Tickwerk korrigiert das ab jetzt bei jeder Messung ({n} Schritte erkannt).', { n: q.steps }) +
@@ -3136,12 +3519,17 @@
     settings.lang = LANGS.indexOf(this.value) >= 0 ? this.value : 'auto'; saveSettings();
     location.reload();
   });
-  $('quartzRate').addEventListener('change', function () {
-    var v = parseFloat(String(this.value).replace(',', '.'));
-    settings.quartzRate = isFinite(v) && Math.abs(v) <= 10 ? v : 0; this.value = settings.quartzRate;
+  /* Alle Eichungen, die an einer Quarzuhr gemessen sind, mit ihrem Gang neu rechnen */
+  function quartzRecalc() {
     if (settings.quartzRaw != null) settings.ppm = quartzPpm(settings.quartzRaw);
     Object.keys(settings.cal).forEach(function (k) { var c = settings.cal[k]; if (c.raw != null) c.ppm = quartzPpm(c.raw); });
     saveSettings(); renderPpm();
+  }
+  $('quartzRate').addEventListener('change', function () {
+    var v = parseFloat(String(this.value).replace(',', '.'));
+    settings.quartzRate = isFinite(v) && Math.abs(v) <= 10 ? v : 0; this.value = settings.quartzRate;
+    settings.quartzSrc = settings.quartzRate ? 'hand' : ''; settings.quartzSig = null;
+    quartzRecalc(); renderQuartzOffer();
   });
   var QUARTZ_LABEL = T('Quarzuhr messen (2½ Minuten)');
   $('quartzRec').addEventListener('click', function () {
@@ -3629,10 +4017,53 @@
     navigator.serviceWorker.register('sw.js').then(function (r) { swReg = r; }).catch(function () { /* ohne Offline-Modus weiter */ });
   }
 
+  /* ---------- «Modell fehlt?» (0.6.5) ----------
+     Wer seine Uhr nicht findet, kann Modell und Werk melden. Die App hat dafür keinen Server: Der Knopf ist ein Link, der
+     das Mailprogramm mit fertigem Text öffnet, an die Adresse aus der Konfiguration (kontakt). Ohne gültige Adresse bleibt
+     alles verborgen. Es verlässt nichts das Handy, bevor im Mailprogramm «Senden» getippt wird. */
+  var KONTAKT = typeof CFG.kontakt === 'string' && /^[A-Za-z0-9._+-]{1,64}@[A-Za-z0-9-]{1,63}(\.[A-Za-z0-9-]{1,63}){1,4}$/.test(CFG.kontakt) ? CFG.kontakt : '';
+  function missMail() {
+    var line = function (label, id) { var v = $(id).value.replace(/[\r\n]+/g, ' ').trim(); return label + ': ' + (v || '–'); };
+    var body = [line(T('Marke und Modell'), 'msModel'), line(T('Werk'), 'msCal'), line(T('Quelle oder Hinweis'), 'msSrc'), '',
+      'Tickwerk ' + APP_VERSION + ' · ' + LANG + ' · ' + T('{u} Modelle im Katalog', { u: UHREN.length })].join('\n');
+    return 'mailto:' + KONTAKT + '?subject=' + encodeURIComponent('Tickwerk: ' + T('Modell fehlt')) + '&body=' + encodeURIComponent(body);
+  }
+  function missUpdate() { $('msSend').href = KONTAKT ? missMail() : '#'; }
+  $('wMissing').hidden = !KONTAKT;
+  $('wMissing').addEventListener('click', function () {
+    if (!KONTAKT) return;
+    $('msModel').value = ($('wFind').value || $('wName').value || '').trim().slice(0, 80);
+    $('msCal').value = (calSel ? calSel.name : $('wCalFind').value || '').trim().slice(0, 80);
+    $('msSrc').value = '';
+    hideSuggest(); missUpdate();
+    openSheet('missSheet');
+  });
+  ['msModel', 'msCal', 'msSrc'].forEach(function (id) { $(id).addEventListener('input', missUpdate); });
+  $('msSend').addEventListener('click', function (e) {
+    if (!KONTAKT || !$('msModel').value.trim()) { e.preventDefault(); $('msModel').focus(); return; }
+    missUpdate();
+    setTimeout(function () { if (sheetOpen === 'missSheet') closeSheet(); }, 300);   /* der Link öffnet das Mailprogramm; danach das Blatt schliessen */
+  });
+  $('msClose').addEventListener('click', function () { closeSheet(); });
+
   /* ---------- Was ist neu ----------
      Einmal nach einem Update zeigen, was dazugekommen ist und wo es zu finden ist; jederzeit unter «Mehr». Bei einer
      neuen Installation nicht (dort erklärt die Anleitung den Einstieg). settings.seenVersion merkt sich die Version. */
+  var NEWS_ORDER = ['0.6.5', '0.6.4'];   /* neuste zuerst; die älteren stehen im Blatt darunter, falls ein Update übersprungen wurde */
   var NEWS = {
+    '0.6.5': [
+      { t: T('Genaue Zeit für den Gang im Alltag'), s: T('Auf Wunsch holt Tickwerk beim Zeitvergleich die genaue Zeit aus dem Internet. Die Uhr des Handys kann bis etwa zwei Sekunden danebenliegen; mit der genauen Zeit stimmt der Gang im Alltag schon nach wenigen Tagen. Tickwerk fragt beim nächsten Vergleich, ob du das möchtest.') },
+      { t: T('Quarzuhr als Referenz'), s: T('Eine Uhr lässt sich jetzt als Quarzuhr anlegen. Kennt Tickwerk nach etwa einer Woche ihren Gang, kannst du ihn unter «Handy-Uhr eichen» übernehmen: Die Eichung wird damit rund zehnmal genauer.') },
+      { t: T('Werksvorgabe deines Werks'), s: T('Für rund 20 Werke kennt Tickwerk jetzt den Gang, den der Hersteller erlaubt, zum Beispiel von Seiko, Miyota, Orient, Oris und Rolex. Die Vorgabe steht beim Werk. Verglichen wird beim Gang im Alltag und im Lagen-Test, nicht bei der einzelnen Messung.') },
+      { t: T('Modell fehlt?'), s: T('Findest du deine Uhr in der Suche nicht, kannst du sie beim Anlegen mit «Modell fehlt? Melden» per E-Mail melden.') }
+    ],
+    '0.6.4': [
+      { t: T('Viel mehr Uhren und Werke'), s: T('Die Suche kennt jetzt {u} Modelle von {m} Marken und {k} Werke, darunter viele ältere. Aufgenommen ist nur, wofür eine Quelle das verbaute Werk nennt.',
+        { u: UHREN.length, m: UHREN.map(function (u) { return u.marke; }).filter(function (m, i, a) { return a.indexOf(m) === i; }).length, k: KAL.length }) },
+      { t: T('Vergleich mit den ETA-Stufen'), s: T('Der Lagen-Test zeigt jetzt, welche Qualitätsstufe von ETA dein Ergebnis erfüllt: Standard, Elaboré oder Top. Für «Top» den Test mit 6 Lagen machen. Der Gangreserve-Test vergleicht dazu, wie stark sich der Gang in 24 Stunden ändert. Ein Vergleich, kein Zertifikat.') },
+      { t: T('Markenkaliber finden'), s: T('Die Suche findet jetzt auch Markenkaliber wie Tudor T600, Oris 798 oder Alpina AL-525 und zeigt das Werk, auf dem sie beruhen.') },
+      { t: T('Hebewinkel: bestätigt oder unbestätigt'), s: T('Wo sich zwei Quellen widersprechen, steht der Hebewinkel jetzt als «unbestätigt» da. Einige Werte sind neu, zum Beispiel 36° für das Omega 8800. Gespeicherte Uhren behalten ihren Wert. Zum Übernehmen bei der Uhr das Werk neu wählen.') }
+    ],
     '0.6.3': [
       { t: T('Kein grober Wert mehr nach einer Lücke'), s: T('Fehlt das Ticken vier Sekunden oder länger, zum Beispiel weil das Handy verrutscht ist, zeigt Tickwerk keinen Wert mehr, sondern sagt, wann die Lücke war.') },
       { t: T('Unsichere Messung läuft von selbst weiter'), s: T('Ist der Wert nach der gewählten Messdauer noch zu unsicher, misst Tickwerk weiter, höchstens bis 60 Sekunden. Ausschalten unter Einstellungen.') },
@@ -3645,10 +4076,13 @@
     var ul = $('nsList');
     $('nsTitle').textContent = T('Version') + ' ' + APP_VERSION;
     ul.innerHTML = '';
-    (NEWS[APP_VERSION] || []).forEach(function (it) {
-      var li = document.createElement('li'), a = document.createElement('span'), b = document.createElement('span');
-      a.className = 'news-t'; a.textContent = it.t; b.className = 'news-s'; b.textContent = it.s;
-      li.appendChild(a); li.appendChild(b); ul.appendChild(li);
+    NEWS_ORDER.forEach(function (v, i) {
+      if (i) { var h = document.createElement('li'); h.className = 'news-v'; h.textContent = T('Version') + ' ' + v; ul.appendChild(h); }
+      (NEWS[v] || []).forEach(function (it) {
+        var li = document.createElement('li'), a = document.createElement('span'), b = document.createElement('span');
+        a.className = 'news-t'; a.textContent = it.t; b.className = 'news-s'; b.textContent = it.s;
+        li.appendChild(a); li.appendChild(b); ul.appendChild(li);
+      });
     });
     openSheet('newsSheet');
   }
@@ -3712,8 +4146,14 @@
         window.innerWidth + ' × ' + window.innerHeight + ' (' + (window.devicePixelRatio || 1).toFixed(2) + ')');
       L.push(T('Mikrofon') + ': ' + T(isPro() && settings.micId ? 'gewählt' : 'eingebaut') + ' · ' + T('Erlaubnis') + ': ' + perm +
         (lastRec && lastRec.fs ? ' · ' + T('letzte Aufnahme') + ' ' + Math.round(lastRec.fs) + ' Hz' : ''));
-      L.push(T('Eichung') + ': ' + (cal.ppm ? signed(cal.ppm, 1) + ' ppm' + (cal.at ? ' (' + diagStamp(cal.at).slice(0, 10) + ')' : '') : T('keine')) +
+      var acc = calAcc(cal), nl = settings.netLast;
+      L.push(T('Eichung') + ': ' + (cal.ppm ? signed(cal.ppm, 1) + ' ppm' + (cal.at ? ' (' + diagStamp(cal.at).slice(0, 10) + ')' : '') +
+        ' · ' + T(cal.raw != null ? 'Quarzuhr' : 'von Hand') + (acc ? ' · ± ' + fmt(acc.ppm, 1) + ' ppm' : '') : T('keine')) +
+        ' · ' + T('Gang der Quarzuhr') + ': ' + (settings.quartzSrc ? signed(settings.quartzRate, 2) + ' (' + T(settings.quartzSrc === 'uhr' ? 'Gang im Alltag' : 'von Hand') + ')' : T('unbekannt')) +
         ' · ' + T('weitere Mikrofone') + ': ' + Object.keys(settings.cal).length);
+      L.push(T('Internetzeit') + ': ' + T(netOn() ? 'ein' : settings.netTime ? 'aus' : 'noch nicht gefragt') + ' · ' + T('letzte Abfrage') + ': ' +
+        (!nl ? '–' : diagStamp(nl.at) + ' · ' + (nl.ok ? (nl.src === 'x' ? 'X-Timer' : 'Date') + ' · ' + nl.n + ' ' + T('Antworten') + ' · ± ' + nl.unc + ' ms · ' + T('Laufzeit') + ' ' + nl.rtt + ' ms · ' +
+          T('Handy-Uhr') + ' ' + (nl.ph < 0 ? '−' : '+') + Math.abs(nl.ph) + ' ms' : T('gescheitert') + (nl.why ? ' (' + nl.why + ')' : ''))));
       L.push(T('Einstellungen') + ': ' + settings.dur + ' s · ' + T('automatischer Start') + ' ' + yn(settings.autoStart) + ' · ' + T('verlängern') + ' ' + yn(settings.extend) + ' · ' + settings.pos);
       L.push(T('Daten') + ': ' + plural(watches.length, 'Uhr', 'Uhren') + ' · ' + plural(meas.length, 'Messung', 'Messungen') + ' · Pro: ' + yn(isPro()));
       L.push(T('Speicher') + ': ' + T('dauerhaft') + ' ' + (r[2] == null ? '?' : yn(r[2])) + (est.usage ? ' · ' + fmt(est.usage / 1048576, 1) + ' MB' : '') +
