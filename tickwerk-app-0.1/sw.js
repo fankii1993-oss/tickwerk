@@ -1,9 +1,9 @@
 /* Tickwerk Service Worker: App funktioniert auch offline. */
 var PREFIX = 'tickwerk-test-';
-var CACHE = PREFIX + '529e1d976f';
+var CACHE = PREFIX + '34a15e2f25';
 var FILES = [
   './', 'index.html', 'datenschutz.html', 'privacy.html', 'privacy-fr.html', 'privacy-it.html', 'app.css', 'app.js', 'config.js', 'kaliber.js', 'logo.js',
-  'en.js', 'fr.js', 'it.js', 'report.js', 'worker.js', 'recorder-worklet.js',
+  'en.js', 'fr.js', 'it.js', 'report.js', 'eichzeit.js', 'worker.js', 'recorder-worklet.js',
   'engine/tickwerk-engine.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'icons/favicon-48.png', 'icons/apple-touch-icon.png',
   'fonts/inter-latin-400-normal.woff2', 'fonts/inter-latin-500-normal.woff2', 'fonts/inter-latin-600-normal.woff2',
@@ -17,7 +17,7 @@ function isOld(k) { return k !== CACHE && (k.indexOf(PREFIX) === 0 || (true && /
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) {
     return Promise.all(FILES.map(function (f) {
-      return fetch(new Request(f + '?v=529e1d976f', { cache: 'reload' })).then(function (res) {
+      return fetch(new Request(f + '?v=34a15e2f25', { cache: 'reload' })).then(function (res) {
         if (!res.ok) throw new Error(f + ': ' + res.status);
         return c.put(f, res);
       });

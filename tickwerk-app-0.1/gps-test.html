@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="de-CH">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0B0E12">
+<title>GPS-Zeit prüfen · Tickwerk (Test)</title>
+<link rel="icon" href="icons/favicon-48.png" sizes="48x48">
+<link rel="stylesheet" href="app.css">
+</head>
+<body class="no-tabs">
+<main class="legal">
+  <section class="screen">
+    <div class="bar"><a class="back" href="./#mehr"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span>Zurück zu Tickwerk</span></a></div>
+    <div class="title-block">
+      <h1>GPS-Zeit prüfen</h1>
+      <span class="mono-sub">Tickwerk · Testseite, nur in der Testversion</span>
+    </div>
+    <p class="lead">Die Ortung des Handys liefert zu jeder Position einen Zeitstempel. Diese Seite prüft, ob er für Tickwerk taugt: Kommt er vom GPS oder nur von der Uhr des Handys, und wie stark streut er?</p>
+    <div class="card prose">
+      <h2>So geht der Test</h2>
+      <p>1. Ins Freie oder ans Fenster gehen, «Start» tippen und den Standort erlauben. Zwei Minuten warten.</p>
+      <p>2. Dann in den Einstellungen des Handys unter «Datum und Uhrzeit» die automatische Zeit ausschalten und die Uhr um eine Minute verstellen. Zurück zu dieser Seite, nochmals eine Minute warten.</p>
+      <p>3. Die automatische Zeit wieder einschalten. «Ergebnis kopieren» tippen und den Text an Claude schicken.</p>
+      <p>Der Standort selbst wird weder angezeigt noch gespeichert noch übertragen. Die Seite liest nur die Zeitstempel und die Genauigkeit in Metern.</p>
+    </div>
+    <div class="card">
+      <div class="actions"><button type="button" class="btn-primary" id="gStart">Start</button><button type="button" class="btn-ghost" id="gCopy" disabled>Ergebnis kopieren</button></div>
+      <p class="status" id="gStatus" data-kind=""></p>
+      <pre class="diag" id="gOut" tabindex="0">–</pre>
+    </div>
+  </section>
+</main>
+<script src="gps-test.js"></script>
+</body>
+</html>

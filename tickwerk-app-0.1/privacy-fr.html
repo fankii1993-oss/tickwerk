@@ -2,7 +2,7 @@
 <html lang="fr-CH">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; media-src 'self' blob:; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self' https://time.akamai.com; worker-src 'self'; manifest-src 'self'; media-src 'self' blob:; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0B0E12">
@@ -46,8 +46,9 @@
 
     <div class="card prose">
       <h2>Heure exacte d’Internet</h2>
-      <p>L’horloge du téléphone peut s’écarter jusqu’à environ deux secondes. Pour la «&nbsp;Marche au porté&nbsp;», Tickwerk peut donc demander l’heure exacte sur Internet. Tickwerk vous le demande d’abord&nbsp;; sans votre accord, cela n’a pas lieu, et vous pouvez le désactiver à tout moment sous Plus → Réglages.</p>
-      <p>Lors d’une requête, quelques demandes vides sont envoyées à GitHub Pages (GitHub Inc., USA), le prestataire qui héberge aussi les fichiers de l’app. Comme lors du chargement de l’app, il voit l’adresse IP de votre téléphone, l’heure et le type de navigateur. Rien n’est transmis sur vous, vos montres ou vos mesures. Les requêtes n’ont lieu que tant que la page «&nbsp;Comparaison de l’heure&nbsp;» est ouverte.</p>
+      <p>L’horloge du téléphone peut s’écarter jusqu’à environ deux secondes. Pour la «&nbsp;Marche au porté&nbsp;» et pour «&nbsp;Étalonner avec l’heure d’Internet&nbsp;», Tickwerk peut donc demander l’heure exacte sur Internet. Tickwerk vous le demande d’abord&nbsp;; sans votre accord, cela n’a pas lieu, et vous pouvez le désactiver à tout moment sous Plus → Réglages.</p>
+      <p>Lors d’une requête, quelques demandes vides sont envoyées au service horaire public time.akamai.com (Akamai Technologies, USA). S’il ne répond pas, Tickwerk interroge à la place GitHub Pages (GitHub Inc., USA), le prestataire qui héberge aussi les fichiers de l’app. Comme lors de toute visite d’un site web, tous deux voient l’adresse IP de votre téléphone, l’heure et le type de navigateur. Rien n’est transmis sur vous, vos montres ou vos mesures.</p>
+      <p>Les requêtes n’ont lieu que tant que la page «&nbsp;Comparaison de l’heure&nbsp;» est ouverte ou qu’un étalonnage avec l’heure d’Internet est en cours. Pendant «&nbsp;Étalonner avec l’heure d’Internet&nbsp;», le microphone reste ouvert jusqu’à 60 minutes&nbsp;: Tickwerk compte seulement combien d’échantillons le microphone fournit. Le son n’est ni analysé ni enregistré.</p>
     </div>
 
     <div class="card prose">
@@ -65,6 +66,7 @@
     <div class="card prose">
       <h2>Version de test</h2>
       <p>Ceci est la version de test de Tickwerk. Rien ne peut être acheté ici ; pour l’essai, Pro est seulement activé sur le téléphone.</p>
+      <p>La page de test «&nbsp;Vérifier l’heure GPS&nbsp;» (gps-test.html, non liée dans l’app) demande la position afin de vérifier les horodatages de la localisation. La position elle-même n’est ni affichée, ni enregistrée, ni transmise.</p>
     </div>
     
 

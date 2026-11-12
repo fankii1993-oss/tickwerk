@@ -2,7 +2,7 @@
 <html lang="de-CH">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; media-src 'self' blob:; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self' https://time.akamai.com; worker-src 'self'; manifest-src 'self'; media-src 'self' blob:; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0B0E12">
@@ -157,7 +157,7 @@
     <div class="due" id="dDue" hidden></div>
     <div class="card" data-quartz>
       <span class="card-title">Quarzuhr als Referenz</span>
-      <p class="hint">Mit dem Mikrofon misst Tickwerk nur mechanische Uhren. Vergleiche diese Uhr über etwa eine Woche mit der genauen Zeit: Dann kennt Tickwerk ihren Gang, und du kannst die Handy-Uhr damit genauer eichen (Mehr → Handy-Uhr eichen → «Noch genauer eichen»).</p>
+      <p class="hint">Mit dem Mikrofon misst Tickwerk nur mechanische Uhren. Vergleiche diese Uhr über etwa eine Woche mit der genauen Zeit: Dann kennt Tickwerk ihren Gang, und du kannst die Handy-Uhr damit genauer eichen (Mehr → Einstellungen → Eichung → «Mit einer Quarzuhr»).</p>
     </div>
     <div class="actions grow" data-mech>
       <button type="button" class="btn-primary" id="dMeasure">Jetzt messen</button>
@@ -658,6 +658,14 @@
     <div class="card">
       <label class="switch"><input type="checkbox" id="netOn"><span>Genaue Zeit aus dem Internet</span></label>
       <p class="hint" id="netHint"></p>
+      <div class="field" id="netPickBox" hidden>
+        <label for="netPick">Zeitquelle (nur in der Testversion)</label>
+        <select id="netPick">
+          <option value="">Automatisch: Zeitdienst, sonst Server der App</option>
+          <option value="a">Nur der öffentliche Zeitdienst</option>
+          <option value="s">Nur der Server der App</option>
+        </select>
+      </div>
     </div>
     <div class="card">
       <div class="field">
@@ -668,7 +676,7 @@
       <p class="hint" id="micOut">Für ein angestecktes Mikrofon, zum Beispiel über USB-C. Ohne Wahl nimmt Tickwerk das Standard-Mikrofon des Handys.</p>
     </div>
     <div class="card">
-      <span class="card-title">Handy-Uhr eichen</span>
+      <span class="card-title">Eichung</span>
       <p class="hint" id="setCal"></p>
       <div class="actions"><button type="button" class="btn-ghost small" data-go="eichen">Eichung öffnen</button></div>
     </div>
@@ -692,11 +700,11 @@
   </section>
 
   <!-- ======================= HANDY-UHR EICHEN ======================= -->
-  <section class="screen" id="scr-eichen" aria-label="Handy-Uhr eichen" hidden>
+  <section class="screen" id="scr-eichen" aria-label="Eichung" hidden>
     <div class="bar"><button type="button" class="back" data-back><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span>Zurück</span></button></div>
     <div class="title-block">
-      <h1>Handy-Uhr eichen</h1>
-      <p class="lead">Die Uhr im Handy gibt bei jeder Messung den Takt an, und sie geht selbst nicht ganz genau. Eine Quarzuhr zeigt, um wie viel. Danach korrigiert Tickwerk jede Messung.</p>
+      <h1>Eichung</h1>
+      <p class="lead">Die Uhr im Handy gibt bei jeder Messung den Takt an, und sie geht selbst nicht ganz genau. Eine Eichung zeigt, um wie viel. Danach korrigiert Tickwerk jede Messung.</p>
     </div>
     <div class="card cal-card">
       <div class="row-between"><span class="eyebrow">Eichung</span><span class="mono-sub" id="calMic"></span></div>
@@ -705,6 +713,24 @@
       <p class="hint" id="calAcc" hidden></p>
       <p class="hint" id="calAge" data-kind="warn" hidden>Die Eichung ist über sechs Monate alt. Die Uhr im Handy verändert sich mit der Zeit ein wenig: am besten neu eichen.</p>
     </div>
+    <div class="section gap">
+      <span class="eyebrow">Neu eichen</span>
+      <ul class="menu" id="calMethods">
+        <li><button type="button" data-go="eichquarz" data-cal="q"><span class="menu-t">Mit einer Quarzuhr<span class="now-tag" hidden>aktuell</span></span><span class="menu-s">2½ Minuten, mit einer Quarzuhr wie einer Swatch. Etwa ± 6 ppm; kennt Tickwerk ihren Gang, unter ± 1 ppm.</span></button></li>
+        <li><button type="button" data-go="eichzeit" data-cal="z"><span class="menu-t">Mit Internetzeit<span class="now-tag" hidden>aktuell</span></span><span class="menu-s">60 Minuten am Ladegerät, ohne Uhr. Etwa ± 1 ppm.</span></button></li>
+        <li><button type="button" data-go="eichdatei"><span class="menu-t">Aus einer Aufnahme</span><span class="menu-s">Eine Tonaufnahme einer Quarzuhr auswerten, die mit diesem Handy gemacht ist.</span></button></li>
+        <li><button type="button" data-go="eichhand" data-cal="h"><span class="menu-t">Von Hand eintragen<span class="now-tag" hidden>aktuell</span></span><span class="menu-s">Wenn du den Wert schon kennst.</span></button></li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="screen" id="scr-eichquarz" aria-label="Mit einer Quarzuhr eichen" hidden>
+    <div class="bar"><button type="button" class="back" data-back><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span>Zurück</span></button></div>
+    <div class="title-block">
+      <h1>Mit einer Quarzuhr eichen</h1>
+      <p class="lead">Der Sekundenschritt einer Quarzuhr ist sehr gleichmässig. Tickwerk hört ihr 2½ Minuten zu und sieht daran, um wie viel die Uhr im Handy abweicht.</p>
+      <p class="hint cal-now"></p>
+    </div>
     <ol class="steps">
       <li><span class="num">1</span><div><span class="step-t">Quarzuhr bereitlegen</span><span class="step-s">Eine Quarzuhr, deren Sekundenzeiger jede Sekunde einen Schritt macht, zum Beispiel eine Swatch. Der Raum soll ruhig sein.</span></div></li>
       <li><span class="num">2</span><div><span class="step-t">Handy anlegen</span><span class="step-s">Die Unterkante des Handys an die Quarzuhr halten, wie bei einer Messung.</span></div></li>
@@ -712,7 +738,6 @@
     </ol>
     <button type="button" class="btn-primary btn-big" id="quartzRec"><span class="prog" id="quartzProg"></span><span class="btn-label" id="quartzLabel">Quarzuhr messen (2½ Minuten)</span></button>
     <p class="status" id="quartzOut" data-kind=""></p>
-    <div class="actions center"><label class="btn-link file-btn">Stattdessen eine Aufnahme wählen<input type="file" id="quartzFile" accept="audio/*,.wav"></label></div>
     <details class="card details" id="calMore">
       <summary>Noch genauer eichen</summary>
       <div class="field">
@@ -728,15 +753,51 @@
         <div class="actions"><button type="button" class="btn-ghost small" id="qAdd">Quarzuhr anlegen</button></div>
       </div>
     </details>
-    <details class="card details" id="calHand">
-      <summary>Korrektur von Hand eintragen</summary>
+  </section>
+
+  <section class="screen" id="scr-eichzeit" aria-label="Mit Internetzeit eichen" hidden>
+    <div class="bar"><button type="button" class="back" data-back><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span>Zurück</span></button></div>
+    <div class="title-block">
+      <h1>Mit Internetzeit eichen</h1>
+      <p class="lead">Tickwerk zählt, wie schnell das Mikrofon seine Messwerte liefert, und vergleicht das mit der genauen Zeit aus dem Internet. Das dauert 60 Minuten; nach etwa 10 Minuten gibt es einen ersten Wert. Der Ton selbst wird dabei weder ausgewertet noch gespeichert.</p>
+      <p class="hint cal-now"></p>
+    </div>
+    <ol class="steps">
+      <li><span class="num">1</span><div><span class="step-t">WLAN und Ladegerät</span><span class="step-s">Das Handy im WLAN lassen und ans Ladegerät hängen. Der Bildschirm bleibt die ganze Zeit an.</span></div></li>
+      <li><span class="num">2</span><div><span class="step-t">Hinlegen und in Ruhe lassen</span><span class="step-s">Tickwerk nicht verlassen und den Bildschirm nicht sperren, sonst bricht die Eichung ab. Eine Uhr braucht es nicht.</span></div></li>
+    </ol>
+    <button type="button" class="btn-primary btn-big" id="ncRec"><span class="prog" id="ncProg"></span><span class="btn-label" id="ncLabel">Eichung starten (60 Minuten)</span></button>
+    <p class="status" id="ncOut" data-kind=""></p>
+    <div class="actions"><button type="button" class="btn-ghost small" id="ncTake" hidden>Jetzt übernehmen</button></div>
+  </section>
+
+  <section class="screen" id="scr-eichdatei" aria-label="Aus einer Aufnahme eichen" hidden>
+    <div class="bar"><button type="button" class="back" data-back><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span>Zurück</span></button></div>
+    <div class="title-block">
+      <h1>Aus einer Aufnahme eichen</h1>
+      <p class="lead">Tickwerk wertet eine Tonaufnahme einer Quarzuhr aus wie eine Messung mit dem Mikrofon. Die Aufnahme muss mit diesem Handy gemacht sein: Geeicht wird die Uhr des Geräts, das aufgenommen hat.</p>
+      <p class="hint cal-now"></p>
+    </div>
+    <label class="btn-primary btn-big file-btn"><span class="btn-label">Aufnahme wählen</span><input type="file" id="quartzFile" accept="audio/*,.wav"></label>
+    <p class="status" id="qfOut" data-kind=""></p>
+    <p class="hint">Am besten eine WAV-Datei von etwa 2½ Minuten; von längeren zählen die ersten 5 Minuten. Der Gang der Quarzuhr, den du unter «Mit einer Quarzuhr» eingetragen hast, wird mitgerechnet.</p>
+  </section>
+
+  <section class="screen" id="scr-eichhand" aria-label="Eichung von Hand eintragen" hidden>
+    <div class="bar"><button type="button" class="back" data-back><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span>Zurück</span></button></div>
+    <div class="title-block">
+      <h1>Eichung von Hand eintragen</h1>
+      <p class="lead">Kennst du die Abweichung der Handy-Uhr schon, trag sie hier ein. Der Wert ersetzt die bisherige Eichung.</p>
+      <p class="hint cal-now"></p>
+    </div>
+    <div class="card">
       <div class="field">
         <label for="ppm">Korrektur Handy-Uhr</label>
         <div class="inline"><input type="number" id="ppm" value="0" step="0.1" inputmode="decimal"><span class="unit">ppm</span></div>
         <p class="hint" id="ppmFor">Gilt für das Standard-Mikrofon.</p>
-        <p class="hint">Wird mit der Quarzuhr bestimmt; 1 ppm sind 0,086 s/Tag. Von Hand nur ändern, wenn du den Wert kennst.</p>
+        <p class="hint">1 ppm sind 0,086 s/Tag. Geht die Handy-Uhr vor: plus. Null heisst: keine Eichung.</p>
       </div>
-    </details>
+    </div>
   </section>
 
   <!-- ======================= Werkzeuge ======================= -->
@@ -814,9 +875,9 @@
   <!-- ======================= Genaue Zeit aus dem Internet: Zustimmung (0.6.5) ======================= -->
   <div class="sheet" id="netSheet" hidden>
     <div class="sheet-panel" role="dialog" aria-modal="true" aria-labelledby="ntTitle">
-      <span class="eyebrow">Gang im Alltag</span>
+      <span class="eyebrow" id="ntEyebrow">Gang im Alltag</span>
       <h2 id="ntTitle">Genaue Zeit aus dem Internet?</h2>
-      <p>Die Uhr im Handy wird nur ab und zu gestellt und kann bis etwa zwei Sekunden danebenliegen. Genauer wird der Vergleich, wenn Tickwerk die Zeit im Internet abfragt.</p>
+      <p id="ntLead">Die Uhr im Handy wird nur ab und zu gestellt und kann bis etwa zwei Sekunden danebenliegen. Genauer wird der Vergleich, wenn Tickwerk die Zeit im Internet abfragt.</p>
       <p class="hint" id="ntHost"></p>
       <p class="hint">Ändern kannst du das jederzeit unter Mehr → Einstellungen.</p>
       <div class="actions"><button type="button" class="btn-primary" id="ntYes">Einverstanden</button><button type="button" class="btn-ghost" id="ntNo">Nein, Handy-Uhr nehmen</button></div>
@@ -865,6 +926,7 @@
 <script src="fr.js"></script>
 <script src="it.js"></script>
 <script src="report.js"></script>
+<script src="eichzeit.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -65,7 +65,7 @@
   var UHREN = window.TICKWERK_UHREN || [];
   var CFG = window.TICKWERK_CONFIG || {};
   var FLAVOR = CFG.flavor === 'store' ? 'store' : 'test';
-  var APP_VERSION = '0.6.5';
+  var APP_VERSION = '0.6.7';
   var PREFIX = typeof CFG.storage === 'string' && /^[a-z][a-z0-9.]{2,30}$/.test(CFG.storage) ? CFG.storage : 'tickwerk.v1';
   var KEYS = { watches: PREFIX + '.watches', meas: PREFIX + '.measurements', settings: PREFIX + '.settings', session: PREFIX + '.session', pro: PREFIX + '.pro', log: PREFIX + '.log' };
   var PRO_SKU = typeof CFG.proSku === 'string' && /^[a-z0-9._]{1,40}$/.test(CFG.proSku) ? CFG.proSku : 'tickwerk_pro';
@@ -151,6 +151,8 @@
       lift: finite(m.lift, 52), bph: Math.round(finite(m.bph, 0)), q: ['stark', 'mittel', 'schwach'].indexOf(m.q) >= 0 ? m.q : 'schwach', dur: finite(m.dur, 0)
     };
     if (typeof m.ppm === 'number' && isFinite(m.ppm)) out.ppm = m.ppm;
+    /* Quelle der Eichung, mit der korrigiert wurde (q Quarzuhr, z Internetzeit, h von Hand), und ihre Unsicherheit in ppm */
+    if (m.cq === 'q' || m.cq === 'z' || m.cq === 'h') { out.cq = m.cq; if (finite(m.cu, -1) >= 0 && m.cu < 100) out.cu = m.cu; }
     if (finite(m.fs, 0) > 0) out.fs = m.fs;
     if (str(m.eng, 20)) out.eng = str(m.eng, 20);
     if (str(m.app, 20)) out.app = str(m.app, 20);
@@ -203,6 +205,10 @@
     quartzSig: finite(S.quartzSig, -1) >= 0 && S.quartzSig <= 5 ? S.quartzSig : null,   /* seine Unsicherheit in s/Tag */
     calSig: finite(S.calSig, -1) >= 0 && S.calSig < 50 ? S.calSig : null,   /* Unsicherheit der Messung an der Quarzuhr in ppm (eingebautes Mikrofon) */
     netTime: S.netTime === 'ja' || S.netTime === 'nein' ? S.netTime : '',   /* genaue Zeit aus dem Internet: ja, nein oder noch nicht gefragt */
+    netFor: typeof S.netFor === 'string' ? str(S.netFor, 80) : S.netTime === 'ja' ? 'self' : '',   /* wem das «ja» galt (0.6.5: nur dem Server der App) */
+    netPick: S.netPick === 'a' || S.netPick === 's' ? S.netPick : '',   /* nur Testversion: Zeitquelle fest wählen (a Zeitdienst, s Server der App), leer = automatisch */
+    calSrc: S.calSrc === 'zeit' ? 'zeit' : '',   /* Quelle der Eichung des eingebauten Mikrofons: «zeit» = mit Internetzeit, sonst Quarzuhr oder von Hand */
+    calZeit: cleanCalZeit(S.calZeit),   /* letzte Eichung mit Internetzeit, nur für die Diagnose */
     netLast: cleanNetLast(S.netLast),   /* letzte Zeitabfrage, nur für die Diagnose */
     testPro: S.testPro !== false,
     free: cleanFree(S.free),
@@ -327,7 +333,7 @@
       var p = finite(v.ppm, NaN), r = finite(v.raw, NaN);
       if (!(Math.abs(p) < 500)) return;
       var sg = finite(v.sig, -1);
-      out[k] = { ppm: p, raw: Math.abs(r) < 500 ? r : null, at: isoDate(v.at), sig: sg >= 0 && sg < 50 ? sg : null }; n++;
+      out[k] = { ppm: p, raw: Math.abs(r) < 500 ? r : null, at: isoDate(v.at), sig: sg >= 0 && sg < 50 ? sg : null, src: v.src === 'zeit' ? 'zeit' : '' }; n++;
     });
     return out;
   }
@@ -335,31 +341,42 @@
     var at = v && typeof v === 'object' ? isoDate(v.at) : '';
     if (!at) return null;
     var num = function (x, lo, hi) { return Math.round(Math.max(lo, Math.min(hi, finite(x, 0)))); };
-    return { at: at, ok: v.ok === true, src: v.src === 'x' || v.src === 'd' ? v.src : '', n: num(v.n, 0, 99), unc: num(v.unc, 0, 9999), rtt: num(v.rtt, 0, 99999),
+    return { at: at, ok: v.ok === true, src: v.src === 'a' || v.src === 'x' || v.src === 'd' ? v.src : '', n: num(v.n, 0, 99), unc: num(v.unc, 0, 9999), rtt: num(v.rtt, 0, 99999),
       ph: num(v.ph, -9e8, 9e8), why: logLine(str(v.why, 60), 60) };
   }
+  function cleanCalZeit(v) {
+    var at = v && typeof v === 'object' ? isoDate(v.at) : '';
+    if (!at) return null;
+    var f1 = function (x, lim) { var y = finite(x, 0); return Math.round(Math.max(-lim, Math.min(lim, y)) * 10) / 10; };
+    return { at: at, ok: v.ok === true, min: f1(v.min, 999), k: Math.round(Math.max(0, Math.min(999, finite(v.k, 0)))), ppm: f1(v.ppm, 999), sig: f1(v.sig, 999),
+      audio: f1(v.audio, 999), clock: f1(v.clock, 999), steps: Math.round(Math.max(0, Math.min(999, finite(v.steps, 0)))), grp: Math.round(Math.max(0, Math.min(9, finite(v.grp, 0)))),
+      kind: v.kind === 'm' || v.kind === 'w' ? v.kind : '', src: v.src === 'a' || v.src === 'x' || v.src === 'd' ? v.src : '', why: logLine(str(v.why, 60), 60) };
+  }
   function micKey() { return isPro() && settings.micId ? settings.micId : ''; }
-  function calOf(key) { return key ? settings.cal[key] || null : { ppm: settings.ppm, raw: settings.quartzRaw, at: settings.calAt, sig: settings.calSig }; }
+  function calOf(key) { return key ? settings.cal[key] || null : { ppm: settings.ppm, raw: settings.quartzRaw, at: settings.calAt, sig: settings.calSig, src: settings.calSrc }; }
   function ppmOf(key) { var c = calOf(key); return c && c.ppm ? c.ppm : 0; }
   /* Eichung setzen, mit dem Datum von heute. Null von Hand (ohne Messung) heisst: keine Eichung. */
-  function setClock(key, ppm, raw, sig) {
-    var none = !ppm && raw == null, at = none ? '' : new Date().toISOString();
-    sig = raw != null && sig >= 0 && sig < 50 ? Math.round(sig * 100) / 100 : null;   /* Unsicherheit der Messung in ppm; von Hand eingetragen: unbekannt */
-    if (!key) { settings.ppm = ppm; settings.quartzRaw = raw; settings.calAt = at; settings.calSig = sig; return; }
+  function setClock(key, ppm, raw, sig, src) {
+    src = src === 'zeit' && raw == null ? 'zeit' : '';   /* «zeit»: mit Internetzeit gemessen (kein Rohwert einer Quarzuhr) */
+    var none = !ppm && raw == null && !src, at = none ? '' : new Date().toISOString();
+    sig = (raw != null || src) && sig >= 0 && sig < 50 ? Math.round(sig * 100) / 100 : null;   /* Unsicherheit der Messung in ppm; von Hand eingetragen: unbekannt */
+    if (!key) { settings.ppm = ppm; settings.quartzRaw = raw; settings.calAt = at; settings.calSig = sig; settings.calSrc = src; return; }
     if (none) { delete settings.cal[key]; return; }
-    settings.cal[key] = { ppm: ppm, raw: raw, at: at, sig: sig };
+    settings.cal[key] = { ppm: ppm, raw: raw, at: at, sig: sig, src: src };
     var ks = Object.keys(settings.cal);
     if (ks.length > 8) delete settings.cal[ks[0]];   /* höchstens 8 Mikrofone, das älteste fällt weg */
   }
   /* Geeicht? Und: älter als ein halbes Jahr? Die Uhr im Handy verändert sich mit der Zeit ein wenig. */
   var CAL_OLD_DAYS = 183, CAL_NAG_DAYS = 30;
-  function isCal(c) { return !!c && (c.raw != null || !!c.ppm); }
+  function isCal(c) { return !!c && (c.raw != null || !!c.ppm || c.src === 'zeit'); }
+  function calKind(c) { return !isCal(c) ? '' : c.src === 'zeit' ? 'z' : c.raw != null ? 'q' : 'h'; }   /* Quelle: Internetzeit, Quarzuhr, von Hand */
   function calOld(c) { return isCal(c) && !!c.at && Date.now() - new Date(c.at).getTime() > CAL_OLD_DAYS * 86400000; }
   /* Wie genau ist die Eichung? Die Messung an der Quarzuhr selbst ist auf Zehntel ppm genau. Begrenzt wird die Eichung durch
      den Gang der Quarzuhr: unbekannt sind das typisch ±0,5 s/Tag (rund ±6 ppm); aus «Gang im Alltag» übernommen gilt dessen
      Unsicherheit. Von Hand eingetragene Werte: unbekannt (null). */
   var QUARTZ_UNKNOWN = 0.5, QUARTZ_OK = 0.05;   /* s/Tag: Gang einer unbekannten Quarzuhr; so genau muss ein übernommener Gang sein */
   function calAcc(c) {
+    if (isCal(c) && c.src === 'zeit') return c.sig != null ? { ppm: Math.max(0.3, c.sig), src: 'zeit' } : null;
     if (!isCal(c) || c.raw == null) return null;
     var m = c.sig != null ? Math.max(0.1, c.sig) : 0.3;
     var q = settings.quartzSrc === 'uhr' ? settings.quartzSig : settings.quartzSrc === 'hand' ? null : QUARTZ_UNKNOWN;
@@ -369,9 +386,10 @@
     var a = calAcc(c);
     if (!a) return T('Quelle: von Hand eingetragen. Wie genau der Wert ist, weiss Tickwerk nicht.');
     var v = { p: fmt(a.ppm, a.ppm < 2 ? 1 : 0), d: fmt(a.ppm * 0.0864, 2) };
+    if (a.src === 'zeit') return T('Quelle: Internetzeit.') + ' ' + T('Genauigkeit: etwa ± {p} ppm (± {d} s/Tag).', v);
     return T('Quelle: Quarzuhr.') + ' ' + (a.src === 'hand' ? T('Genauigkeit der Messung: ± {p} ppm. Dazu kommt, wie genau du den Gang der Quarzuhr kennst.', v) :
       a.src === 'uhr' ? T('Genauigkeit: etwa ± {p} ppm (± {d} s/Tag), mit dem Gang der Quarzuhr aus «Gang im Alltag».', v) :
-        T('Genauigkeit: etwa ± {p} ppm (± {d} s/Tag), weil Tickwerk den Gang der Quarzuhr nicht kennt. Genauer: siehe «Noch genauer eichen».', v));
+        T('Genauigkeit: etwa ± {p} ppm (± {d} s/Tag), weil Tickwerk den Gang der Quarzuhr nicht kennt. Genauer: siehe «Mit einer Quarzuhr», «Noch genauer eichen».', v));
   }
   function clockShort() {   /* eine Zeile für «Mehr», die Werkzeuge und die Einstellungen */
     var c = calOf(micKey());
@@ -578,8 +596,8 @@
   }
 
   /* ---------- Navigation: Bildschirme als Stapel, Android-Zurück schliesst den obersten ---------- */
-  var SCREENS = ['measure', 'watches', 'watch', 'edit', 'lagen', 'lpos', 'reg', 'zeit', 'detektiv', 'guide', 'more', 'pro', 'history', 'settings', 'eichen'];
-  var NO_TABS = { edit: true, lagen: true, lpos: true, reg: true, zeit: true, detektiv: true, guide: true, eichen: true };
+  var SCREENS = ['measure', 'watches', 'watch', 'edit', 'lagen', 'lpos', 'reg', 'zeit', 'detektiv', 'guide', 'more', 'pro', 'history', 'settings', 'eichen', 'eichquarz', 'eichzeit', 'eichdatei', 'eichhand'];
+  var NO_TABS = { edit: true, lagen: true, lpos: true, reg: true, zeit: true, detektiv: true, guide: true, eichen: true, eichquarz: true, eichzeit: true, eichdatei: true, eichhand: true };
   var stack = [{ s: 'measure', p: {} }];
   var sheetOpen = null, afterPop = null, shownScreen = '';
   var tabs = Array.prototype.slice.call(document.querySelectorAll('.tabbar button'));
@@ -1008,6 +1026,8 @@
       bph: r.bph, q: r.quality.label, dur: +r.duration.toFixed(1),
       ppm: r.clockPpm || 0, fs: fs || null, eng: engineVersion || '', app: APP_VERSION
     };
+    var cc = calOf(usedMic), ca = calAcc(cc);
+    if (m.ppm && isCal(cc) && Math.abs(cc.ppm - m.ppm) < 0.05) { m.cq = calKind(cc); if (ca) m.cu = Math.round(ca.ppm * 10) / 10; }   /* womit geeicht war */
     if (c.sess) { m.sess = c.sess; if (c.lset) m.lset = c.lset; }
     if (c.gr) { m.gr = c.gr.id; m.grs = c.gr.step; }
     if (!isPro() && useFree()) m.fp = true;
@@ -1298,7 +1318,7 @@
   }
   $('mStart').addEventListener('click', measureStart);
   $('mForce').addEventListener('click', recForceStart);
-  $('mQuartzGo').addEventListener('click', function () { $('mQuartz').hidden = true; go('eichen'); });
+  $('mQuartzGo').addEventListener('click', function () { $('mQuartz').hidden = true; go('eichquarz'); });
   $('mPos').addEventListener('change', function () { settings.pos = this.value; saveSettings(); });
   $('mDur').addEventListener('change', function () { settings.dur = parseInt(this.value, 10) || 30; saveSettings(); });
   $('mGuide').addEventListener('click', function () { go('guide'); });
@@ -1333,7 +1353,7 @@
     { id: 'gr', t: T('Gangreserve-Test'), s: T('Voll aufgezogen und nach 24 Stunden: Wie viel Kraft bleibt?'), pro: true },
     { id: 'zeit', t: T('Gang im Alltag'), s: T('Die Uhr über Tage mit der Atomzeit vergleichen') },
     { id: 'det', t: T('Werk-Detektiv'), s: T('Herausfinden, welches Werk in der Uhr steckt') },
-    { id: 'eichen', t: T('Handy-Uhr eichen'), s: '' }
+    { id: 'eichen', t: T('Eichung'), s: '' }
   ];
   /* Die Uhr, für die ein Werkzeug gilt: die unter «Messen» gewählte, sonst die einzige gespeicherte */
   function mechWatches() { return watches.filter(function (w) { return !w.quarz; }); }
@@ -2593,11 +2613,12 @@
   }
   function renderTimeCard(w, list) {
     var tv = w.tv || [], dr = dailyRate(tv), last = tv[tv.length - 1];
-    $('dtSub').textContent = dr ? signed(dr.rate, 1) + ' ' + T('s/Tag') : tv.length ? plural(tv.length, 'Vergleich', 'Vergleiche') : '';
+    var dec = w.quarz ? 2 : 1;   /* der Gang einer Quarzuhr ist klein: zwei Stellen */
+    $('dtSub').textContent = dr ? signed(dr.rate, dec) + ' ' + T('s/Tag') : tv.length ? plural(tv.length, 'Vergleich', 'Vergleiche') : '';
     $('dtRateRow').hidden = !dr;
     $('dtSigma').hidden = !dr;
     if (dr) {
-      $('dtRate').textContent = signed(dr.rate, 1);
+      $('dtRate').textContent = signed(dr.rate, dec);
       $('dtSigma').textContent = '± ' + fmt(dr.sigma, dr.sigma < 0.1 ? 2 : 1) + ' ' + T('s/Tag') + ' · ' + T('über {d}', { d: daysText(dr.days) });
     }
     var ok = list.filter(counted), lastM = ok[ok.length - 1], txt;
@@ -2607,7 +2628,7 @@
     else txt = (gangOf(w) ? T(gangFit(gangOf(w), dr.rate) ? 'Das liegt innerhalb der Vorgabe ({t}).' : 'Das liegt ausserhalb der Vorgabe ({t}).', { t: gangText(gangOf(w)) }) + ' ' : '') +
       (dr.days < 1 ? T('Noch weniger als ein Tag: Nach ein paar Tagen wird der Wert genauer.') + ' ' : '') +
       (lastM ? T('Zum Vergleich die letzte Messung mit dem Mikrofon: {v} s/Tag ({p}).', { v: signed(lastM.rate, 1), p: POS[lastM.pos] }) + ' ' : '') +
-      (w.quarz ? T(dr.sigma <= QUARTZ_OK ? 'Genau genug für die Eichung: Unter Mehr → Handy-Uhr eichen → «Noch genauer eichen» lässt sich dieser Gang übernehmen.' :
+      (w.quarz ? T(dr.sigma <= QUARTZ_OK ? 'Genau genug für die Eichung: Unter Mehr → Einstellungen → Eichung → «Mit einer Quarzuhr» lässt sich dieser Gang übernehmen.' :
         'Für die Eichung der Handy-Uhr braucht es ± {m} s/Tag oder besser: weiter vergleichen.', { m: fmt(QUARTZ_OK, 2) }) + ' ' : '') +
       (dr.net < dr.n && !netOn() ? T('Mit der genauen Zeit aus dem Internet wird der Wert genauer: Mehr → Einstellungen.') : '');
     txt = txt.trim();
@@ -2847,7 +2868,14 @@
   var PERF0 = Date.now() - performance.now();
   function pClock(t) { return PERF0 + (t == null ? performance.now() : t); }   /* die Uhr der Seite als Zeit in ms */
   var NET_URL = 'config.js', NET_TIMEOUT = 4000, NET_MAX_AGE = 10 * 60000, NET_SKEW = 100, NET_FLOOR = 10, NET_SLACK = 25, NET_COARSE = 400;
-  var net = null;      /* letzte gelungene Abfrage: off (Zeit des Servers minus Uhr der Seite), unc, at, skew, src, n, rtt; alles in ms */
+  /* Seit 0.6.6 zuerst ein öffentlicher Zeitdienst (aus der Konfiguration; liefert die Zeit auf die Millisekunde als Text),
+     erst wenn er nicht antwortet der Server der App. Die Zustimmung gilt für genau diese Empfänger (settings.netFor):
+     Kommt einer dazu, fragt Tickwerk nochmals. */
+  var NET_SVC = typeof CFG.zeitdienst === 'string' && /^(https:\/\/[a-z0-9.-]{4,80}|http:\/\/127\.0\.0\.1:\d{2,5})\/[\w\/?&=.-]{0,60}$/i.test(CFG.zeitdienst) ? CFG.zeitdienst : '';
+  var NET_SVC_HOST = NET_SVC ? NET_SVC.split('/')[2] : '', NET_KEY = (NET_SVC_HOST ? NET_SVC_HOST + ',' : '') + 'self';
+  var netSvcBad = -Infinity;   /* wann der Zeitdienst zuletzt nicht geantwortet hat (Uhr der Seite): dann eine halbe Stunde lang gleich den Server der App fragen */
+  var netNeedUniq = false, netNoXTimer = false;   /* beim Server der App gelernt (gilt, bis die App neu geladen wird): nur eindeutige Anfragen stimmen; X-Timer taugt nicht */
+  var net = null;      /* letzte gelungene Abfrage: off (Zeit des Servers minus Uhr der Seite), unc, lo, hi, at, skew, src, n, rtt; alles in ms */
   var netRun = null;   /* laufende Abfrage */
   /* Uhr des Handys minus Uhr der Seite. Zwischen dem Ablesen der zwei Uhren kann das Programm kurz stehen (das ergäbe einen
      scheinbaren Sprung): darum die Uhr der Seite davor und danach ablesen und die engste von bis zu drei Ablesungen nehmen. */
@@ -2858,7 +2886,8 @@
     }
     return best;
   }
-  function netOn() { return settings.netTime === 'ja'; }
+  function netOn() { return settings.netTime === 'ja' && settings.netFor === NET_KEY; }
+  function netAsked() { return netOn() || settings.netTime === 'nein'; }
   function netFor(perfTs, skew) { return net && Math.abs(net.at - perfTs) < NET_MAX_AGE && Math.abs(net.skew - skew) < NET_SKEW ? net : null; }
   function netValid() { return !!netFor(performance.now(), netSkew()); }
   function netHost() { return location.hostname || T('dieser Server'); }
@@ -2867,73 +2896,140 @@
       ph: ok ? netSkew() - net.off : 0, why: ok ? '' : why });
     saveSettings();
   }
-  function netProbe(unique) {
+  /* Antwort des Zeitdiensts lesen: Sekunden seit 1970 («1794450000.123») oder Datum und Zeit nach ISO 8601
+     («2026-11-12T02:03:04.123Z»; ohne Angabe einer Zeitzone gilt UTC), beides mit Bruchteilen der Sekunde: Ohne sie
+     wäre die Angabe nur auf die Sekunde genau. Ergebnis in ms seit 1970 oder NaN. */
+  function netParse(txt) {
+    var s = String(txt).slice(0, 60), m = /^\s*(\d{9,11})\.(\d{3,6})\s*$/.exec(s), t, f;
+    if (m) { t = parseInt(m[1], 10) * 1000; f = m[2]; }
+    else {
+      m = /^\s*(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)\.(\d{3,6})(?:Z|([+-])(\d\d):?(\d\d))?\s*$/.exec(s);
+      if (!m) return NaN;
+      t = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]); f = m[7];
+      if (m[8]) t -= (m[8] === '-' ? -1 : 1) * (+m[9] * 60 + +m[10]) * 60000;
+    }
+    return t > 1.5e12 && t < 4.2e12 ? t + parseFloat('0.' + f) * 1000 : NaN;   /* nur plausible Zeiten (2017 bis 2103) */
+  }
+  function netProbe(unique, svc) {
     var ctl = typeof AbortController === 'function' ? new AbortController() : null;
     var timer = setTimeout(function () { if (ctl) ctl.abort(); }, NET_TIMEOUT);
     var url = NET_URL + (unique ? '?zeit=' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8) : '');
     var t0 = performance.now();
+    if (svc) {   /* öffentlicher Zeitdienst: die Zeit steht als Text in der Antwort, auf die Millisekunde */
+      return fetch(NET_SVC, { method: 'GET', mode: 'cors', cache: 'no-store', credentials: 'omit', referrerPolicy: 'no-referrer', signal: ctl ? ctl.signal : undefined }).then(function (res) {
+        if (!res.ok) throw new Error('Status');
+        return res.text();
+      }).then(function (txt) {
+        var t1 = performance.now();
+        clearTimeout(timer);
+        return { t0: pClock(t0), t1: pClock(t1), a: netParse(txt), x: NaN, d: NaN };
+      }, function (e) { clearTimeout(timer); throw e; });
+    }
     return fetch(url, { method: 'HEAD', cache: 'no-store', credentials: 'omit', signal: ctl ? ctl.signal : undefined }).then(function (res) {
       var t1 = performance.now(); clearTimeout(timer);
-      var x = /^S(\d{9,11}(?:\.\d{1,9})?)(?:,|$)/.exec(res.headers.get('x-timer') || ''), d = Date.parse(res.headers.get('date') || '');
-      return { t0: pClock(t0), t1: pClock(t1), x: x ? parseFloat(x[1]) * 1000 : NaN, d: isFinite(d) ? d : NaN };
+      var h = res.headers.get('x-timer') || '', x = /^S(\d{9,11}(?:\.\d{1,9})?)(?:,|$)/.exec(h), ve = /,VE(\d{1,6})\s*$/.exec(h), d = Date.parse(res.headers.get('date') || '');
+      return { t0: pClock(t0), t1: pClock(t1), a: NaN, x: x ? parseFloat(x[1]) * 1000 : NaN, ve: ve ? parseInt(ve[1], 10) : 0, d: isFinite(d) ? d : NaN };
     }, function (e) { clearTimeout(timer); throw e; });
   }
+  /* Eine Abfrage. Ergebnis (auch für die Eichung mit Internetzeit): das Objekt wie in net, oder null, wenn sie scheitert. */
   function netStart() {
     if (netRun) return netRun;
-    var lo = -Infinity, hi = Infinity, n = 0, bad = 0, rtt = Infinity, mode = '', maxN = 8, first = NaN, moved = false;
+    var lo = -Infinity, hi = Infinity, n = 0, bad = 0, rtt = Infinity, mode = '', maxN = 8, first = NaN, moved = false, got = null, uniq = netNeedUniq, noX = netNoXTimer;
+    function again() { lo = -Infinity; hi = Infinity; n = 0; bad = 0; rtt = Infinity; mode = ''; maxN = 8; first = NaN; moved = false; }
+    var pick = FLAVOR === 'test' ? settings.netPick : '';   /* in der Testversion lässt sich die Quelle fest wählen, um beide zu vergleichen */
+    var svc = !!NET_SVC && pick !== 's' && (pick === 'a' || performance.now() - netSvcBad > 30 * 60000);   /* zuerst der öffentliche Zeitdienst, sonst gleich der Server der App */
     function fail(why) {
       if (navigator.onLine !== false) logErr('zeit', 'Zeitabfrage gescheitert', why + ' · ' + (mode || '-') + ' · ' + n + '/' + bad);
       netNote(false, why);
     }
     function take(p) {
-      var r = p.t1 - p.t0, v = mode === 'x' ? p.x : p.d;
+      var r = p.t1 - p.t0, v = mode === 'a' ? p.a : mode === 'x' ? p.x : p.d, e = mode === 'a' ? 1 : 0;   /* der Zeitdienst nennt ganze Millisekunden: 1 ms Spielraum */
       if (!isFinite(v) || !(r >= 0)) { bad++; return; }
-      /* gestempelt zwischen Absenden (t0) und Ankunft der Antwort (t1); Date nennt nur die begonnene Sekunde */
-      lo = Math.max(lo, v - p.t1); hi = Math.min(hi, v + (mode === 'x' ? 0 : 1000) - p.t0);
+      /* gestempelt zwischen Absenden (t0) und Ankunft der Antwort (t1); Date nennt nur die begonnene Sekunde.
+         X-Timer nennt dazu, wie lange der Server gebraucht hat (VE, ganze ms): Die Antwort ging frühestens dann ab. Das
+         engt die untere Grenze ein, wenn der Server die Datei erst holen musste. Ein VE, das länger wäre als der ganze
+         Weg hin und zurück, gehört nicht zu dieser Anfrage und zählt nicht. */
+      var ve = mode === 'x' && p.ve > 0 && p.ve <= r ? p.ve : 0;
+      lo = Math.max(lo, v - e + ve - p.t1); hi = Math.min(hi, v + e + (mode === 'd' ? 1000 : 0) - p.t0);
       /* Die Zeit des Servers muss sich von Antwort zu Antwort bewegen. Bleibt sie stehen (zwischengespeicherte Antwort), sähe
          das eine Sekunde lang aus wie ein Sekundenwechsel, der gleich kommt: Der Bereich würde von selbst immer enger. */
       if (!n) first = v; else if (v > first) moved = true;
       n++; if (r < rtt) rtt = r;
     }
     function pause() {
-      if (mode !== 'd' || !isFinite(lo) || !isFinite(hi)) return n ? 40 : 0;
+      if (mode !== 'd' || !isFinite(lo) || !isFinite(hi)) return n ? 40 : 0;   /* X-Timer und Zeitdienst: kurz nacheinander */
       /* nur mit Date: so absenden, dass der Sekundenwechsel des Servers in die Mitte des offenen Bereichs fällt */
       var ph = (pClock() + Math.min(rtt, 1000) / 2 + (lo + hi) / 2) % 1000;
       return (1000 - (ph < 0 ? ph + 1000 : ph)) % 1000;
     }
     function finish() {
-      var w = hi - lo;
-      if (n < 3) return fail(n ? 'zu wenige Antworten' : 'keine Antwort');
-      if (w < -NET_SLACK) return fail('Antworten widersprechen sich');
-      if (!moved) return fail('Zeit des Servers steht');
-      if (w / 2 > NET_COARSE) return fail('zu ungenau');
-      net = { off: (lo + hi) / 2, unc: Math.max(NET_FLOOR, Math.abs(w) / 2 + (w < 0 ? NET_FLOOR : 0)), at: performance.now(), skew: netSkew(), src: mode, n: n, rtt: Math.round(rtt) };
+      var w = hi - lo, why = !n ? 'keine Antwort' : w < -NET_SLACK ? 'Antworten widersprechen sich' : n < 3 ? 'zu wenige Antworten' : !moved ? 'Zeit des Servers steht' : w / 2 > NET_COARSE ? 'zu ungenau' : '';
+      if (why && svc && pick !== 'a') {
+        /* Der Zeitdienst hat geantwortet, aber nichts Brauchbares geliefert: von vorn, mit dem Server der App */
+        if (navigator.onLine !== false) logErr('zeit', 'Zeitabfrage gescheitert', why + ' · ' + (mode || '-') + ' · ' + n + '/' + bad + ' · weiter: Server der App');
+        svc = false; netSvcBad = performance.now();
+        again(); return step();
+      }
+      if (!svc && mode === 'x' && !uniq && (why === 'Antworten widersprechen sich' || why === 'Zeit des Servers steht')) {
+        /* Kam X-Timer aus einem Zwischenspeicher statt frisch vom Server? Von vorn, jede Anfrage mit eindeutigem Zusatz:
+           Die kann kein Zwischenspeicher beantworten. */
+        if (navigator.onLine !== false) logErr('zeit', 'Zeitabfrage gescheitert', why + ' · x · ' + n + '/' + bad + ' · weiter: eindeutige Anfragen');
+        uniq = true; again(); return step();
+      }
+      if (!svc && mode === 'x' && uniq && !noX && (why === 'Antworten widersprechen sich' || why === 'Zeit des Servers steht')) {
+        /* Auch frisch beantwortet passt X-Timer nicht zusammen: letzter Versuch mit der Kopfzeile Date (ganze Sekunden) */
+        if (navigator.onLine !== false) logErr('zeit', 'Zeitabfrage gescheitert', why + ' · x · ' + n + '/' + bad + ' · weiter: Date');
+        noX = true; again(); return step();
+      }
+      if (why) return fail(why);
+      if (!svc && uniq) netNeedUniq = true;   /* so hat es geklappt: die nächsten Abfragen gleich so beginnen */
+      if (!svc && noX) netNoXTimer = true;
+      net = got = { off: (lo + hi) / 2, unc: Math.max(NET_FLOOR, Math.abs(w) / 2 + (w < 0 ? NET_FLOOR : 0)), lo: Math.min(lo, hi), hi: Math.max(lo, hi),
+        at: performance.now(), skew: netSkew(), src: mode, n: n, rtt: Math.round(rtt) };
       netNote(true, '');
     }
     function step() {
-      if (n + bad >= maxN || bad > 2 || hi - lo < -NET_SLACK || (n >= 4 && moved && hi - lo < (mode === 'x' ? 30 : Math.min(rtt, 300) + 30))) return finish();
-      return new Promise(function (ok) { setTimeout(ok, pause()); }).then(function () { return netProbe(mode !== 'x'); }).then(function (p) {
+      if (n + bad >= maxN || bad > 2 || hi - lo < -NET_SLACK || (n >= 4 && moved && hi - lo < (mode === 'd' ? Math.min(rtt, 300) + 30 : 30))) return finish();
+      return new Promise(function (ok) { setTimeout(ok, pause()); }).then(function () { return netProbe(mode !== 'x' || uniq, svc); }).then(function (p) {
         if (!mode) {
-          mode = isFinite(p.x) ? 'x' : isFinite(p.d) ? 'd' : '';
+          mode = svc ? (isFinite(p.a) ? 'a' : '') : isFinite(p.x) && !noX ? 'x' : isFinite(p.d) ? 'd' : '';
           if (!mode) throw new Error('Kopfzeilen');
-          maxN = mode === 'x' ? 8 : 12;
+          maxN = mode === 'd' ? 12 : 8;
         }
         take(p);
-      }, function (e) { if (!n) throw e; bad++; }).then(step);
+      }, function (e) { if (!n) throw e; bad++; }).then(step, function (e) {
+        if (!svc || n || pick === 'a') throw e;
+        svc = false; netSvcBad = performance.now();   /* der Zeitdienst antwortet nicht (oder nicht brauchbar): den Server der App fragen */
+        return step();
+      });
     }
     netRun = step().then(null, function (e) { fail(e && e.message === 'Kopfzeilen' ? 'keine Zeit in der Antwort' : n ? 'abgebrochen' : 'keine Antwort'); })
-      .then(function () { netRun = null; zNet(); });
+      .then(function () { netRun = null; zNet(); return got; });
     return netRun;
   }
   /* Einmal fragen, ob Tickwerk die Zeit im Internet abfragen darf; später unter «Einstellungen» zu ändern */
-  function netAsk() {
-    if (topScreen() !== 'zeit' || sheetOpen) return;
-    $('ntHost').textContent = T('Dafür geht eine leere Anfrage an {h}: den Server, von dem die App kommt. Er sieht dabei die IP-Adresse deines Handys, wie bei jedem Aufruf einer Website. Über dich und deine Uhren wird nichts übertragen.', { h: netHost() });
+  function netWho() {
+    return NET_SVC_HOST ? T('Dafür gehen leere Anfragen an den öffentlichen Zeitdienst {a}. Antwortet er nicht, fragt Tickwerk {h}, den Server, von dem die App kommt. Beide sehen dabei die IP-Adresse deines Handys, wie bei jedem Aufruf einer Website. Über dich und deine Uhren wird nichts übertragen.', { a: NET_SVC_HOST, h: netHost() }) :
+      T('Dafür geht eine leere Anfrage an {h}: den Server, von dem die App kommt. Er sieht dabei die IP-Adresse deines Handys, wie bei jedem Aufruf einer Website. Über dich und deine Uhren wird nichts übertragen.', { h: netHost() });
+  }
+  var netAskFor = '';   /* Anlass der Frage und zugleich der Bildschirm, auf dem sie gestellt wird: «zeit» (Zeitvergleich) oder «eichzeit» (Eichung mit Internetzeit) */
+  function netAsk(why) {
+    if (topScreen() !== why || sheetOpen) return;
+    netAskFor = why;
+    $('ntEyebrow').textContent = T(why === 'eichzeit' ? 'Eichung' : 'Gang im Alltag');
+    $('ntLead').textContent = T(why === 'eichzeit' ? 'Für die Eichung ohne Quarzuhr vergleicht Tickwerk den Takt des Mikrofons mit der genauen Zeit. Dafür fragt es die Zeit im Internet ab.' :
+      'Die Uhr im Handy wird nur ab und zu gestellt und kann bis etwa zwei Sekunden danebenliegen. Genauer wird der Vergleich, wenn Tickwerk die Zeit im Internet abfragt.');
+    $('ntHost').textContent = netWho();
+    $('ntNo').textContent = T(why === 'eichzeit' ? 'Nein, abbrechen' : 'Nein, Handy-Uhr nehmen');
     openSheet('netSheet');
   }
   function netChoose(yes) {
-    settings.netTime = yes ? 'ja' : 'nein'; saveSettings();
-    closeSheet(function () { if (yes) netStart(); zNet(); });
+    settings.netTime = yes ? 'ja' : 'nein'; settings.netFor = yes ? NET_KEY : ''; saveSettings();
+    closeSheet(function () {
+      if (netAskFor === 'eichzeit') { if (yes) calNetStart(); return; }
+      if (yes) netStart();
+      zNet();
+    });
   }
   $('ntYes').addEventListener('click', function () { netChoose(true); });
   $('ntNo').addEventListener('click', function () { netChoose(false); });
@@ -2969,7 +3065,7 @@
     $('zBackLabel').textContent = w.name;
     zShow(p);
     zStop(); zTick(); zTimer = setInterval(zTick, 100);
-    if (!settings.netTime && !p.asked) { p.asked = true; setTimeout(netAsk, 0); }
+    if (!netAsked() && !p.asked) { p.asked = true; setTimeout(function () { netAsk('zeit'); }, 0); }
     else if (netOn() && !netValid()) netStart();
     zNet();
   }
@@ -3371,7 +3467,9 @@
   function renderSettings() {
     $('langSel').value = settings.lang; $('autoStart').checked = settings.autoStart; $('extendOn').checked = settings.extend;
     $('netOn').checked = netOn();
-    $('netHint').textContent = T('Für «Gang im Alltag» fragt Tickwerk die Zeit bei {h} ab, dem Server, von dem die App kommt. Er sieht dabei die IP-Adresse deines Handys, sonst nichts. Ausgeschaltet nimmt Tickwerk die Uhr des Handys; sie kann bis etwa zwei Sekunden danebenliegen.', { h: netHost() });
+    $('netPickBox').hidden = !(FLAVOR === 'test' && NET_SVC); $('netPick').value = settings.netPick;
+    $('netHint').textContent = NET_SVC_HOST ? T('Für «Gang im Alltag» und «Mit Internetzeit eichen» fragt Tickwerk die Zeit beim öffentlichen Zeitdienst {a} ab und, wenn er nicht antwortet, bei {h}, dem Server, von dem die App kommt. Beide sehen dabei die IP-Adresse deines Handys, sonst nichts. Ausgeschaltet nimmt Tickwerk die Uhr des Handys; sie kann bis etwa zwei Sekunden danebenliegen.', { a: NET_SVC_HOST, h: netHost() }) :
+      T('Für «Gang im Alltag» und «Mit Internetzeit eichen» fragt Tickwerk die Zeit bei {h} ab, dem Server, von dem die App kommt. Er sieht dabei die IP-Adresse deines Handys, sonst nichts. Ausgeschaltet nimmt Tickwerk die Uhr des Handys; sie kann bis etwa zwei Sekunden danebenliegen.', { h: netHost() });
     renderMic(); renderPpm();
   }
   /* ---------- Mikrofon wählen (Pro) ---------- */
@@ -3419,20 +3517,24 @@
     var m = settings.micLabel || T('gewählt');
     return ' · ' + (calOf(micKey()) ? T('Mikrofon: {m}', { m: m }) : T('Mikrofon: {m}, ungeeicht', { m: m }));
   }
-  /* ---------- Handy-Uhr eichen: eigene Seite. Stand der Eichung für das gewählte Mikrofon, mit Datum ---------- */
+  /* ---------- Eichung: eine Seite mit dem Stand (für das gewählte Mikrofon, mit Datum) und der Liste der Methoden;
+     jede Methode hat ihre eigene Seite (0.6.7): eichquarz, eichzeit, eichdatei, eichhand ---------- */
   function renderPpm() {
     var key = micKey(), m = settings.micLabel || T('gewählt'), c = calOf(key), has = isCal(c);
-    var noMic = T('Das Mikrofon «{m}» ist noch nicht geeicht. Tickwerk korrigiert seine Messungen erst nach «Quarzuhr messen» mit diesem Mikrofon.', { m: m });
+    var noMic = T('Das Mikrofon «{m}» ist noch nicht geeicht. Tickwerk korrigiert seine Messungen erst nach einer Eichung mit diesem Mikrofon.', { m: m });
     $('ppm').value = ppmOf(key);
     $('ppmFor').textContent = !key ? T('Gilt für das Standard-Mikrofon.') : c ? T('Gilt für das Mikrofon «{m}».', { m: m }) : noMic;
     $('calMic').textContent = key ? T('Mikrofon: {m}', { m: m }) : T('Standard-Mikrofon');
     $('calVal').textContent = has ? signed(c.ppm, 1) : '–';
     $('calSub').textContent = !has ? (key ? noMic : T('Noch nicht geeicht. Der Fehler der Handy-Uhr steckt dann in jedem Wert; er kann einige Sekunden pro Tag betragen.')) :
       T(c.ppm >= 0 ? 'Die Handy-Uhr geht {d} s/Tag vor' : 'Die Handy-Uhr geht {d} s/Tag nach', { d: fmt(Math.abs(c.ppm) * 0.0864, 2) }) + ' · ' +
-      (c.at ? T(c.raw != null ? 'geeicht am {d}' : 'eingetragen am {d}', { d: dLong(new Date(c.at)) }) : T('Datum der Eichung unbekannt'));
+      (c.at ? T(c.raw != null || c.src === 'zeit' ? 'geeicht am {d}' : 'eingetragen am {d}', { d: dLong(new Date(c.at)) }) : T('Datum der Eichung unbekannt'));
     $('calAge').hidden = !calOld(c);
     $('calAcc').hidden = !has; $('calAcc').textContent = has ? calAccText(c) : '';
     $('setCal').textContent = clockShort(); $('setCal').setAttribute('data-kind', calOld(c) ? 'warn' : '');
+    var kind = calKind(c), now = clockShort() + (has ? ' · ' + T(kind === 'z' ? 'Quelle: Internetzeit.' : kind === 'q' ? 'Quelle: Quarzuhr.' : 'Quelle: von Hand eingetragen.') : '');
+    Array.prototype.forEach.call(document.querySelectorAll('.cal-now'), function (e) { e.textContent = now; });
+    Array.prototype.forEach.call(document.querySelectorAll('#calMethods button[data-cal]'), function (b) { b.querySelector('.now-tag').hidden = b.dataset.cal !== kind; });
   }
   function quartzIdle() {
     $('quartzRec').classList.remove('running'); $('quartzRec').disabled = false;
@@ -3459,8 +3561,11 @@
       box.appendChild(p);
     });
     $('qNone').hidden = qs.length > 0; $('qAdd').hidden = qs.length > 0;
-    $('qFrom').hidden = settings.quartzSrc !== 'uhr';
-    if (settings.quartzSrc === 'uhr') $('qFrom').textContent = T('Übernommen aus «Gang im Alltag» (± {s} s/Tag).', { s: fmt(settings.quartzSig, 2) });
+    /* Stammt die Eichung von der Internetzeit, ändert der Gang der Quarzuhr nichts an ihr: das sagen, sonst wirkt «übernehmen» oder Eintragen wie ohne Folge */
+    var cz = calOf(micKey()), from = settings.quartzSrc === 'uhr' ? T('Übernommen aus «Gang im Alltag» (± {s} s/Tag).', { s: fmt(settings.quartzSig, 2) }) : '';
+    var zn = cz && cz.src === 'zeit' && settings.quartzSrc ? T('Die Eichung stammt zurzeit von der Internetzeit: Der Gang der Quarzuhr wirkt erst, wenn du wieder mit der Quarzuhr eichst.') : '';
+    $('qFrom').hidden = !from && !zn;
+    $('qFrom').textContent = from + (from && zn ? ' ' : '') + zn;
   }
   function quartzTake(id) {
     var w = findWatch(id), dr = w ? dailyRate(w.tv || []) : null;
@@ -3477,11 +3582,13 @@
     $('quartzRate').value = settings.quartzRate || 0;
     renderQuartzOffer();
     renderPpm();
-    if (!(rec && rec.owner === 'eichen')) quartzIdle();
+    if (!(rec && rec.owner === 'eichquarz')) quartzIdle();
+    if (!(rec && rec.kind === 'zeit')) calIdle();
   }
   $('autoStart').addEventListener('change', function () { settings.autoStart = this.checked; saveSettings(); if (!rec && !lastShown) setStatus('status', idleHint(), ''); });
   $('extendOn').addEventListener('change', function () { settings.extend = this.checked; saveSettings(); });
-  $('netOn').addEventListener('change', function () { settings.netTime = this.checked ? 'ja' : 'nein'; saveSettings(); });
+  $('netOn').addEventListener('change', function () { settings.netTime = this.checked ? 'ja' : 'nein'; settings.netFor = this.checked ? NET_KEY : ''; saveSettings(); });
+  $('netPick').addEventListener('change', function () { settings.netPick = this.value === 'a' || this.value === 's' ? this.value : ''; net = null; saveSettings(); });
   $('fileIn').addEventListener('change', function (e) {
     var f = e.target.files[0]; e.target.value = '';
     if (!f || rec || busy) return;
@@ -3500,21 +3607,188 @@
   });
   $('ppm').addEventListener('change', function () {
     var v = parseFloat(String(this.value).replace(',', '.'));
-    setClock(micKey(), isFinite(v) && Math.abs(v) < 500 ? v : 0, null); saveSettings(); renderPpm();
+    setClock(micKey(), isFinite(v) && Math.abs(v) < 500 ? v : 0, null); saveSettings(); renderPpm(); renderQuartzOffer();
   });
   /* Eichung mit einer Quarzuhr: gemessene Abweichung plus eigener Gang der Quarzuhr (geht sie vor, sind ihre Schritte kürzer).
      Sie gilt für das Mikrofon, das aufgenommen hat (bei einer Datei: das eingebaute). */
   function quartzPpm(raw) { return +(raw + settings.quartzRate / 0.0864).toFixed(1); }
-  function applyQuartz(q, key) {
-    if (!q || !q.ok) { logErr('eichen', (q && q.reason) || 'Keine Auswertung möglich.'); setStatus('quartzOut', T((q && q.reason) || 'Keine Auswertung möglich.'), 'err'); return; }
+  function applyQuartz(q, key, out) {
+    out = out || 'quartzOut';   /* Statuszeile: Seite «Mit einer Quarzuhr» oder «Aus einer Aufnahme» */
+    if (!q || !q.ok) { logErr('eichen', (q && q.reason) || 'Keine Auswertung möglich.'); setStatus(out, T((q && q.reason) || 'Keine Auswertung möglich.'), 'err'); return; }
     var raw = +q.ppm.toFixed(2), ppm = quartzPpm(raw);
-    setClock(key, ppm, raw, q.sigmaPpm); saveSettings(); renderPpm();
-    setStatus('quartzOut', T(ppm >= 0 ? 'Die Handy-Uhr geht {p} ppm vor (± {s} ppm), das sind {d} s/Tag' : 'Die Handy-Uhr geht {p} ppm nach (± {s} ppm), das sind {d} s/Tag',
+    setClock(key, ppm, raw, q.sigmaPpm); saveSettings(); renderPpm(); renderQuartzOffer();
+    setStatus(out, T(ppm >= 0 ? 'Die Handy-Uhr geht {p} ppm vor (± {s} ppm), das sind {d} s/Tag' : 'Die Handy-Uhr geht {p} ppm nach (± {s} ppm), das sind {d} s/Tag',
       { p: fmt(Math.abs(ppm), 1), s: fmt(Math.max(0.1, q.sigmaPpm), 1), d: fmt(Math.abs(ppm) * 0.0864, 2) }) +
       (settings.quartzRate ? T(', mit dem Gang der Quarzuhr verrechnet') : '') + '. ' + T('Tickwerk korrigiert das ab jetzt bei jeder Messung ({n} Schritte erkannt).', { n: q.steps }) +
       (q.inhibition ? ' ' + T('Deine Quarzuhr gleicht ihren Gang alle {n} s mit einem kleinen Sprung aus ({j} ms); das ist berücksichtigt.', { n: q.inhibition.everyS, j: fmt(Math.abs(q.inhibition.jumpMs), 1) }) : '') +
       (key ? ' ' + T('Gilt für das Mikrofon «{m}».', { m: settings.micLabel || T('gewählt') }) : ''), 'ok');
   }
+  /* ---------- Mit Internetzeit eichen (0.6.6): ohne Quarzuhr ----------
+     Das Handy liegt ruhig, der Bildschirm bleibt an. Tickwerk zählt, wie viele Samples das Mikrofon liefert (der Ton selbst
+     wird weder angesehen noch gespeichert), und stempelt jeden Block mit der Uhr der Seite. Jede Minute kommt eine
+     Zeitabfrage dazu. Daraus rechnet app/eichzeit.js, um wie viel der Takt des Mikrofons von der wahren Zeit abweicht.
+     Gezählt werden die Samples der Mikrofon-Spur selbst (MediaStreamTrackProcessor): Das ist der Takt, in dem auch die
+     Messungen aufgenommen werden, auch bei einem angesteckten Mikrofon. Wo der Browser das nicht kann, zählt Tickwerk
+     die Blöcke des Aufnahme-Worklets; die laufen im Takt der Tonausgabe, der beim eingebauten Mikrofon derselbe ist.
+     Für die automatischen Tests lässt sich der Ablauf in der Testversion beschleunigen (calSpeed in config.js) und die
+     Schwelle für das Übernehmen lockern (calMaxSig): In einer Minute lässt sich kein Takt auf 5 ppm bestimmen. */
+  var EZ = window.TickwerkEichzeit;
+  var CAL_SPEED = FLAVOR === 'test' && CFG.calSpeed > 1 && CFG.calSpeed <= 600 ? CFG.calSpeed : 1;
+  var CAL = { total: 3600 / CAL_SPEED, sync: 60 / CAL_SPEED, win: 10 / CAL_SPEED, first: 600 / CAL_SPEED, maxSig: FLAVOR === 'test' && CFG.calMaxSig > 5 ? CFG.calMaxSig : 5, maxFail: 5 };
+  var CAL_LABEL = T('Eichung starten (60 Minuten)');
+  function netSrcName(k) { return k === 'a' ? (NET_SVC_HOST || 'Zeitdienst') : k === 'x' ? 'X-Timer' : k === 'd' ? 'Date' : '?'; }
+  function calIdle() {
+    $('ncRec').classList.remove('running'); $('ncRec').disabled = !EZ;
+    $('ncLabel').textContent = CAL_LABEL; bar($('ncProg'), 0);
+    $('ncTake').hidden = true;
+  }
+  function calPts(c) { return c.cur ? c.pts.concat([c.cur]) : c.pts; }
+  function calEst(c) { return c.syncs.length >= 3 ? EZ.result(EZ.slope(calPts(c)), EZ.line(c.syncs)) : null; }
+  function calUsable(e) { return !!e && isFinite(e.ppm) && Math.abs(e.ppm) < 300 && isFinite(e.sigma); }
+  function calNote(c, ok, e, why) {
+    settings.calZeit = cleanCalZeit({ at: new Date().toISOString(), ok: ok, min: (performance.now() - c.start) / 60000, k: c.syncs.length, ppm: e ? e.ppm : 0, sig: e ? e.sigma : 0,
+      audio: e ? e.audio : 0, clock: e ? e.clock : 0, steps: e ? e.steps : 0, grp: e ? e.groups : 0, kind: c.kind, src: c.src, why: ok ? '' : why });
+    saveSettings();
+  }
+  /* Samples zählen: n Samples sind angekommen, jetzt. Je Zeitfenster bleibt der Block mit der kleinsten Verspätung. */
+  function calBlock(r, n, fs) {
+    var c = r.cal, t = performance.now();
+    if (rec !== r || !(n > 0) || !(fs > 0)) return;
+    if (!c.fs) c.fs = fs;
+    else if (fs !== c.fs) { c.bad = 'Abtastrate wechselt'; return; }
+    c.n += n; c.last = t;
+    if (t - c.start < 3000) return;   /* die ersten Sekunden nur mitzählen: Beim Öffnen des Mikrofons kommen die Blöcke noch unregelmässig */
+    var v = t - c.n * 1000 / c.fs;
+    if (t >= c.wEnd) { if (c.cur) c.pts.push(c.cur); c.cur = null; c.wEnd = t + CAL.win * 1000; }
+    if (!c.cur || v < c.cur.r) c.cur = { t: t, r: v };
+  }
+  function calFrames(r) {
+    var c = r.cal, track = r.stream.getAudioTracks()[0];
+    if (typeof window.MediaStreamTrackProcessor === 'function') {
+      var reader = new window.MediaStreamTrackProcessor({ track: track, maxBufferSize: 300 }).readable.getReader();
+      c.kind = 'm';
+      c.stop = function () { c.off = true; try { reader.cancel().catch(function () { /* egal */ }); } catch (e) { /* egal */ } };
+      (function pump() {
+        reader.read().then(function (x) {
+          if (c.off || !x || x.done) return;
+          var f = x.value, n = f.numberOfFrames, fs = f.sampleRate;
+          try { f.close(); } catch (e) { /* egal */ }
+          calBlock(r, n, fs); pump();
+        }, function () { c.bad = 'Mikrofon liefert nichts'; });
+      })();
+      return Promise.resolve();
+    }
+    var AC = window.AudioContext || window.webkitAudioContext, ctx = new AC();
+    r.ctx = ctx; c.kind = 'w';
+    return Promise.resolve(ctx.resume()).catch(function () { /* egal */ }).then(function () { return ctx.audioWorklet.addModule('recorder-worklet.js'); }).then(function () {
+      var src = ctx.createMediaStreamSource(r.stream), sink = ctx.createGain(), node = new AudioWorkletNode(ctx, 'tw-recorder', { numberOfInputs: 1, numberOfOutputs: 1, channelCount: 1, channelCountMode: 'explicit' });
+      sink.gain.value = 0; sink.connect(ctx.destination);
+      node.port.onmessage = function (e) { calBlock(r, e.data.samples.length, ctx.sampleRate); };
+      src.connect(node); node.connect(sink);
+      r.src = src; r.node = node; r.sink = sink;
+    });
+  }
+  function calEnd(r) {   /* Aufnahme schliessen (falls sie noch läuft) und die Oberfläche zurücksetzen */
+    var c = r.cal;
+    if (rec === r) { rec = null; teardown(r); }
+    if (c.stop) c.stop();
+    calIdle();
+  }
+  function calFail(r, why, text) {
+    var c = r.cal;
+    logErr('eichen', 'Eichung mit Internetzeit abgebrochen', why);
+    calNote(c, false, null, why);
+    calEnd(r);
+    setStatus('ncOut', text, 'err');
+  }
+  function calDone(r) {
+    var c = r.cal, e = calEst(c), min = Math.max(1, Math.round((performance.now() - c.start) / 60000));
+    calEnd(r);
+    if (!calUsable(e)) {
+      logErr('eichen', 'Eichung mit Internetzeit abgebrochen', 'kein Wert');
+      calNote(c, false, null, 'kein Wert');
+      setStatus('ncOut', T('Aus den Daten liess sich kein Wert rechnen. Bitte nochmals versuchen, am besten im WLAN.'), 'err'); return;
+    }
+    var sig = Math.max(0.3, e.sigma), ppm = +e.ppm.toFixed(1), old = calOf(c.key);
+    if (sig > CAL.maxSig) {
+      calNote(c, false, e, 'zu unsicher');
+      setStatus('ncOut', T('Zu unsicher (± {s} ppm): Der Wert {p} ppm wurde nicht übernommen. Am besten im WLAN wiederholen und das Handy liegen lassen.', { s: fmt(sig, 1), p: signed(ppm, 1) }), 'err'); return;
+    }
+    calNote(c, true, e, '');
+    setClock(c.key, ppm, null, sig, 'zeit'); saveSettings(); renderPpm(); renderQuartzOffer();
+    setStatus('ncOut', T(ppm >= 0 ? 'Die Handy-Uhr geht {p} ppm vor (± {s} ppm), das sind {d} s/Tag' : 'Die Handy-Uhr geht {p} ppm nach (± {s} ppm), das sind {d} s/Tag',
+      { p: fmt(Math.abs(ppm), 1), s: fmt(sig, 1), d: fmt(Math.abs(ppm) * 0.0864, 2) }) + '. ' +
+      T('Gemessen mit der Zeit aus dem Internet über {m} Minuten ({k} Zeitabfragen). Tickwerk korrigiert das ab jetzt bei jeder Messung.', { m: min, k: c.syncs.length }) +
+      (old && old.raw != null ? ' ' + T('Zum Vergleich: Mit der Quarzuhr waren es {q} ppm.', { q: signed(old.ppm, 1) }) : '') +
+      (c.key ? ' ' + T('Gilt für das Mikrofon «{m}».', { m: settings.micLabel || T('gewählt') }) : ''), 'ok');
+  }
+  function calTick(r) {
+    if (rec !== r) return;
+    var c = r.cal, now = performance.now(), el = (now - c.start) / 1000;
+    if (c.bad || (c.last ? now - c.last > 5000 : el > 8)) { calFail(r, c.bad || 'keine Samples', T('Das Mikrofon lieferte keine Daten mehr. Die Eichung wurde abgebrochen.')); return; }
+    if (!c.syncing && now >= c.next) {
+      c.next = now + CAL.sync * 1000; c.syncing = true;
+      netStart().then(function (g) {
+        c.syncing = false;
+        if (rec !== r) return;
+        if (g) { c.syncs.push({ t: g.at, lo: g.lo, hi: g.hi, g: g.src }); c.fails = 0; c.src = g.src; c.est = calEst(c); }   /* g: die Quelle; wechselt sie, rechnet eichzeit.js jede für sich */
+        else if (++c.fails >= CAL.maxFail) calFail(r, 'Zeitabfragen', T('Die Zeit aus dem Internet liess sich nicht holen. Die Eichung wurde abgebrochen.'));
+      });
+    }
+    if (el >= CAL.total && !c.syncing) { calDone(r); return; }
+    var e = el >= CAL.first && calUsable(c.est) ? c.est : null, sig = e ? Math.max(0.3, e.sigma) : 0;
+    $('ncLabel').textContent = T('Abbrechen') + ' · ' + mmss(el * CAL_SPEED) + ' / ' + mmss(CAL.total * CAL_SPEED);
+    bar($('ncProg'), el / CAL.total);
+    $('ncTake').hidden = !(e && sig <= CAL.maxSig);
+    if (e) $('ncTake').textContent = T('Jetzt übernehmen: {p} ppm (± {s})', { p: signed(e.ppm, 1), s: fmt(sig, 1) });
+    setStatus('ncOut', T('Eichung läuft. Handy liegen lassen, Tickwerk nicht verlassen.') + ' ' + plural(c.syncs.length, 'Zeitabfrage', 'Zeitabfragen') + (c.src ? ' (' + netSrcName(c.src) + ')' : '') + '. ' +
+      (e ? T('Vorläufig: {p} ppm (± {s}).', { p: signed(e.ppm, 1), s: fmt(sig, 1) }) : T('Ein erster Wert kommt nach {n} Minuten.', { n: Math.round(CAL.first * CAL_SPEED / 60) })), 'busy');
+  }
+  async function calNetStart() {
+    if (rec || busy || opening || !EZ) return;
+    if (!netOn()) { netAsk('eichzeit'); return; }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setStatus('ncOut', T('Dieser Browser erlaubt hier keine Mikrofon-Aufnahme. Tickwerk über https öffnen, zum Beispiel in Chrome.'), 'err'); return;
+    }
+    opening = true; $('ncRec').disabled = true;
+    setStatus('ncOut', T('Mikrofon wird geöffnet …'), 'busy');
+    var stream, cons = { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 }, pick = isPro() && settings.micId, fell = false;
+    if (pick) cons.deviceId = { exact: settings.micId };
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: cons, video: false });
+    } catch (e) {
+      if (!pick || !e || (e.name !== 'OverconstrainedError' && e.name !== 'NotFoundError')) { opening = false; calIdle(); setStatus('ncOut', micError(e), 'err'); return; }
+      delete cons.deviceId; fell = true;
+      try { stream = await navigator.mediaDevices.getUserMedia({ audio: cons, video: false }); }
+      catch (e2) { opening = false; calIdle(); setStatus('ncOut', micError(e2), 'err'); return; }
+      toast(T('Das gewählte Mikrofon ist nicht da. Tickwerk nimmt das Standard-Mikrofon.'));
+    }
+    var trk = stream.getAudioTracks()[0], tid = trk && trk.getSettings ? trk.getSettings().deviceId : '';
+    usedMic = pick && !fell && (!tid || tid === settings.micId) ? settings.micId : '';
+    var c = { key: usedMic, fs: 0, n: 0, pts: [], cur: null, wEnd: 0, syncs: [], fails: 0, start: performance.now(), next: 0, last: 0, kind: '', src: '', est: null, syncing: false, bad: '', stop: null, off: false };
+    var r = { owner: 'eichzeit', kind: 'zeit', stream: stream, ctx: null, timer: 0, cal: c,
+      o: { onCancel: function () { if (c.stop) c.stop(); calIdle(); setStatus('ncOut', T('Abgebrochen.'), ''); } } };
+    try { await calFrames(r); }
+    catch (e) {
+      opening = false; teardown(r); calIdle();
+      logErr('mikro', 'Aufnahme konnte nicht starten', e && e.message);
+      setStatus('ncOut', T('Aufnahme konnte nicht starten') + (e && e.message ? ': ' + e.message : '.'), 'err'); return;
+    }
+    opening = false;
+    if (topScreen() !== 'eichzeit') { teardown(r); if (c.stop) c.stop(); calIdle(); return; }
+    rec = r; c.start = performance.now();
+    try { if (navigator.wakeLock) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { wakeLock = null; }
+    if (rec !== r) return;
+    $('ncRec').disabled = false; $('ncRec').classList.add('running');
+    r.timer = setInterval(function () { calTick(r); }, 500);
+    calTick(r);
+  }
+  $('ncRec').addEventListener('click', function () {
+    if (rec && rec.kind === 'zeit') { recStop(true); return; }
+    calNetStart();
+  });
+  $('ncTake').addEventListener('click', function () { if (rec && rec.kind === 'zeit') calDone(rec); });
+
   $('langSel').addEventListener('change', function () {
     settings.lang = LANGS.indexOf(this.value) >= 0 ? this.value : 'auto'; saveSettings();
     location.reload();
@@ -3533,10 +3807,11 @@
   });
   var QUARTZ_LABEL = T('Quarzuhr messen (2½ Minuten)');
   $('quartzRec').addEventListener('click', function () {
-    if (rec && rec.owner === 'eichen') { recStop(true); return; }
+    if (rec && rec.kind === 'zeit') return;   /* es läuft eine Eichung mit Internetzeit */
+    if (rec && rec.owner === 'eichquarz') { recStop(true); return; }
     if (rec || busy || opening) return;
     recStart({
-      owner: 'eichen', dur: 150, settle: 1, noLive: true, opts: {},
+      owner: 'eichquarz', dur: 150, settle: 1, noLive: true, opts: {},
       onOpening: function () { $('quartzRec').disabled = true; setStatus('quartzOut', T('Mikrofon wird geöffnet …'), 'busy'); },
       onFail: function (msg) { $('quartzRec').disabled = false; setStatus('quartzOut', msg, 'err'); },
       onBegin: function () {
@@ -3555,12 +3830,12 @@
   $('quartzFile').addEventListener('change', function (e) {
     var f = e.target.files[0]; e.target.value = '';
     if (!f || rec || busy) return;
-    setStatus('quartzOut', T('Lese {f} …', { f: f.name }), 'busy');
+    setStatus('qfOut', T('Lese {f} …', { f: f.name }), 'busy');
     decodeFile(f).then(function (a) {
       var maxQ = Math.round(300 * a.sampleRate);
       return runJob({ kind: 'quartz', samples: a.samples.length > maxQ ? a.samples.subarray(0, maxQ) : a.samples, fs: a.sampleRate });
-    }).then(function (q) { applyQuartz(q, ''); }).catch(function () {
-      setStatus('quartzOut', f.size > MAX_FILE ? T('{f} ist zu gross (höchstens 150 MB).', { f: f.name }) : T('{f} konnte nicht gelesen werden.', { f: f.name }), 'err');
+    }).then(function (q) { applyQuartz(q, '', 'qfOut'); }).catch(function () {
+      setStatus('qfOut', f.size > MAX_FILE ? T('{f} ist zu gross (höchstens 150 MB).', { f: f.name }) : T('{f} konnte nicht gelesen werden.', { f: f.name }), 'err');
     });
   });
   $('exportBtn').addEventListener('click', function () {
@@ -3714,7 +3989,8 @@
     function num(v, d) { return v == null || !isFinite(v) ? '' : v.toFixed(d).replace('.', f.dec); }
     function cell(v) { var s = String(v); return s.indexOf(f.sep) >= 0 || /["\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
     var head = [T('Datum'), T('Zeit'), T('Uhr'), T('Lage'), T('Gang (s/Tag)'), T('Unsicherheit ± (s/Tag)'), T('Gewertet'), T('Abfallfehler (ms)'), T('Amplitude (°)'),
-      T('Hebewinkel (°)'), T('Schlagzahl (A/h)'), T('Signal'), T('Dauer (s)'), T('Quelle'), T('Korrektur Handy-Uhr (ppm)'), T('Hinweis'), T('App'), T('Mess-Engine')];
+      T('Hebewinkel (°)'), T('Schlagzahl (A/h)'), T('Signal'), T('Dauer (s)'), T('Quelle'), T('Korrektur Handy-Uhr (ppm)'), T('Geeicht mit'), T('Eichung genau auf ± (ppm)'), T('Hinweis'), T('App'), T('Mess-Engine')];
+    var CQ = { q: T('Quarzuhr'), z: T('Internetzeit'), h: T('von Hand') };
     var rows = [head.map(function (h) { return csvText(h.charAt(0).toUpperCase() + h.slice(1)); })];
     list.forEach(function (m) {
       var d = new Date(m.date), notes = [];
@@ -3728,7 +4004,7 @@
         d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()), p2(d.getHours()) + ':' + p2(d.getMinutes()) + ':' + p2(d.getSeconds()),
         csvText(m.watchName || w.name), csvText(POS[m.pos] || m.pos), num(m.rate, 2), num(m.sigma, 2), csvText(T(counted(m) ? 'ja' : 'nein')),
         num(m.be, 2), m.amp ? String(Math.round(m.amp)) : '', num(m.lift, 1), m.bph ? String(m.bph) : '', csvText(T(m.q)), num(m.dur, 1), csvText(T(m.source)),
-        m.ppm ? num(m.ppm, 1) : '', csvText(notes.join(', ')), csvText(m.app || ''), csvText(m.eng || '')
+        m.ppm ? num(m.ppm, 1) : '', csvText(m.ppm && own(CQ, m.cq) ? CQ[m.cq] : ''), m.ppm && m.cu != null ? num(m.cu, 1) : '', csvText(notes.join(', ')), csvText(m.app || ''), csvText(m.eng || '')
       ]);
     });
     return { text: '\uFEFF' + rows.map(function (r) { return r.map(cell).join(f.sep); }).join('\r\n') + '\r\n', format: f, rows: list.length };
@@ -4049,11 +4325,19 @@
   /* ---------- Was ist neu ----------
      Einmal nach einem Update zeigen, was dazugekommen ist und wo es zu finden ist; jederzeit unter «Mehr». Bei einer
      neuen Installation nicht (dort erklärt die Anleitung den Einstieg). settings.seenVersion merkt sich die Version. */
-  var NEWS_ORDER = ['0.6.5', '0.6.4'];   /* neuste zuerst; die älteren stehen im Blatt darunter, falls ein Update übersprungen wurde */
+  var NEWS_ORDER = ['0.6.7', '0.6.6', '0.6.5', '0.6.4'];   /* neuste zuerst; die älteren stehen im Blatt darunter, falls ein Update übersprungen wurde */
   var NEWS = {
+    '0.6.7': [
+      { t: T('Eichung an einem Ort'), s: T('Unter Mehr → Einstellungen → «Eichung» steht oben der Stand und darunter jede Methode einzeln: mit einer Quarzuhr, mit Internetzeit, aus einer Aufnahme oder von Hand. Jede hat ihre eigene Seite.') }
+    ],
+    '0.6.6': [
+      { t: T('Eichen ohne Quarzuhr'), s: T('Unter «Eichung» gibt es neu «Mit Internetzeit». Das Handy liegt eine Stunde am Ladegerät; Tickwerk vergleicht den Takt des Mikrofons mit der genauen Zeit aus dem Internet. Wie genau das Ergebnis ist, zeigt Tickwerk an; das Ziel nach einer Stunde ist etwa ± 1 ppm, das sind ± 0,1 s/Tag.') }
+    ].concat(NET_SVC_HOST ? [
+      { t: T('Zeit von einem öffentlichen Zeitdienst'), s: T('Die genaue Zeit holt Tickwerk neu zuerst beim öffentlichen Zeitdienst {a} und erst, wenn er nicht antwortet, beim Server der App. Darum fragt Tickwerk beim nächsten Mal nochmals, ob du einverstanden bist.', { a: NET_SVC_HOST }) }
+    ] : []),
     '0.6.5': [
       { t: T('Genaue Zeit für den Gang im Alltag'), s: T('Auf Wunsch holt Tickwerk beim Zeitvergleich die genaue Zeit aus dem Internet. Die Uhr des Handys kann bis etwa zwei Sekunden danebenliegen; mit der genauen Zeit stimmt der Gang im Alltag schon nach wenigen Tagen. Tickwerk fragt beim nächsten Vergleich, ob du das möchtest.') },
-      { t: T('Quarzuhr als Referenz'), s: T('Eine Uhr lässt sich jetzt als Quarzuhr anlegen. Kennt Tickwerk nach etwa einer Woche ihren Gang, kannst du ihn unter «Handy-Uhr eichen» übernehmen: Die Eichung wird damit rund zehnmal genauer.') },
+      { t: T('Quarzuhr als Referenz'), s: T('Eine Uhr lässt sich jetzt als Quarzuhr anlegen. Kennt Tickwerk nach etwa einer Woche ihren Gang, kannst du ihn unter «Eichung» übernehmen: Die Eichung wird damit rund zehnmal genauer.') },
       { t: T('Werksvorgabe deines Werks'), s: T('Für rund 20 Werke kennt Tickwerk jetzt den Gang, den der Hersteller erlaubt, zum Beispiel von Seiko, Miyota, Orient, Oris und Rolex. Die Vorgabe steht beim Werk. Verglichen wird beim Gang im Alltag und im Lagen-Test, nicht bei der einzelnen Messung.') },
       { t: T('Modell fehlt?'), s: T('Findest du deine Uhr in der Suche nicht, kannst du sie beim Anlegen mit «Modell fehlt? Melden» per E-Mail melden.') }
     ],
@@ -4148,12 +4432,16 @@
         (lastRec && lastRec.fs ? ' · ' + T('letzte Aufnahme') + ' ' + Math.round(lastRec.fs) + ' Hz' : ''));
       var acc = calAcc(cal), nl = settings.netLast;
       L.push(T('Eichung') + ': ' + (cal.ppm ? signed(cal.ppm, 1) + ' ppm' + (cal.at ? ' (' + diagStamp(cal.at).slice(0, 10) + ')' : '') +
-        ' · ' + T(cal.raw != null ? 'Quarzuhr' : 'von Hand') + (acc ? ' · ± ' + fmt(acc.ppm, 1) + ' ppm' : '') : T('keine')) +
+        ' · ' + T(cal.src === 'zeit' ? 'Internetzeit' : cal.raw != null ? 'Quarzuhr' : 'von Hand') + (acc ? ' · ± ' + fmt(acc.ppm, 1) + ' ppm' : '') : T('keine')) +
         ' · ' + T('Gang der Quarzuhr') + ': ' + (settings.quartzSrc ? signed(settings.quartzRate, 2) + ' (' + T(settings.quartzSrc === 'uhr' ? 'Gang im Alltag' : 'von Hand') + ')' : T('unbekannt')) +
         ' · ' + T('weitere Mikrofone') + ': ' + Object.keys(settings.cal).length);
-      L.push(T('Internetzeit') + ': ' + T(netOn() ? 'ein' : settings.netTime ? 'aus' : 'noch nicht gefragt') + ' · ' + T('letzte Abfrage') + ': ' +
-        (!nl ? '–' : diagStamp(nl.at) + ' · ' + (nl.ok ? (nl.src === 'x' ? 'X-Timer' : 'Date') + ' · ' + nl.n + ' ' + T('Antworten') + ' · ± ' + nl.unc + ' ms · ' + T('Laufzeit') + ' ' + nl.rtt + ' ms · ' +
+      L.push(T('Internetzeit') + ': ' + T(netOn() ? 'ein' : netAsked() ? 'aus' : 'noch nicht gefragt') + (FLAVOR === 'test' && settings.netPick ? ' (' + T(settings.netPick === 'a' ? 'nur Zeitdienst' : 'nur Server der App') + ')' : '') + ' · ' + T('letzte Abfrage') + ': ' +
+        (!nl ? '–' : diagStamp(nl.at) + ' · ' + (nl.ok ? netSrcName(nl.src) + ' · ' + nl.n + ' ' + T('Antworten') + ' · ± ' + nl.unc + ' ms · ' + T('Laufzeit') + ' ' + nl.rtt + ' ms · ' +
           T('Handy-Uhr') + ' ' + (nl.ph < 0 ? '−' : '+') + Math.abs(nl.ph) + ' ms' : T('gescheitert') + (nl.why ? ' (' + nl.why + ')' : ''))));
+      var cz = settings.calZeit;
+      L.push(T('Eichung mit Internetzeit') + ': ' + (!cz ? '–' : diagStamp(cz.at) + ' · ' + (cz.ok ? signed(cz.ppm, 1) + ' ppm ± ' + fmt(cz.sig, 1) : T('gescheitert') + (cz.why ? ' (' + cz.why + ')' : '')) +
+        ' · ' + fmt(cz.min, 0) + ' min · ' + cz.k + ' ' + T('Zeitabfragen') + (cz.src ? ' (' + netSrcName(cz.src) + (cz.grp > 1 ? ' +' + (cz.grp - 1) : '') + ')' : '') + ' · ' + T('Mikrofon gegen Handy-Uhr') + ' ' + signed(cz.audio, 1) + ' ppm · ' +
+        T('Handy-Uhr gegen Zeit') + ' ' + signed(cz.clock, 1) + ' ppm · ' + T(cz.kind === 'm' ? 'Samples der Mikrofon-Spur' : 'Samples der Tonausgabe') + ' · ' + T('Sprünge') + ' ' + cz.steps));
       L.push(T('Einstellungen') + ': ' + settings.dur + ' s · ' + T('automatischer Start') + ' ' + yn(settings.autoStart) + ' · ' + T('verlängern') + ' ' + yn(settings.extend) + ' · ' + settings.pos);
       L.push(T('Daten') + ': ' + plural(watches.length, 'Uhr', 'Uhren') + ' · ' + plural(meas.length, 'Messung', 'Messungen') + ' · Pro: ' + yn(isPro()));
       L.push(T('Speicher') + ': ' + T('dauerhaft') + ' ' + (r[2] == null ? '?' : yn(r[2])) + (est.usage ? ' · ' + fmt(est.usage / 1048576, 1) + ' MB' : '') +
@@ -4212,7 +4500,7 @@
 
   /* ---------- Start ---------- */
   var RENDER = { measure: renderMeasure, watches: renderWatches, watch: renderDetail, edit: renderEdit, lagen: renderLagen, lpos: renderLpos, reg: renderReg, zeit: renderZeit, detektiv: renderDetektiv, guide: function () {},
-    more: renderMore, pro: renderPro, history: renderHistory, settings: renderSettings, eichen: renderEichen };
+    more: renderMore, pro: renderPro, history: renderHistory, settings: renderSettings, eichen: renderEichen, eichquarz: renderEichen, eichzeit: renderEichen, eichdatei: renderEichen, eichhand: renderEichen };
   if (FLAVOR === 'test') {
     var row = document.createElement('span'), badge = document.createElement('span');
     row.className = 'eyebrow-row'; badge.className = 'test-badge'; badge.textContent = 'TEST';
@@ -4233,7 +4521,7 @@
     /* Eichung über ein halbes Jahr alt: höchstens einmal im Monat daran erinnern */
     if (calOld(calOf(micKey())) && (!settings.calNag || Date.now() - new Date(settings.calNag).getTime() > CAL_NAG_DAYS * 86400000)) {
       settings.calNag = new Date().toISOString(); saveSettings();
-      toast(T('Die Eichung der Handy-Uhr ist über sechs Monate alt. Neu eichen unter Mehr, «Handy-Uhr eichen».'));
+      toast(T('Die Eichung der Handy-Uhr ist über sechs Monate alt. Neu eichen unter Mehr, «Eichung».'));
     }
   }, 1200);
   if (FLAVOR === 'store') {
