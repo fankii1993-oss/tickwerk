@@ -1,6 +1,6 @@
 /* Tickwerk Service Worker: App funktioniert auch offline. */
 var PREFIX = 'tickwerk-test-';
-var CACHE = PREFIX + '5d396358a2';
+var CACHE = PREFIX + '9a3b49d23c';
 var FILES = [
   './', 'index.html', 'datenschutz.html', 'privacy.html', 'privacy-fr.html', 'privacy-it.html', 'app.css', 'app.js', 'config.js', 'kaliber.js', 'logo.js',
   'en.js', 'fr.js', 'it.js', 'report.js', 'eichzeit.js', 'worker.js', 'recorder-worklet.js',
@@ -17,7 +17,7 @@ function isOld(k) { return k !== CACHE && (k.indexOf(PREFIX) === 0 || (true && /
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) {
     return Promise.all(FILES.map(function (f) {
-      return fetch(new Request(f + '?v=5d396358a2', { cache: 'reload' })).then(function (res) {
+      return fetch(new Request(f + '?v=9a3b49d23c', { cache: 'reload' })).then(function (res) {
         if (!res.ok) throw new Error(f + ': ' + res.status);
         return c.put(f, res);
       });

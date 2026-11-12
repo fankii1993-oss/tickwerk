@@ -1,4 +1,4 @@
-# Tickwerk – Web-App 0.6.7 (Testversion)
+# Tickwerk – Web-App 0.6.8 (Testversion)
 
 Misst mit dem Handy-Mikrofon, wie genau eine mechanische Uhr geht: Gangabweichung, Abfallfehler, Amplitude, Schlagzahl. Die Aufnahme und die Messwerte bleiben auf dem Handy. Ins Internet gehen nur, wenn du in der App zustimmst, leere Zeitabfragen für den «Gang im Alltag» und für «Mit Internetzeit eichen»: an den öffentlichen Zeitdienst time.akamai.com und, wenn er nicht antwortet, an den Server, von dem die App kommt (siehe Datenschutzerklärung).
 
@@ -11,6 +11,14 @@ Seit dem 10.11.2026 legt Claude neue Versionen als Pull Request in den Ordner; �
 1. Im Repository den Ordner `tickwerk-app-0.1` öffnen.
 2. **Add file → Upload files**, den ganzen Inhalt dieses Pakets hineinziehen (Dateien und die Ordner `engine`, `fonts`, `icons`), **Commit changes**. Gleichnamige Dateien werden ersetzt; deine Uhren und Messungen bleiben auf dem Handy erhalten.
 3. App auf dem Handy öffnen. Nach ein paar Sekunden erscheint «Neue Version ist bereit»; unter Mehr auf **Neue Version: neu laden** tippen. Ab 0.6.3 lässt sich die Suche unter Mehr → **Nach Update suchen** auch von Hand anstossen.
+
+## Neu in 0.6.8
+
+- **Halbe Schlagzahl wird korrigiert:** Ist bei einer Uhr einer der zwei Schläge deutlich leiser (bei der Testuhr vom Pixel hat er je nach Lage des Handys nur einen Viertel bis einen Drittel der Energie), hielt die Engine manchmal nur jeden zweiten für einen Schlag: 14’400 statt 28’800 A/h, Abfallfehler falsch, Amplitude fehlt. Ist bei der Uhr eine Schlagzahl hinterlegt und die erkannte genau die Hälfte, wertet Tickwerk dieselbe Aufnahme nochmals mit der hinterlegten aus (`fixHalfBph()` in `worker.js`) und nimmt dieses Ergebnis, wenn die Engine dabei mindestens anderthalbmal so viele Schläge findet. In der Tabelle steht dann der Hinweis «zuerst halbe Schlagzahl erkannt».
+- **Gelingt das nicht**, bleibt das erste Ergebnis, aber die Messung zählt nicht («nur jeder zweite Schlag erkannt»); der Hinweis am Bildschirm erklärt es und lässt die erkannte Schlagzahl weiterhin übernehmen, falls die hinterlegte falsch ist.
+- **Nicht angefasst:** die doppelte Schlagzahl (dort hat Tickwerk mehr Schläge gehört als hinterlegt) und jede andere Abweichung; dort gilt der bisherige Hinweis. Uhren ohne hinterlegte Schlagzahl werden wie bisher ausgewertet. Die Mess-Engine ist unverändert 0.2.7.
+- **Unmögliche Amplitude:** Werte über 360° (auf dem Pixel kam 403° vor, mit dem Vermerk «unsicher») zeigt Tickwerk nicht mehr an; es steht ein Strich (`saneAmp()` in `worker.js`).
+- Dazu der Aufklapper «Warum dauert das 60 Minuten?» auf der Seite «Mit Internetzeit eichen» (siehe 0.6.7).
 
 ## Neu in 0.6.7
 
