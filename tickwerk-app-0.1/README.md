@@ -1,4 +1,4 @@
-# Tickwerk – Web-App 0.6.8 (Testversion)
+# Tickwerk – Web-App 0.7.0 (Testversion)
 
 Misst mit dem Handy-Mikrofon, wie genau eine mechanische Uhr geht: Gangabweichung, Abfallfehler, Amplitude, Schlagzahl. Die Aufnahme und die Messwerte bleiben auf dem Handy. Ins Internet gehen nur, wenn du in der App zustimmst, leere Zeitabfragen für den «Gang im Alltag» und für «Mit Internetzeit eichen»: an den öffentlichen Zeitdienst time.akamai.com und, wenn er nicht antwortet, an den Server, von dem die App kommt (siehe Datenschutzerklärung).
 
@@ -11,6 +11,19 @@ Seit dem 10.11.2026 legt Claude neue Versionen als Pull Request in den Ordner; �
 1. Im Repository den Ordner `tickwerk-app-0.1` öffnen.
 2. **Add file → Upload files**, den ganzen Inhalt dieses Pakets hineinziehen (Dateien und die Ordner `engine`, `fonts`, `icons`), **Commit changes**. Gleichnamige Dateien werden ersetzt; deine Uhren und Messungen bleiben auf dem Handy erhalten.
 3. App auf dem Handy öffnen. Nach ein paar Sekunden erscheint «Neue Version ist bereit»; unter Mehr auf **Neue Version: neu laden** tippen. Ab 0.6.3 lässt sich die Suche unter Mehr → **Nach Update suchen** auch von Hand anstossen.
+
+## Neu in 0.7.0
+
+- **Position finden:** neuer Knopf unter «Messen», auf der Seite einer Lage im Lagen-Test und unter «Regulieren». Ein Blatt über den ganzen Bildschirm führt durch die Suche: fünf Sekunden ruhig halten, Tickwerk bewertet die Stelle; ist sie nicht stark, drei Sekunden zum Verschieben, mit dem Vergleich zur Stelle davor («Besser als vorher. In dieselbe Richtung weiter.»). Stimmt die Stelle, wird der Bildschirm grün («Position stimmt. Nicht mehr bewegen, ruhig sein. Die Messung startet.»), ein Countdown läuft, und die Messung beginnt von selbst. Das Mikrofon bleibt dabei offen: Die Suche ist eine geführte Suchphase derselben Aufnahme (`findTick()` in `app.js`), kein eigener Bildschirm.
+- **Was «stark» heisst:** beide Schläge hörbar (nicht die halbe Schlagzahl), mindestens 95 % der Schläge erkannt, ruhig (Streuung höchstens 0,3 ms), Amplitude bestimmbar und mindestens 14 dB über dem Rauschen. Die Lautstärke allein reicht nicht: An einer lauten Stelle kann die Engine nur jeden zweiten Schlag hören. Bewertet wird ein Stück von 4,5 Sekunden; kürzer kann die Engine nicht.
+- **Wenn es nirgends stark wird:** Nach sechs Stellen nennt Tickwerk die beste («Zurück zu Stelle 3») und misst dort, sobald zwei Proben nacheinander so gut sind wie damals; der Bildschirm wird dann blau statt grün. «Hier messen» geht jederzeit, «Nochmals suchen» beginnt von vorn. Ist an drei Stellen kein Ticken zu hören, hört die Suche auf. Fehlt dreimal nacheinander nur die Amplitude, misst Tickwerk an dieser Stelle, statt weiter suchen zu lassen.
+- **Vermerk:** Eine Messung aus «Position finden» trägt `pf` (`s` stark gefunden, `b` beste von n Stellen, `h` «Hier messen»); der Status nach der Messung und die Tabelle (Spalte «Hinweis») nennen es. Die Diagnose zeigt die Proben des letzten Laufs (Zeile «Position finden»), ohne Namen.
+- **Angebot nach einer schlechten Messung:** Zählt eine Messung nicht, weil nur jeder zweite Schlag hörbar oder das Signal schwach war, oder liess sich die Amplitude nicht bestimmen, bietet Tickwerk «Position finden» an.
+- **Wertung aus mehreren Messungen:** Karte und Seite der Uhr stützen sich auf die letzten höchstens fünf sicheren Messungen (nicht älter als 30 Tage vor der neusten) statt auf die letzte allein. Die Klasse folgt der Mitte (Median) des Gangs. «Service prüfen» braucht drei Messungen, die dasselbe sagen (Amplitude zu tief, Abfallfehler über 2 ms, Mitte über 30 s/Tag daneben); ist nur die letzte auffällig, steht «Nochmals messen».
+- **Tiefe Amplitude:** waagrecht unter 200°, senkrecht unter 180°. Tickwerk fragt zuerst nach Aufzug und Datumswechsel. Eine tiefe Amplitude zählt nicht für «Service prüfen», wenn die Uhr als «nicht voll aufgezogen» angegeben war oder in den Stunden um den Datumswechsel gemessen wurde (Uhrzeit auf der Uhr 21:00 bis 00:30, bei einem Werk mit Wochentag bis 03:00; bei einem Werk, das der Katalog ohne Datum führt, gilt das nicht).
+- **Bedingungen (freiwillig):** Knopf «Bedingungen» unter «Messen». Aufzug (voll aufgezogen, nicht voll, weiss nicht) und die Uhrzeit, die die Uhr zeigt; leer gilt die Zeit des Handys. Die Angabe gilt eine Stunde für diese Uhr und steht bei jeder Messung (`wd`, `ut`), in der Zeile der Messung und in der Tabelle. Im Gangreserve-Test setzt Tickwerk den Aufzug selbst (erste Messung voll, spätere nicht voll).
+- **Messung löschen** auf der Seite der Uhr, in jeder Zeile von «Letzte Messungen» (bisher nur unter Mehr → Alle Messungen).
+- Die Mess-Engine ist unverändert 0.2.7.
 
 ## Neu in 0.6.8
 

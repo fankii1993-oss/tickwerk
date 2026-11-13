@@ -549,3 +549,39 @@ label.btn-big.file-btn { display: flex; justify-content: center; cursor: pointer
 .qoffer .qtake { align-self: flex-start; height: auto; min-height: 36px; padding-top: 6px; padding-bottom: 6px; text-align: left; white-space: normal; }
 /* 0.6.6: Karte «Mit Internetzeit eichen» */
 #calNet > :not(summary) { margin-top: 12px; }
+
+/* ---------- 0.7.0: Position finden (ganzer Bildschirm), Bedingungen ---------- */
+/* Die Klasse heisst «finder»: «find» trägt schon das Suchfeld im Formular der Uhr (.field.find) */
+.finder { position: fixed; inset: 0; z-index: 25; background: var(--bg); display: flex; justify-content: center; }
+.finder[hidden] { display: none; }
+.find-panel { width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; padding: calc(8px + env(safe-area-inset-top)) 20px calc(20px + env(safe-area-inset-bottom)); }
+.find-main { display: flex; flex-direction: column; gap: 6px; }
+.find-main h2 { margin: 0; font: 600 30px/1.12 var(--display); letter-spacing: -0.01em; }
+.find-main p { margin: 0; min-height: 4.4em; font-size: 15px; line-height: 1.45; color: var(--muted); }
+.find-count { flex: 1 1 auto; min-height: 132px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
+.find-n { min-height: 112px; font: 600 112px/1 var(--display); letter-spacing: -0.03em; font-variant-numeric: tabular-nums; color: var(--lume); }
+.find-t { min-height: 20px; font-size: 14px; color: var(--muted); text-align: center; }
+.find-now { display: flex; flex-direction: column; gap: 4px; min-height: 62px; }
+.find-now .signal { font-size: 15px; color: var(--text); white-space: normal; }
+.find-spots { list-style: none; margin: 0; padding: 0; display: flex; gap: 8px; align-items: flex-end; height: 64px; }
+.find-spots li { flex: 1 1 0; max-width: 44px; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; }
+.find-spots i { display: block; width: 100%; min-height: 3px; border-radius: 4px 4px 2px 2px; background: var(--line2); }
+.find-spots b { font: 500 11px var(--mono); color: var(--faint); }
+.find-spots li.best i { background: var(--tock); }
+.find-spots li.best b { color: var(--text); }
+.find-panel[data-phase="move"] .find-n { color: var(--warn); }
+.find-panel[data-phase="return"] .find-count { visibility: hidden; }
+/* Stelle stimmt: der ganze Bildschirm grün (beste von mehreren: blau), bis die Messung beginnt */
+.find-panel[data-phase="good"] { background: var(--lume); }
+.find-panel[data-phase="best"] { background: var(--tock); }
+.find-panel[data-phase="good"], .find-panel[data-phase="best"] { color: var(--bg); }
+.find-panel[data-phase="good"] :is(.eyebrow, .find-main p, .find-n, .find-t, .mono-sub, .back),
+.find-panel[data-phase="best"] :is(.eyebrow, .find-main p, .find-n, .find-t, .mono-sub, .back) { color: var(--bg); }
+.find-panel[data-phase="good"] :is(.find-now, .find-spots, .level, .actions),
+.find-panel[data-phase="best"] :is(.find-now, .find-spots, .level, .actions) { visibility: hidden; }
+#scr-measure.is-running #mPre, #pStart.running ~ .pre-row, #pStart:disabled ~ .pre-row, #rStart.running ~ .pre-row, #rStart:disabled ~ .pre-row { display: none; }
+#mCondBtn.set::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 7px; border-radius: 50%; background: var(--lume); vertical-align: 1px; }
+.seg.seg-wide { display: flex; align-self: stretch; }
+.seg-wide button { flex: 1 1 0; min-width: 0; padding: 0 4px; }
+input[type="time"] { height: 46px; min-width: 132px; border-radius: 10px; border: 1px solid var(--line); background: var(--inset); color: var(--text); font: 500 15px var(--mono); padding: 0 12px; color-scheme: dark; }
+#condSheet .field { margin-top: 4px; }

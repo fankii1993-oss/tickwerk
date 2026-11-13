@@ -32,7 +32,10 @@ self.onmessage = function (e) {
   } catch (err) {
     r = { ok: false, reason: 'Fehler in der Auswertung: ' + (err && err.message) };
   }
-  if (d.live && r && r.ok) {
+  if (d.find && r && r.ok) {   /* Position finden (0.7.0): dazu, ob beide Schläge da sind und ob sich die Amplitude bestimmen lässt */
+    r = { ok: true, live: true, bph: r.bph, rate: r.rate, rateSigma: r.rateSigma, quality: r.quality, trace: r.trace, bphHalf: r.bphHalf, bphFrom: r.bphFrom,
+      amplitude: r.amplitude, amplitudeReliable: r.amplitudeReliable };
+  } else if (d.live && r && r.ok) {
     r = { ok: true, live: true, bph: r.bph, rate: r.rate, rateSigma: r.rateSigma, quality: r.quality, trace: r.trace, bphHalf: r.bphHalf };
   } else if (d.reg && r && r.ok) {   /* Regulieren: dazu Abfallfehler, Amplitude und das Frequenzband, ohne die Schlagbilder */
     r = { ok: true, live: true, bph: r.bph, rate: r.rate, rateSigma: r.rateSigma, quality: r.quality, trace: r.trace, band: r.band,
