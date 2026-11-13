@@ -66,7 +66,8 @@
       <button type="button" class="btn-ghost small" id="mGrOpen" hidden>Zum Gangreserve-Test</button>
     </div>
     <p class="status center-status" id="status" data-kind="">«Messen» tippen und die Unterkante des Handys an die Krone halten.</p>
-    <div class="actions center" id="mSearch" hidden><button type="button" class="btn-ghost small" id="mForce">Jetzt messen</button></div>
+    <div class="actions center" id="mSearch" hidden><button type="button" class="btn-ghost small" id="mForce">Jetzt messen</button><button type="button" class="btn-ghost small" id="mFindRun">Position finden</button></div>
+    <div class="actions center" id="mPre"><button type="button" class="btn-ghost small" id="mFindBtn">Position finden</button><button type="button" class="btn-ghost small" id="mCondBtn" aria-haspopup="dialog">Bedingungen</button></div>
     <div class="notice" id="mQuartz" hidden>
       <p>Das klingt nach einer Quarzuhr: ein Schritt pro Sekunde. Mechanische Uhren ticken 5- bis 10-mal pro Sekunde. Eine Quarzuhr misst Tickwerk nicht als Uhr, aber mit ihr lässt sich die Handy-Uhr eichen.</p>
       <button type="button" class="btn-ghost small" id="mQuartzGo">Handy-Uhr damit eichen</button>
@@ -75,6 +76,13 @@
     <div class="notice" id="bphWarn" hidden>
       <p id="bphWarnText"></p>
       <button type="button" class="btn-ghost small" id="bphFix"></button>
+    </div>
+    <div class="notice" id="mFind" hidden>
+      <p id="mFindText"></p>
+      <button type="button" class="btn-ghost small" id="mFindGo">Position finden</button>
+    </div>
+    <div class="notice" id="mLow" hidden>
+      <p id="mLowText"></p>
     </div>
 
     <div class="mlist">
@@ -380,9 +388,14 @@
       <div class="level" aria-hidden="true"><div class="level-fill" id="pLevel"></div></div>
     </div>
     <p class="status" id="pStatus" data-kind=""></p>
-    <div class="actions center" id="pSearch" hidden><button type="button" class="btn-ghost small" id="pForce">Jetzt messen</button></div>
+    <div class="notice" id="pFind" hidden>
+      <p id="pFindText"></p>
+      <button type="button" class="btn-ghost small" id="pFindGo">Position finden</button>
+    </div>
+    <div class="actions center" id="pSearch" hidden><button type="button" class="btn-ghost small" id="pForce">Jetzt messen</button><button type="button" class="btn-ghost small" id="pFindRun">Position finden</button></div>
     <button type="button" class="btn-primary btn-big" id="pStart"><span class="prog" id="pProg"></span><span class="btn-label" id="pStartLabel">Messen</span></button>
     <button type="button" class="btn-ghost btn-big" id="pAlt" hidden>Zur Auswahl</button>
+    <div class="actions center pre-row" id="pPre"><button type="button" class="btn-ghost small" id="pFindBtn">Position finden</button></div>
   </section>
 
   <!-- ======================= REGULIEREN ======================= -->
@@ -429,6 +442,7 @@
     </div>
     <p class="status" id="rStatus" data-kind=""></p>
     <button type="button" class="btn-primary btn-big" id="rStart"><span class="prog" id="rProg"></span><span class="btn-label" id="rStartLabel">Starten</span></button>
+    <div class="actions center pre-row" id="rPre"><button type="button" class="btn-ghost small" id="rFindBtn">Position finden</button></div>
     <p class="hint">Nach einer Verstellung kurz warten: Ändert sich der Gang, merkt Tickwerk das und mittelt neu. Selbst am Werk arbeiten nur, wenn du die Uhr sicher öffnen kannst. Sonst ist das eine Arbeit für den Uhrmacher.</p>
   </section>
 
@@ -550,6 +564,7 @@
       <li><span class="num">1</span><div><span class="step-t">Ruhiger Raum</span><span class="step-s">Musik und Fernseher aus. Jedes Geräusch stört die Messung.</span></div></li>
       <li><span class="num">2</span><div><span class="step-t">Mikrofon an die Krone</span><span class="step-s">Die Unterkante des Handys leicht an die Krone drücken. Mit einem Kabel-Headset klappt es noch besser.</span></div></li>
       <li><span class="num">3</span><div><span class="step-t">Uhr ruhig liegen lassen</span><span class="step-s">Nicht bewegen, sonst klappert der Rotor. Einen laufenden Chronographen stoppen. Die Uhr vorher voll aufziehen.</span></div></li>
+      <li><span class="num">4</span><div><span class="step-t">Stelle suchen</span><span class="step-s">Hört Tickwerk die Uhr schlecht, hilft «Position finden» unter «Messen»: Tickwerk bewertet jede Stelle und sagt, wann sie stimmt.</span></div></li>
     </ol>
     <div class="card signal-card">
       <div class="signal-txt"><span class="eyebrow">Signal</span><span>Tickwerk hört zuerst nur zu. Sobald das Ticken klar ist, startet die Messung von selbst.</span></div>
@@ -879,6 +894,57 @@
   </div>
 
   <!-- ======================= Genaue Zeit aus dem Internet: Zustimmung (0.6.5) ======================= -->
+  <div class="finder" id="findSheet" hidden>
+    <div class="find-panel" id="fdPanel" data-phase="listen" role="dialog" aria-modal="true" aria-labelledby="fdTitle">
+      <div class="bar">
+        <button type="button" class="back" id="fdBack"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span>Abbrechen</span></button>
+        <span class="mono-sub" id="fdStep"></span>
+      </div>
+      <div class="find-main" aria-live="polite">
+        <span class="eyebrow">Position finden</span>
+        <h2 id="fdTitle">Ruhig halten</h2>
+        <p id="fdLead"></p>
+      </div>
+      <div class="find-count" aria-hidden="true"><span class="find-n" id="fdCount"></span><span class="find-t" id="fdCountT"></span></div>
+      <div class="find-now">
+        <span class="signal" id="fdSignal" data-level="0">
+          <svg viewBox="0 0 16 14" aria-hidden="true"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="4.3" y="6" width="3" height="8" rx="1"/><rect x="8.6" y="3" width="3" height="11" rx="1"/><rect x="12.9" y="0" width="3" height="14" rx="1"/></svg>
+          <span id="fdNow"></span>
+        </span>
+        <p class="hint" id="fdWhy"></p>
+      </div>
+      <ol class="find-spots" id="fdSpots" aria-label="Bisherige Stellen"></ol>
+      <div class="level" aria-hidden="true"><div class="level-fill" id="fdLevel"></div></div>
+      <div class="actions center">
+        <button type="button" class="btn-ghost" id="fdHere">Hier messen</button>
+        <button type="button" class="btn-ghost" id="fdAgain" hidden>Nochmals suchen</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="sheet" id="condSheet" hidden>
+    <div class="sheet-panel" role="dialog" aria-modal="true" aria-labelledby="cdTitle">
+      <span class="eyebrow">Vor der Messung</span>
+      <h2 id="cdTitle">Bedingungen</h2>
+      <p>Freiwillig. Tickwerk schreibt die Angaben zu den Messungen der nächsten Stunde. So vergleichst du Messungen unter gleichen Bedingungen.</p>
+      <div class="field">
+        <span class="field-t" id="cdWdT">Aufzug</span>
+        <div class="seg seg-wide" role="radiogroup" aria-labelledby="cdWdT" id="cdWd">
+          <button type="button" role="radio" data-wd="v">Voll aufgezogen</button>
+          <button type="button" role="radio" data-wd="t">Nicht voll</button>
+          <button type="button" role="radio" data-wd="">Weiss nicht</button>
+        </div>
+        <p class="hint" id="cdWdHint"></p>
+      </div>
+      <div class="field">
+        <label class="field-t" for="cdTime">Die Uhr zeigt</label>
+        <div class="inline"><input type="time" id="cdTime"><button type="button" class="btn-ghost small" id="cdTimeX">Wie das Handy</button></div>
+        <p class="hint" id="cdTimeHint"></p>
+      </div>
+      <div class="actions"><button type="button" class="btn-primary" id="cdOk">Übernehmen</button><button type="button" class="btn-ghost" id="cdClear">Angaben löschen</button></div>
+    </div>
+  </div>
+
   <div class="sheet" id="netSheet" hidden>
     <div class="sheet-panel" role="dialog" aria-modal="true" aria-labelledby="ntTitle">
       <span class="eyebrow" id="ntEyebrow">Gang im Alltag</span>
