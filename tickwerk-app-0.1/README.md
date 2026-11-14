@@ -1,4 +1,4 @@
-# Tickwerk – Web-App 0.7.3 (Testversion)
+# Tickwerk – Web-App 0.7.4 (Testversion)
 
 Misst mit dem Handy-Mikrofon, wie genau eine mechanische Uhr geht: Gangabweichung, Abfallfehler, Amplitude, Schlagzahl. Die Aufnahme und die Messwerte bleiben auf dem Handy. Ins Internet gehen nur, wenn du in der App zustimmst, leere Zeitabfragen für den «Gang im Alltag» und für «Mit Internetzeit eichen»: an den öffentlichen Zeitdienst time.akamai.com und, wenn er nicht antwortet, an den Server, von dem die App kommt (siehe Datenschutzerklärung).
 
@@ -11,6 +11,16 @@ Seit dem 10.11.2026 legt Claude neue Versionen als Pull Request in den Ordner; �
 1. Im Repository den Ordner `tickwerk-app-0.1` öffnen.
 2. **Add file → Upload files**, den ganzen Inhalt dieses Pakets hineinziehen (Dateien und die Ordner `engine`, `fonts`, `icons`), **Commit changes**. Gleichnamige Dateien werden ersetzt; deine Uhren und Messungen bleiben auf dem Handy erhalten.
 3. App auf dem Handy öffnen. Nach ein paar Sekunden erscheint «Neue Version ist bereit»; unter Mehr auf **Neue Version: neu laden** tippen. Ab 0.6.3 lässt sich die Suche unter Mehr → **Nach Update suchen** auch von Hand anstossen.
+
+## Neu in 0.7.4
+
+- **«Position finden» mit zehn Sekunden je Stelle.** Tickwerk hört an jeder Stelle zehn Sekunden zu und urteilt einmal; die Zahl läuft ruhig von 10 auf 1. Jede Stelle beginnt mit «Stelle prüfen», auch die erste. Stimmt die Stelle, läuft die Messung ohne Countdown weiter, und die zehn Sekunden zählen mit: 40 s statt 30 s, 70 s statt 60 s.
+- **Gute Stelle auch bei unruhigem Ticken.** «Position stimmt» hängt nur noch an dem, was von der Stelle abhängt (beide Schläge, 95 % erkannt, 12 dB, Amplitude bestimmbar, ruhiges Handy). Eine Uhr, deren Schläge etwas ungleichmässig kommen, wurde vorher an jeder Stelle weitergeschickt.
+- **Geräusch beim Zuhören.** Stört ein deutliches Geräusch die zehn Sekunden und reicht es darum nicht, heisst es «Nochmals prüfen» statt «Jetzt verschieben»; die Stelle wird einmal wiederholt.
+- **Ein Wert auch bei unruhigem Gang.** Schwankt der Gang zu stark für einen verlässlichen Wert, zeigt «Messen» den Mittelwert, das ± und den Papierstreifen mit «Dieser Wert zählt nicht», statt gar nichts. Hat ein Geräusch gestört, bleibt es bei «kein Wert». Nach einer Messung von 60 s rät die Meldung nicht mehr zu 60 s, und «Position finden» wird in diesem Fall nicht mehr angeboten.
+- **Falsche Uhr gewählt?** Passt die erkannte Schlagzahl zu einer anderen gespeicherten Uhr, fragt der Kasten danach und bietet das Umhängen an. Unter jeder Messung steht «Falsche Uhr?». Umhängen wertet die Aufnahme mit den Angaben der richtigen Uhr neu aus (Schlagzahl, Hebewinkel).
+- **Vorläufiger Wert.** Bestätigen zwei Proben nacheinander den gezeigten Wert nicht, wird er blass und trägt den Vermerk «ändert sich noch».
+- **Mess-Engine 0.3.1.** Ein klares Signal (20 dB, 95 % der Schläge, Ähnlichkeit 0,85) gilt bis 0,8 ms Streuung von Schlag zu Schlag als «mittel» statt «schwach»: Die Streuung ist dann eine Eigenschaft der Uhr. Lehnt die Engine wegen schwankendem Gang ab, liefert sie das Ergebnis mit, das sonst herausgekommen wäre. An den Werten aller anderen Messungen ändert sich nichts (108 Ausschnitte aus Testaufnahmen verglichen).
 
 ## Neu in 0.7.3
 

@@ -102,6 +102,7 @@ h2 { margin: 0; font-family: var(--display); font-size: 20px; font-weight: 600; 
 .big { font-family: var(--display); font-size: 84px; font-weight: 600; line-height: 1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .big.big-md { font-size: 52px; }
 .big.live { color: var(--muted); }
+.big.live.stale, .scale-marker.live.stale { opacity: 0.45; }   /* vorläufiger Wert, den die letzten Proben nicht bestätigen (0.7.4) */
 .big-unit { font-size: 20px; color: var(--muted); }
 .sigma { font-family: var(--mono); font-size: 12px; color: var(--faint); min-height: 18px; text-align: center; }
 .scale { display: flex; flex-direction: column; gap: 8px; }
@@ -614,10 +615,10 @@ label.btn-big.file-btn { display: flex; justify-content: center; cursor: pointer
 .find-spots b { font: 500 11px var(--mono); color: var(--faint); }
 .find-spots li.best i { background: var(--tock); }
 .find-spots li.best b { color: var(--text); }
-/* «Jetzt verschieben»: statt der Zahl der Knopf «Stelle prüfen»; in allen anderen Phasen ist er weg */
+/* Vor der ersten Stelle, nach «Jetzt verschieben» und nach einer Störung: statt der Zahl der Knopf «Stelle prüfen»; sonst ist er weg */
 .find-count .btn-primary { display: none; max-width: 320px; }
-.find-panel[data-phase="move"] .find-count .btn-primary { display: block; }
-.find-panel[data-phase="move"] :is(.find-n, .find-t) { display: none; }
+.find-panel:is([data-phase="ready"], [data-phase="move"], [data-phase="again"]) .find-count .btn-primary { display: block; }
+.find-panel:is([data-phase="ready"], [data-phase="move"], [data-phase="again"]) :is(.find-n, .find-t) { display: none; }
 .find-panel[data-phase="return"] .find-count { visibility: hidden; }
 /* Stelle stimmt: der ganze Bildschirm grün (beste von mehreren: blau), bis die Messung beginnt */
 .find-panel[data-phase="good"] { background: var(--lume); }
