@@ -73,6 +73,7 @@
 
     <div class="notice" id="bphWarn" hidden>
       <p id="bphWarnText"></p>
+      <div class="actions" id="bphMove" hidden></div>
       <button type="button" class="btn-ghost small" id="bphFix"></button>
     </div>
     <div class="notice" id="mFind" hidden>
@@ -125,6 +126,7 @@
     <div class="actions center" id="mActions">
       <button type="button" class="btn-ghost small" id="imgBtn" hidden>Als Bild teilen</button>
       <button type="button" class="btn-ghost small" id="shareBtn" hidden>Aufnahme teilen (WAV)<span class="pro-tag">Pro</span></button>
+      <button type="button" class="btn-ghost small" id="moveBtn" hidden>Falsche Uhr?</button>
       <button type="button" class="btn-link" id="mGuide">So legst du das Handy an</button>
     </div>
   </section>
@@ -913,14 +915,14 @@
 
   <!-- ======================= Genaue Zeit aus dem Internet: Zustimmung (0.6.5) ======================= -->
   <div class="finder" id="findSheet" hidden>
-    <div class="find-panel" id="fdPanel" data-phase="listen" role="dialog" aria-modal="true" aria-labelledby="fdTitle">
+    <div class="find-panel" id="fdPanel" data-phase="ready" role="dialog" aria-modal="true" aria-labelledby="fdTitle">
       <div class="bar">
         <button type="button" class="back" id="fdBack"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span>Abbrechen</span></button>
         <span class="mono-sub" id="fdStep"></span>
       </div>
       <div class="find-main" aria-live="polite">
         <span class="eyebrow">Position finden</span>
-        <h2 id="fdTitle">Ruhig halten</h2>
+        <h2 id="fdTitle">Handy anlegen</h2>
         <p id="fdLead"></p>
       </div>
       <div class="find-count"><button type="button" class="btn-primary btn-big" id="fdNext">Stelle prüfen</button><span class="find-n" id="fdCount" aria-hidden="true"></span><span class="find-t" id="fdCountT" aria-hidden="true"></span></div>

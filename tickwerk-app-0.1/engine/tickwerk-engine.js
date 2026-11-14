@@ -1645,6 +1645,12 @@
     var label = 'schwach';
     if (rhoMed >= 0.85 && detectedFraction >= 0.95 && jitterMs <= 0.15) label = 'stark';
     else if (rhoMed >= 0.6 && detectedFraction >= 0.8 && jitterMs <= 0.4) label = 'mittel';
+    // 0.3.1: Die Streuung von Schlag zu Schlag (jitterMs) ist bei klarem Signal eine Eigenschaft der Uhr, nicht der Aufnahme.
+    // Eine Uhr mit unruhigem Schlag (0,41 bis 0,45 ms bei 31 dB, alle Schlaege erkannt, Aehnlichkeit 0,9; Aufnahme vom 14.11.2026)
+    // galt als «Signal zu schwach», und der Rat lautete «Mikrofon naeher an die Krone». Ist das Signal selbst klar (20 dB,
+    // 95 % der Schlaege, Aehnlichkeit 0,85), gilt es darum bis 0,8 ms Streuung als «mittel». Darueber springt der Zeitbezug
+    // eher zwischen zwei Geraeuschen desselben Schlags; das bleibt «schwach».
+    else if (rhoMed >= 0.85 && detectedFraction >= 0.95 && snrDb >= 20 && jitterMs <= 0.8) label = 'mittel';
     // Mehr als 2 ms Abweichung von der Geraden schafft kein echter Gang in einer Minute (das waeren ±25 s/Tag hin und her):
     // dann springt der Zeitbezug zwischen Geraeuschen eines Schlags oder die Aufnahme hat Luecken. Das Signal gilt als schwach.
     if (wanderMs > 2) label = 'schwach';
@@ -1675,10 +1681,11 @@
 
     // Lieber keine Zahl als eine falsche: zu unsicher -> ablehnen
     // Suchbetrieb (opts.probe): nur fragen, ob das Ticken klar ist; die Gangzahl darf dann ungenau sein
+    var wanderOut = null;   // 0.3.1: die Ablehnung «wander»; sie bekommt weiter unten das Ergebnis mit (partial)
     if (opts.probe ? (detectedFraction < 0.5 || fit.used < 12) : (detectedFraction < 0.5 || fit.used < 20 || !(rateSigma <= 2))) {
       // Klare Schlaege, aber der Gang wandert zu stark: das ist kein schwaches Signal
       var wandered = !opts.probe && detectedFraction >= 0.5 && fit.used >= 20 && label !== 'schwach';
-      return {
+      wanderOut = {
         ok: false,
         code: wandered ? 'wander' : undefined,   // fuer die App: Eine laengere Messung kann helfen (sie verlaengert dann von selbst)
         reason: wandered ? 'Der Gang schwankte während der Messung zu stark für einen verlässlichen Wert. Uhr und Handy ruhig halten, nicht drücken, und nochmals messen, am besten 60 Sekunden lang.'
@@ -1686,6 +1693,7 @@
         bph: bph,
         quality: wandered ? quality : { label: 'schwach', snrDb: snrDb, detectedFraction: detectedFraction, residualMs: residualMs, jitterMs: jitterMs, wanderMs: wanderMs, similarity: rhoMed }
       };
+      if (!wandered) return wanderOut;
     }
 
     // 7) Papierstreifen: Abweichung vom Sollraster (positiv nach oben = Uhr geht vor)
@@ -1697,7 +1705,7 @@
       return { t: +(p.t - t0).toFixed(5), devMs: +(-(p.t - ideal) * 1000).toFixed(4), parity: p.parity };
     });
 
-    return {
+    var full = {
       ok: true,
       bph: bph,
       bphScore: +det.score.toFixed(3),
@@ -1752,6 +1760,11 @@
         };
       })
     };
+    // 0.3.1: Bei «wander» (klare Schlaege, Gang schwankt zu stark fuer einen verlaesslichen Wert) bleibt es bei der Ablehnung.
+    // Sie traegt aber mit, was herausgekommen waere (partial): Mittelwert, Streuung, Papierstreifen. Die App kann damit zeigen,
+    // wie die Uhr laeuft, statt gar nichts. Der Wert gilt nicht als stabil und zaehlt nicht.
+    if (wanderOut) { full.rateStable = false; full.wander = true; wanderOut.partial = full; return wanderOut; }
+    return full;
   }
 
   /* ---------- Kalibrierung mit einer Quarzuhr (1 Schritt pro Sekunde) ---------- */
@@ -1986,7 +1999,7 @@
   }
 
   var api = {
-    version: '0.3.0',
+    version: '0.3.1',
     analyze: analyze,
     analyzeQuartz: analyzeQuartz,
     probeQuartz: probeQuartz,
