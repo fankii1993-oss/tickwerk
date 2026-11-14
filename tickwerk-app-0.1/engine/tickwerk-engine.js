@@ -293,7 +293,15 @@
     var chosen = { bph: top.bph, score: top.score, periodS: top.periodS };
 
     // Liegt genau in der Mitte zwischen zwei Schlaegen noch ein Schlag? Dann ist die Schlagzahl doppelt so hoch.
-    function hasMidBeat(period) {
+    // Rueckgabe: 0 nein · 1 ja, deutlich (mindestens ein Viertel der Energie des lauteren Schlags) · 2 ja, aber leise.
+    // Bis 0.2.7 galt nur der deutliche Zwischenschlag. Liegt das Mikrofon unguenstig, ist einer der zwei Schlaege aber
+    // oft viel leiser (Aufnahmen vom 12.11.2026: knapp ein Viertel der Energie, je nach Lage des Handys darueber oder
+    // darunter), und die Engine meldete die halbe Schlagzahl. Der leise Zwischenschlag zaehlt jetzt, wenn er klar ueber
+    // dem Rauschen liegt, mindestens MID_MIN der Energie hat und dieselbe Form zeigt wie der laute Schlag (steiler
+    // Anstieg, Ausklingen): Ein Nebengeraeusch in der Mitte der Periode saehe anders aus.
+    var MID_MIN = 0.03, MID_SHAPE = 0.8;   // 3 % der Energie sind 17 % des Pegels; echte Zwischenschlaege zeigen eine Form-Korrelation von 0,93 bis 0,99
+    var midRatio = null;
+    function midBeat(period) {
       var Pn = period * fsC;
       var bins = Math.max(8, Math.round(Pn));
       var prof = new Float64Array(bins), cnt = new Float64Array(bins);
@@ -307,30 +315,54 @@
       for (b = 1; b < bins; b++) if (prof[b] > prof[mi]) mi = b;
       var half = Math.round(bins / 2);
       var tol = Math.max(1, Math.round(0.008 * fsC));
-      var midMax = -Infinity;
+      var midMax = -Infinity, midAt = (mi + half) % bins;
       var off = [];
       for (b = 0; b < bins; b++) {
         var dMain = Math.min(Math.abs(b - mi), bins - Math.abs(b - mi));
         var midIdx = (mi + half) % bins;
         var dMid = Math.min(Math.abs(b - midIdx), bins - Math.abs(b - midIdx));
-        if (dMid <= tol && prof[b] > midMax) midMax = prof[b];
+        if (dMid <= tol && prof[b] > midMax) { midMax = prof[b]; midAt = b; }
         if (dMain > tol && dMid > tol) off.push(prof[b]);
       }
       off.sort(function (a, b2) { return a - b2; });
       var base = off.length ? off[off.length >> 1] : 0;
       var dev = off.map(function (v) { return Math.abs(v - base); }).sort(function (a, b2) { return a - b2; });
       var sd = dev.length ? 1.4826 * dev[dev.length >> 1] : 0;
-      return (midMax - base) >= Math.max(0.25 * (prof[mi] - base), 5 * sd);
+      var top = prof[mi] - base, mid = midMax - base;
+      midRatio = top > 0 ? mid / top : null;
+      if (!(top > 0) || mid < 5 * sd) return 0;
+      if (mid >= 0.25 * top) return 1;
+      if (mid < MID_MIN * top) return 0;
+      // Form vergleichen: 3 ms vor bis 12 ms nach der Spitze, lauter Schlag gegen Zwischenschlag
+      var wa = Math.round(0.003 * fsC), wb = Math.round(0.012 * fsC), sa = 0, sb = 0, saa = 0, sbb = 0, sab = 0, nn = 0;
+      for (var d = -wa; d <= wb; d++) {
+        var va = prof[((mi + d) % bins + bins) % bins] - base, vb = prof[((midAt + d) % bins + bins) % bins] - base;
+        sa += va; sb += vb; saa += va * va; sbb += vb * vb; sab += va * vb; nn++;
+      }
+      var cov = sab - sa * sb / nn, va2 = saa - sa * sa / nn, vb2 = sbb - sb * sb / nn;
+      var shape = va2 > 0 && vb2 > 0 ? cov / Math.sqrt(va2 * vb2) : 0;
+      return shape >= MID_SHAPE ? 2 : 0;
     }
 
+    var weakMid = false;
     for (var guard = 0; guard < 3 && !opts.bph; guard++) {
       var dbl = null;
       for (i = 0; i < CANDIDATE_BPH.length; i++) if (Math.abs(CANDIDATE_BPH[i] - 2 * chosen.bph) < 1) dbl = CANDIDATE_BPH[i];
       if (!dbl) break;
       var dr = null;
       for (i = 0; i < results.length; i++) if (results[i].bph === dbl) dr = results[i];
-      if (!dr || dr.score < 0.3 * top.score) break;
-      if (!hasMidBeat(chosen.periodS)) break;
+      if (!dr) break;
+      var strongCorr = dr.score >= 0.3 * top.score;
+      if (!strongCorr && opts.noWeakMid) break;
+      var mb = midBeat(chosen.periodS);
+      if (!mb || (mb === 1 && !strongCorr) || (mb === 2 && opts.noWeakMid)) break;
+      if (mb === 2 || !strongCorr) {
+        // leiser Zwischenschlag: Die Korrelation beim halben Abstand ist dann von Natur aus klein. Als Staerke des Takts
+        // gilt weiter die beim ganzen Abstand (sonst hielte die Pruefung «kein regelmaessiges Ticken» die Uhr fuer still).
+        weakMid = true;
+        chosen = { bph: dbl, score: chosen.score, periodS: chosen.periodS / 2, halfBph: chosen.bph };
+        break;
+      }
       chosen = { bph: dbl, score: dr.score, periodS: chosen.periodS / 2 };
     }
 
@@ -347,7 +379,8 @@
     for (var L = Math.round(0.022 * fsC); L <= Math.round(0.045 * fsC); L += Math.max(1, Math.round(0.0017 * fsC))) offs.push(corr(L));
     var om = offs.reduce(function (a, b) { return a + b; }, 0) / Math.max(1, offs.length);
     var osd = Math.sqrt(offs.reduce(function (a, b) { return a + (b - om) * (b - om); }, 0) / Math.max(1, offs.length));
-    return { bph: chosen.bph, score: chosen.score, periodS: chosen.periodS, noiseSd: osd, noiseMean: om, candidates: results, capped: capped };
+    return { bph: chosen.bph, score: chosen.score, periodS: chosen.periodS, noiseSd: osd, noiseMean: om, candidates: results, capped: capped,
+      weakMid: weakMid, halfBph: chosen.halfBph || null, midRatio: midRatio };
   }
 
   /* ---------- Schlaege verfolgen (grob) ---------- */
@@ -984,7 +1017,7 @@
     opts = opts || {};
     var x = samples instanceof Float32Array ? samples : Float32Array.from(samples);
     if (x.length / fs < 4) return { ok: false, reason: 'Aufnahme zu kurz (mindestens 4 Sekunden).' };
-    if (opts.band) return analyzeBand(x, fs, opts, { lo: opts.band[0], hi: opts.band[1] || null });
+    if (opts.band) return analyzeBandTop(x, fs, opts, { lo: opts.band[0], hi: opts.band[1] || null });
 
     // Baender mit deutlichem Takt voll auswerten (hoechstens 3); es gewinnt das genaueste Ergebnis.
     var cb = chooseBand(x, fs, opts);
@@ -995,7 +1028,7 @@
     var best = null, firstFail = null, oks = [], silent = null;
     cands.forEach(function (c) {
       if (silent) return;   // eine Luecke gilt fuer die ganze Aufnahme (siehe unten): Weitere Baender aendern nichts mehr
-      var r = analyzeBand(x, fs, opts, { lo: c.lo, hi: c.hi });
+      var r = analyzeBandTop(x, fs, opts, { lo: c.lo, hi: c.hi });
       c.result = r.ok ? 'ok' : r.code === 'silence' ? 'Lücke' : 'abgelehnt';
       if (r.code === 'silence' && !silent) silent = r;
       if (r.ok) {
@@ -1005,9 +1038,16 @@
         c.liftTimeMs = r.liftTimeMs != null ? +r.liftTimeMs.toFixed(2) : null;
         oks.push(r);
       }
-      // Ein Band mit Verdacht auf einen versteckten Sprung (jumpSuspect) gewinnt nie gegen eines ohne: Sein ± ist nicht echt.
-      if (r.ok && (!best || (r.jumpSuspect !== best.jumpSuspect ? best.jumpSuspect : r.rateSigma < best.rateSigma))) best = r;
       if (!r.ok && !firstFail) firstFail = r;
+    });
+    // Loest ein Band beide Schlaege auf und ein anderes nur jeden zweiten (halbe Schlagzahl), gilt das mit beiden:
+    // Dort war der leisere Schlag gut genug zu hoeren (seit 0.3.0; vorher gewann das kleinere ±).
+    var maxBph = 0;
+    oks.forEach(function (r) { if (!(r.quality && r.quality.label === 'schwach') && r.bph > maxBph) maxBph = r.bph; });
+    oks.forEach(function (r) {
+      if (maxBph && Math.abs(2 * r.bph - maxBph) < 1) return;
+      // Ein Band mit Verdacht auf einen versteckten Sprung (jumpSuspect) gewinnt nie gegen eines ohne: Sein ± ist nicht echt.
+      if (!best || (r.jumpSuspect !== best.jumpSuspect ? best.jumpSuspect : r.rateSigma < best.rateSigma)) best = r;
     });
     if (best) {
       // Gegenprobe mit den anderen brauchbaren Baendern: die Uhr ist dieselbe, die Werte muessen passen
@@ -1036,6 +1076,27 @@
     return out;
   }
 
+  /* Ein Band auswerten. Hat die Suche nach der Schlagzahl einen leisen Zwischenschlag angenommen (det.weakMid) und
+     gelingt die Auswertung mit beiden Schlaegen nicht oder nur schwach, gilt wie bis 0.2.7 die Auswertung mit jedem
+     zweiten Schlag: Sie liefert wenigstens den Gang. weakBeat sagt, was geschah. */
+  function analyzeBandTop(x, fs, opts, band) {
+    var sh = {};
+    var r = analyzeBand(x, fs, opts, band, sh);
+    var det = sh.det;
+    if (!det || !det.weakMid || opts.bph || opts._noWeakMid) return r;
+    var q = r.ok ? r.quality : null;
+    var poor = !r.ok || !q || q.label === 'schwach' || !(q.detectedFraction >= 0.9);
+    var info = { bph: det.bph, halfBph: det.halfBph, ratio: det.midRatio != null ? +det.midRatio.toFixed(3) : null, used: !poor };
+    if (!poor) { r.weakBeat = info; return r; }
+    var o2 = {};
+    Object.keys(opts).forEach(function (key) { o2[key] = opts[key]; });
+    o2._noWeakMid = true;
+    var r2 = analyzeBand(x, fs, o2, band, { env: sh.env });
+    if (r2.ok || !r.ok) { r2.weakBeat = info; return r2; }
+    r.weakBeat = info;
+    return r;
+  }
+
   function analyzeBand(x, fs, opts, band, shared) {
     var liftAngle = opts.liftAngle || 52;
     var clockPpm = opts.clockPpm || 0;
@@ -1045,7 +1106,7 @@
     var sh = shared || {};
     var env = sh.env || (sh.env = limitBursts(bandEnvelope(x, fs, band.lo, band.hi), fs));
 
-    var det = sh.det !== undefined ? sh.det : (sh.det = detectBph(env, fs, { bph: opts.bph }));
+    var det = sh.det !== undefined ? sh.det : (sh.det = detectBph(env, fs, { bph: opts.bph, noWeakMid: opts._noWeakMid }));
     if (!det || det.score < Math.max(0.01, det.noiseMean + 5 * det.noiseSd)) {
       return { ok: false, reason: 'Kein regelmässiges Ticken gefunden. Mikrofon näher an die Krone, ruhiger Raum.', bphScore: det ? det.score : 0 };
     }
@@ -1170,6 +1231,16 @@
       return { ok: false, reason: 'Zu wenige saubere Schläge erkannt. Mikrofon näher an die Krone, ruhiger Raum.', bph: bph };
     }
     T = buildTemplates(env, beats, pre, post);
+    // Seit 0.3.0 zusaetzlich das Leistungsbild (Mittel des Quadrats) aus denselben Schlaegen. Darin addiert sich Rauschen
+    // als fester Sockel, der sich abziehen laesst; im Mittel der Huellkurve selbst verschwindet ein leises Geraeusch im
+    // Rauschen, auch wenn es ueber hundert Schlaege gemittelt klar vorhanden ist (siehe unlockCandsP).
+    var envP = sh.envP;
+    if (!envP) {
+      envP = new Float32Array(env.length);
+      for (ii = 0; ii < env.length; ii++) envP[ii] = env[ii] * env[ii];
+      sh.envP = envP;
+    }
+    var TP = buildTemplates(envP, beats, pre, post);
 
     // Qualitaet jedes Schlags: Aehnlichkeit mit der Schablone (Schwelle aus reinem Rauschen zwischen den Schlaegen)
     rhoThr = nullThreshold(env, beats, T, pre, ranges, T0 * fs);
@@ -1293,21 +1364,127 @@
       }
       return out;
     }
-    var uc = [unlockCands(0), unlockCands(1)];
-    var unlock = null;
-    uc[0].forEach(function (c0) {
-      uc[1].forEach(function (c1) {
-        var mLt = (c0.lt + c1.lt) / 2;
-        if (Math.abs(c0.lt - c1.lt) <= Math.max(0.0006, 0.1 * mLt) && (!unlock || mLt > unlock.lt)) {
-          unlock = { lt: mLt, both: true, pos: [c0.pos, c1.pos] };
+    // Dieselbe Suche im Leistungsbild (seit 0.3.0). Das Mittel der Huellkurve hebt ein leises Geraeusch kaum ueber
+    // einen Rauschsockel (aus 13 % Sockel und 6 % Geraeusch werden 14 %), und die Schwelle oben verlangt 30 % ueber dem
+    // Sockel: Mit Rauschen ging die Ausloesung unter, die Suche nahm das naechste Geraeusch (den Impuls), und die
+    // Amplitude kam zu hoch heraus (Aufnahme vom 12.11.2026: 320 statt 219 Grad bei 12 dB Abstand). Im Mittel des
+    // Quadrats addiert sich Rauschen als fester Sockel. Zieht man ihn ab, bleibt die Leistung des Geraeuschs, und die
+    // Schwelle haengt nur noch davon ab, wie ruhig der Sockel nach dem Mitteln ist.
+    // v = Pegel des Geraeuschs im Verhaeltnis zum Hauptgeraeusch (Amplitude); lim = der leiseste Pegel, den die Suche
+    // in dieser Aufnahme noch sicher faende.
+    var UNLOCK_K = 5, UNLOCK_MIN = 0.04, UNLOCK_LIM = 0.05, UNLOCK_REL = 0.15, UNLOCK_STRUCT = 1.3;
+    function unlockCandsP(q) {
+      var t = TP.tpl[q], L = T.L, m = Math.round(mainOff[q]), i, j;
+      var preEnd = m - Math.round((ltMax + 0.001) * fs);
+      var ns = [];
+      if (preEnd > Math.round(0.003 * fs)) { for (i = 0; i < preEnd; i++) ns.push(t[i]); }
+      else { for (i = 0; i < Math.max(4, Math.floor(L * 0.15)); i++) ns.push(t[i]); }
+      ns.sort(function (x, y) { return x - y; });
+      var floor = ns[ns.length >> 1];
+      var dev = ns.map(function (v) { return Math.abs(v - floor); }).sort(function (x, y) { return x - y; });
+      var sdR = 1.4826 * dev[dev.length >> 1];
+      var r3 = Math.max(1, Math.round(0.0005 * fs)), mainV = 0;
+      for (i = Math.max(0, m - r3); i <= Math.min(L - 1, m + r3); i++) if (t[i] > mainV) mainV = t[i];
+      var top = mainV - floor;
+      var out = { c: [], floor: floor, sd: sdR, top: top, lim: top > 0 ? Math.sqrt(UNLOCK_K * sdR / top) : 1, noise: top > 0 ? Math.sqrt(Math.max(0, floor) / top) : 1 };
+      if (!(top > 0)) return out;
+      var thr = floor + UNLOCK_K * sdR;
+      var a = Math.max(1, m - Math.round(ltMax * fs)), b = Math.min(L - 2, m - Math.round(ltMin * fs));
+      var rr = Math.max(1, Math.round(0.0003 * fs)), w = Math.round(0.0015 * fs);
+      for (i = a; i <= b; i++) {
+        if (t[i] < thr) continue;
+        var isMax = true;
+        for (j = Math.max(0, i - rr); j <= Math.min(L - 1, i + rr); j++) if (t[j] > t[i]) { isMax = false; break; }
+        if (!isMax) continue;
+        // eigenstaendiges Geraeusch wie oben (1,2 und 1,1 im Pegel sind 1,44 und 1,21 in der Leistung), aber ohne Sockel
+        var minB = Infinity, minA = Infinity;
+        for (j = Math.max(0, i - w); j <= i; j++) if (t[j] < minB) minB = t[j];
+        for (j = i; j <= Math.min(L - 1, i + w); j++) if (t[j] < minA) minA = t[j];
+        var ex = t[i] - floor;
+        if (ex < 1.44 * Math.max(0, minB - floor) || ex < 1.21 * Math.max(0, minA - floor)) continue;
+        var pos = i + parabolicOffset(t[i - 1], t[i], t[i + 1]);
+        var cnd = { pos: pos, v: Math.sqrt(ex / top), lt: (mainOff[q] - pos) / fs };
+        if (cnd.v < UNLOCK_MIN) continue;   // Kleinstgeraeusche (1 bis 3 % des Hauptgeraeuschs) findet nur die Suche oben, und nur ohne Rauschen
+        if (out.c.length && pos - out.c[out.c.length - 1].pos < 0.0004 * fs) {
+          if (cnd.v > out.c[out.c.length - 1].v) out.c[out.c.length - 1] = cnd;
+          continue;
         }
+        out.c.push(cnd);
+      }
+      return out;
+    }
+    // Von mehreren Paaren, bei denen Tick und Tack zusammenpassen, gilt das frueheste.
+    function unlockPair(u0, u1) {
+      var best = null;
+      u0.forEach(function (c0) {
+        u1.forEach(function (c1) {
+          var mLt = (c0.lt + c1.lt) / 2;
+          if (Math.abs(c0.lt - c1.lt) <= Math.max(0.0006, 0.1 * mLt) && (!best || mLt > best.lt)) {
+            best = { lt: mLt, both: true, pos: [c0.pos, c1.pos], v: [c0.v, c1.v] };
+          }
+        });
       });
-    });
+      return best;
+    }
+    var uc = [unlockCands(0), unlockCands(1)];
+    var unlock = unlockPair(uc[0], uc[1]);
+    var ucP = [unlockCandsP(0), unlockCandsP(1)];
+    var unlockP = unlockPair(ucP[0].c, ucP[1].c);
+    var unlockLim = Math.max(ucP[0].lim, ucP[1].lim);
+    // Ist das erste gefundene Geraeusch wirklich die Ausloesung? Liegt die wahre Ausloesung unter der Grenze der
+    // Suche, haelt die Suche das naechste Geraeusch (den Impuls) fuer das erste, und die Amplitude kommt um rund die
+    // Haelfte zu hoch heraus: aus 186 Grad werden 273. Ausschliessen laesst sich das auf zwei Arten:
+    // 1. Die Suche haette auch ein sehr leises Geraeusch gefunden: Ihre Grenze liegt bei hoechstens 5 % des
+    //    Hauptgeraeuschs oder bei hoechstens 15 % des ersten gefundenen Geraeuschs (in den Aufnahmen bisher ist die
+    //    Ausloesung nie leiser als ein Fuenftel des Impulses).
+    // 2. Zwischen dem ersten Geraeusch und dem Fall liegt bei Tick und Tack ein deutlich lauteres: das Muster
+    //    Ausloesung (leise), Impuls (lauter), Fall (am lautesten). Der Impuls selbst hat danach nichts Lauteres mehr.
+    function levelAt(q, pos) {
+      var t = TP.tpl[q], u = ucP[q], r = Math.max(1, Math.round(0.0003 * fs)), c = Math.round(pos), mv = 0;
+      if (!(u.top > 0)) return 0;
+      for (var i = Math.max(0, c - r); i <= Math.min(T.L - 1, c + r); i++) if (t[i] > mv) mv = t[i];
+      return Math.sqrt(Math.max(0, mv - u.floor) / u.top);
+    }
+    function louderAfter(q, pos) {
+      var t = TP.tpl[q], u = ucP[q];
+      var a = Math.round(pos + 0.001 * fs), b = Math.round(mainOff[q] - 0.0015 * fs), mi = -1, mv = -Infinity;
+      if (!(u.top > 0) || b - a < Math.round(0.0005 * fs)) return 0;
+      for (var i = Math.max(0, a); i <= Math.min(T.L - 1, b); i++) if (t[i] > mv) { mv = t[i]; mi = i; }
+      if (mi < 0 || mi > b - Math.round(0.0003 * fs)) return 0;   // Hoechstwert am rechten Rand: Das ist schon der Anstieg zum Fall
+      return Math.sqrt(Math.max(0, mv - u.floor) / u.top);
+    }
+    function structOf(u) {
+      if (!u || !u.both) return null;
+      var lv = [levelAt(0, u.pos[0]), levelAt(1, u.pos[1])], la = [louderAfter(0, u.pos[0]), louderAfter(1, u.pos[1])];
+      return { lv: lv, later: la, ok: lv[0] > 0 && lv[1] > 0 && la[0] >= UNLOCK_STRUCT * lv[0] && la[1] >= UNLOCK_STRUCT * lv[1] };
+    }
+    // Das Leistungsbild gilt, wenn es ein frueheres Paar findet als die Suche oben (die Ausloesung lag unter deren
+    // Schwelle) und dieses Paar das Muster zeigt, oder wenn die Suche oben gar kein Paar hat und das Leistungsbild
+    // ruhig genug ist. Sonst bleibt alles beim Ergebnis der Suche oben: Ohne Rauschen aendert sich kein Wert, und in
+    // einer Aufnahme voller Nebengeraeusche (stark komprimierter Ton) gilt nicht irgendein fruehes Paar.
+    var unlockFrom = unlock ? 'a' : null;
+    var stP = structOf(unlockP);
+    if (unlockP && (unlock ? (unlockP.lt > unlock.lt + Math.max(0.0006, 0.1 * unlock.lt) && stP.ok) : unlockLim <= UNLOCK_LIM)) { unlock = unlockP; unlockFrom = 'p'; }
     if (!unlock) {
       var allC = uc[0].concat(uc[1]);
       allC.forEach(function (c) { if (!unlock || c.lt > unlock.lt) unlock = { lt: c.lt, both: false }; });
     }
     if (unlock && unlock.both) { firstOff[0] = unlock.pos[0]; firstOff[1] = unlock.pos[1]; }
+    var stU = structOf(unlock);
+    var unlockStruct = !!(stU && stU.ok), unlockLv = stU ? stU.lv : null, unlockLater = stU ? stU.later : null;
+    var unlockSure = unlockLim <= UNLOCK_LIM || unlockStruct || (unlockLv != null && unlockLim <= UNLOCK_REL * Math.min(unlockLv[0], unlockLv[1]));
+    var ampInfo = {
+      from: unlockFrom,                                   // 'a' Suche im Mittel der Huellkurve, 'p' Suche im Leistungsbild
+      lim: +unlockLim.toFixed(4),                         // leisester Pegel, den die Suche noch faende (Anteil am Hauptgeraeusch)
+      noise: [+ucP[0].noise.toFixed(3), +ucP[1].noise.toFixed(3)],   // Rauschsockel (Anteil am Hauptgeraeusch)
+      level: unlockLv ? [+unlockLv[0].toFixed(3), +unlockLv[1].toFixed(3)] : null,       // Pegel der Ausloesung, Tick und Tack
+      later: unlockLater ? [+unlockLater[0].toFixed(3), +unlockLater[1].toFixed(3)] : null,   // lautestes Geraeusch danach (Impuls)
+      struct: unlockStruct,
+      sure: unlockSure,
+      // Kandidaten beider Suchen, je Tick und Tack: Hebezeit in ms (Leistungsbild: dazu der Pegel)
+      ca: uc.map(function (u) { return u.map(function (c) { return +(c.lt * 1000).toFixed(1); }); }),
+      cp: ucP.map(function (u) { return u.c.map(function (c) { return [+(c.lt * 1000).toFixed(1), +c.v.toFixed(3)]; }); })
+    };
 
     // Gegenprobe fuer den Abfallfehler: Liegen Tick und Tack am Hauptgeraeusch uebereinander, sollten
     // ihre Geraeuschmuster zusammenpassen. Passen sie verschoben deutlich besser, ist das Hauptgeraeusch
@@ -1435,6 +1612,9 @@
     var amplitude = liftTime != null ? ampFrom(liftTime) : null;
     var amplitudeReliable = !dropRepaired && ltAgree && amplitude != null && amplitude >= 120 && amplitude <= 360 &&
       (unlock ? unlock.both : (peakCounts[0] >= 2 && peakCounts[1] >= 2));
+    // Seit 0.3.0: verlaesslich nur, wenn eine verdeckte Ausloesung ausgeschlossen ist (siehe unlockSure)
+    ampInfo.old = amplitudeReliable;
+    if (amplitudeReliable && !unlockSure) amplitudeReliable = false;
 
     // 6) Signalqualitaet
     var okBeats = beats.filter(function (b) { return b.ok; });
@@ -1533,6 +1713,8 @@
       patternShift: { lagMs: +patternShift.lagMs.toFixed(2), rBest: +patternShift.rBest.toFixed(2), r0: +patternShift.r0.toFixed(2) },
       amplitude: amplitude,
       amplitudeReliable: amplitudeReliable,
+      ampInfo: ampInfo,
+      weakBeat: null,   // gesetzt, wenn einer der zwei Schlaege viel leiser ist (siehe analyzeBandTop)
       liftTimeMs: liftTime != null ? liftTime * 1000 : null,
       liftAngle: liftAngle,
       clockPpm: clockPpm,
@@ -1804,7 +1986,7 @@
   }
 
   var api = {
-    version: '0.2.7',
+    version: '0.3.0',
     analyze: analyze,
     analyzeQuartz: analyzeQuartz,
     probeQuartz: probeQuartz,
