@@ -614,7 +614,10 @@ label.btn-big.file-btn { display: flex; justify-content: center; cursor: pointer
 .find-spots b { font: 500 11px var(--mono); color: var(--faint); }
 .find-spots li.best i { background: var(--tock); }
 .find-spots li.best b { color: var(--text); }
-.find-panel[data-phase="move"] .find-n { color: var(--warn); }
+/* «Jetzt verschieben»: statt der Zahl der Knopf «Stelle prüfen»; in allen anderen Phasen ist er weg */
+.find-count .btn-primary { display: none; max-width: 320px; }
+.find-panel[data-phase="move"] .find-count .btn-primary { display: block; }
+.find-panel[data-phase="move"] :is(.find-n, .find-t) { display: none; }
 .find-panel[data-phase="return"] .find-count { visibility: hidden; }
 /* Stelle stimmt: der ganze Bildschirm grün (beste von mehreren: blau), bis die Messung beginnt */
 .find-panel[data-phase="good"] { background: var(--lume); }

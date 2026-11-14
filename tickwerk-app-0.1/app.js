@@ -65,7 +65,7 @@
   var UHREN = window.TICKWERK_UHREN || [];
   var CFG = window.TICKWERK_CONFIG || {};
   var FLAVOR = CFG.flavor === 'store' ? 'store' : 'test';
-  var APP_VERSION = '0.7.2';
+  var APP_VERSION = '0.7.3';
   var PREFIX = typeof CFG.storage === 'string' && /^[a-z][a-z0-9.]{2,30}$/.test(CFG.storage) ? CFG.storage : 'tickwerk.v1';
   var KEYS = { watches: PREFIX + '.watches', meas: PREFIX + '.measurements', settings: PREFIX + '.settings', session: PREFIX + '.session', pro: PREFIX + '.pro', log: PREFIX + '.log' };
   var PRO_SKU = typeof CFG.proSku === 'string' && /^[a-z0-9._]{1,40}$/.test(CFG.proSku) ? CFG.proSku : 'tickwerk_pro';
@@ -84,7 +84,7 @@
   var HORIZ = { ZO: true, ZU: true };
   var POS_ORDER = ['ZO', 'ZU', 'KU', 'KO', 'KL', 'KR'];
   var SETS = { 4: ['ZO', 'ZU', 'KU', 'KL'], 6: ['ZO', 'ZU', 'KU', 'KO', 'KL', 'KR'] };
-  var C = { lume: '#B8F28A', tock: '#9FD8FF', faint: '#8A95A3', line: '#27303B', line2: '#3A4452', muted: '#AEB7C2', warn: '#F59B5E', text: '#EEF1F4', band: 'rgba(184, 242, 138, 0.10)' };
+  var C = { lume: '#B8F28A', tock: '#9FD8FF', faint: '#8A95A3', line: '#27303B', line2: '#3A4452', muted: '#AEB7C2', warn: '#F59B5E', text: '#EEF1F4', band: 'rgba(184, 242, 138, 0.10)', noise: 'rgba(245, 155, 94, 0.18)' };
   /* Laufende Anzeige während der Messung (seit 0.7.2 aus einem Guss): Die erste Probe kommt gleich nach dem Start und nimmt
      die Sekunden davor mit (der Mitschnitt läuft seit dem Öffnen des Mikrofons durch), der Papierstreifen wird also nie
      geleert. Das Fenster wächst mit der Messung bis LIVE_MAX Sekunden: Der vorläufige Wert wird damit ruhiger statt mit
@@ -103,6 +103,53 @@
   var COUNTDOWN = 3;
   /* Gezählt wird bis ±0,5 s/Tag. Sind die Klicks klar, schwankt aber der Gang während der Messung, bis ±1,5 s/Tag mit Vermerk */
   var SIGMA_COUNT = 1.5, SIGMA_SURE = 0.5;
+  /* Störung in der Messung (seit 0.7.3): Ein Abschnitt, in dem die Aufnahme deutlich lauter ist als sonst (ein Geräusch im Raum,
+     eine Bewegung am Tisch oder am Handy), macht den Wert unsicher. Die App sagte dann «der Gang schwankte»; in der Aufnahme vom
+     14.11.2026 war es ein Geräusch von Sekunde 15 bis 23. Gemessen wird die Leistung in Fenstern von einer Sekunde (alle
+     NOISE_HOP Sekunden); als ruhig gilt das untere Viertel der Fenster, als laut, was NOISE_DB darüber liegt. Ist mehr als
+     NOISE_MAX der Aufnahme laut, ist es keine Störung, sondern ein unsteter Pegel. Gesucht wird nur, wenn die Messung
+     ohnehin schwankt oder unsicher ist: Eine gute Messung bekommt wegen eines Geräuschs keinen Vermerk. */
+  var NOISE_HOP = 0.5, NOISE_DB = 5, NOISE_GAP = 1, NOISE_MAX = 0.5;
+  /* Der lauteste zusammenhängende Abschnitt: { a, b } in Sekunden ab Beginn der Aufnahme, oder null */
+  function noiseSpan(samples, fs) {
+    var hop = Math.round(NOISE_HOP * fs), nb = Math.floor(samples.length / hop), e = [], w = [], i, j;
+    if (nb < 12) return null;
+    for (i = 0; i < nb; i++) { var s = 0, o = i * hop; for (j = 0; j < hop; j++) s += samples[o + j] * samples[o + j]; e.push(s / hop); }
+    for (i = 0; i + 1 < nb; i++) w.push((e[i] + e[i + 1]) / 2);
+    var ref = w.slice().sort(function (x, y) { return x - y; })[Math.floor(w.length / 4)], lim = ref * Math.pow(10, NOISE_DB / 10);
+    if (!(ref > 0)) return null;
+    var loud = w.map(function (v) { return v > lim; }), n = loud.filter(Boolean).length;
+    if (!n || n > NOISE_MAX * w.length) return null;
+    var best = null, cur = null, gap = Math.round(NOISE_GAP / NOISE_HOP);
+    for (i = 0; i <= w.length; i++) {
+      if (i < w.length && loud[i]) { if (!cur) cur = { a: i, b: i, x: 0 }; cur.b = i; cur.x += w[i] / lim; cur.q = 0; }
+      else if (cur && (i === w.length || ++cur.q > gap)) { if (!best || cur.x > best.x) best = cur; cur = null; }
+    }
+    var a = best.a, b = best.b + 1;   /* Ränder auf die halben Sekunden legen, die selbst laut sind */
+    while (a < b && !(e[a] > lim)) a++;
+    while (b > a && !(e[b] > lim)) b--;
+    return { a: a * NOISE_HOP, b: (b + 1) * NOISE_HOP };
+  }
+  /* Nach der Auswertung: Schwankt die Messung oder ist sie unsicher, nach einer Störung suchen (res.noise) */
+  function markNoise(res, samples, fs) {
+    if (!res || !res.ok || res.trimmed || !(res.rateStable === false || res.rateSigma > SIGMA_SURE)) return;
+    var ns = noiseSpan(samples, fs);
+    if (ns) res.noise = ns;
+  }
+  /* Die Auswertung ist gescheitert («Kein regelmässiges Ticken gefunden»), obwohl das Ticken vor dem Start klar war (sure:
+     Start von selbst oder nach «Position finden»): Liegt ein lauter Abschnitt in der Aufnahme, war es die Störung.
+     Rückgabe [von, bis] in ganzen Sekunden oder null. Eine Lücke im Ticken (code 'silence') hat ihre eigene Meldung. */
+  function failNoise(res, samples, fs, sure) {
+    if (!sure || (res && (res.ok || res.code === 'silence'))) return null;
+    var ns = noiseSpan(samples, fs);
+    if (!ns) return null;
+    var a = Math.floor(ns.a);
+    return [a, Math.max(a + 1, Math.ceil(ns.b))];
+  }
+  /* War das Ticken klar, bevor die Messzeit begann? Von selbst gestartet (zwei gute Proben) oder nach «Position finden» */
+  function tickSure(r) { return !!(r.instant || (r.find && (r.find.kind === 's' || r.find.kind === 'b'))); }
+  /* Störung einer gespeicherten Messung (m.ns = [von, bis] in ganzen Sekunden) in der Form für drawTape und die Texte */
+  function nsOf(m) { return m && m.ns ? { a: m.ns[0], b: m.ns[1] } : null; }
   /* Unsichere Messung verlängern: Ist das Signal klar, der Wert nach der gewählten Dauer aber unsicherer als ±0,5 s/Tag
      (so viel verträgt eine Wertung), läuft die Aufnahme bis 60 s weiter. Die Unsicherheit sinkt mit der Dauer stark
      (bei doppelter Zeit auf etwa einen Drittel), und ein schwankender Gang mittelt sich besser. Bewusst einfach: eine
@@ -489,7 +536,7 @@
   function shaky(m) { return counted(m) && m.stable === false; }
   function shakyText() { return T('Gang könnte schwanken'); }
   /* Warum eine Messung nicht zählt */
-  function whyNot(m) { return m.bx ? T('nur jeder zweite Schlag erkannt') : m.q === 'schwach' ? T('Signal schwach') : T(m.stable === false ? 'Gang schwankt zu stark' : 'zu unsicher'); }
+  function whyNot(m) { return m.bx ? T('nur jeder zweite Schlag erkannt') : m.q === 'schwach' ? T('Signal schwach') : T(m.ns ? 'Messung gestört' : m.stable === false ? 'Gang schwankt zu stark' : 'zu unsicher'); }
 
   /* ---------- Pro ---------- */
   function isPro() { return FLAVOR === 'test' ? settings.testPro : !!proState; }
@@ -780,7 +827,7 @@
       r: [['good', '−6 bis +8 s/Tag', 'erlaubt nach der Chronometer-Norm'], ['warn', 'ausserhalb', 'die Uhr hängt stark von der Lage ab']],
       n: 'Tipp: Geht die Uhr am Tag vor, kann sie nachts in der Lage liegen, in der sie nachgeht, und umgekehrt.' },
     tape: { t: 'Papierstreifen', s: 'Jeder Punkt ist ein Schlag: grün der Tick, blau der Tack. Waagrecht läuft die Zeit, senkrecht steht die Abweichung vom genauen Takt. So zeichnet auch eine Zeitwaage beim Uhrmacher.',
-      r: [['', 'Spur steigt', 'die Uhr geht vor'], ['', 'Spur fällt', 'die Uhr geht nach'], ['', 'zwei Spuren mit Abstand', 'Abfallfehler: Tick und Tack sind ungleich lang'], ['', 'Punkte streuen stark', 'unruhiges Signal oder unruhiger Gang'], ['', 'Spur wellig', 'der Gang schwankt während der Messung: wegen der Uhr oder weil das Handy nicht ruhig an der Krone liegt']] },
+      r: [['', 'Spur steigt', 'die Uhr geht vor'], ['', 'Spur fällt', 'die Uhr geht nach'], ['', 'zwei Spuren mit Abstand', 'Abfallfehler: Tick und Tack sind ungleich lang'], ['', 'Punkte streuen stark', 'unruhiges Signal oder unruhiger Gang'], ['', 'Spur wellig', 'der Gang schwankt während der Messung: wegen der Uhr oder weil das Handy nicht ruhig an der Krone liegt'], ['', 'Abschnitt orange hinterlegt', 'dort hat ein Geräusch oder eine Bewegung die Messung gestört']] },
     daily: { t: 'Gang im Alltag', s: 'So viel geht die Uhr pro Tag vor oder nach, während du sie trägst: mit allen Lagen, Temperaturen und dem Aufzug durchs Tragen. Dazu vergleichst du die Uhr mit der genauen Zeit, heute und nach ein paar Tagen. Am genauesten ist die Zeit aus dem Internet; die Uhr des Handys allein kann bis etwa zwei Sekunden danebenliegen.',
       r: [['', 'nach 1 Tag', 'auf etwa ± 0,2 s/Tag genau'], ['', 'nach 7 Tagen', 'auf etwa ± 0,03 s/Tag genau'],
         ['', 'mit der Uhr des Handys', 'etwa dreimal so unsicher: ± 0,7 s/Tag nach 1 Tag, ± 0,1 s/Tag nach 7 Tagen']],
@@ -971,7 +1018,7 @@
         return;
       }
       rec = null; teardown(r);
-      r.o.onDone(first, r.fs, res || { ok: false }, 0);
+      r.o.onDone(first, r.fs, res || { ok: false }, 0, null, tickSure(r));
     });
   }
   /* Eine verlängerte Messung darf nie schlechter sein als eine ohne Verlängerung. Ergibt die ganze Aufnahme keinen Wert
@@ -1094,12 +1141,15 @@
      Eine geführte Suchphase im selben Rekorder: Das Mikrofon bleibt offen, und stimmt die Stelle, beginnt die Messung ohne
      neuen Anlauf. Je Stelle: FIND_LISTEN Sekunden ruhig halten (bewertet werden die letzten SEARCH_WINDOW Sekunden; kürzer
      kann die Engine nicht), dann die Wertung. Stark → nach einer zweiten Probe wird der Bildschirm grün, und der Countdown
-     läuft. Sonst FIND_MOVE Sekunden zum Verschieben, mit dem Vergleich zur Stelle davor: Richtungen kann ein einzelnes
+     läuft. Sonst «Jetzt verschieben», mit dem Vergleich zur Stelle davor: Richtungen kann ein einzelnes
      Mikrofon nicht nennen, «besser» und «schlechter» schon. Nach FIND_MAX Stellen nennt Tickwerk die beste und misst dort,
      sobald es sie wiedererkennt. «Hier messen» geht jederzeit.
      Bewertet wird nicht nur die Lautstärke: An einer lauten Stelle kann die Engine trotzdem nur jeden zweiten Schlag hören
-     oder die Amplitude nicht bestimmen (so bei den Aufnahmen vom Pixel, 12.11.2026). */
-  var FIND_LISTEN = 5, FIND_MOVE = 3, FIND_RETRY = 1.25, FIND_RETRIES = 3, FIND_MAX = 6, FIND_NEAR = 8, FIND_RETURN_HINT = 20, FIND_LIMIT = 240, FIND_SNR = 14;
+     oder die Amplitude nicht bestimmen (so bei den Aufnahmen vom Pixel, 12.11.2026).
+     Seit 0.7.3 wartet Tickwerk nach «Jetzt verschieben», bis «Stelle prüfen» getippt wird (bis 0.7.2 ging es nach drei
+     Sekunden von selbst weiter: «das geht zu schnell, da kommt man nicht nach», 14.11.2026). Das Tippen bewegt das Handy,
+     darum zählt die erste Sekunde danach (FIND_TAP) nicht zur Zuhörzeit. Die ganze Suche darf dafür sechs statt vier Minuten dauern. */
+  var FIND_LISTEN = 5, FIND_TAP = 1, FIND_RETRY = 1.25, FIND_RETRIES = 3, FIND_MAX = 6, FIND_NEAR = 8, FIND_RETURN_HINT = 20, FIND_LIMIT = 360, FIND_SNR = 12;
   var findLast = null;   /* der letzte Lauf für die Diagnose: { at, rows: [Text je Probe], end } – nur im Speicher, ohne Namen */
   var findPf = null;   /* Vermerk für die Messung, die aus «Position finden» startet: { k: s (stark gefunden) | b (beste von n) | h («Hier messen»), n: Stellen } */
   var FIND_WHY = {
@@ -1118,8 +1168,10 @@
     if (q.label === 'mittel') score *= 0.85; else if (q.label === 'schwach') score *= 0.5;
     if (half) score *= 0.4;
     /* Stark heisst: beide Schläge da, kaum einer fehlt, ruhig, Amplitude bestimmbar und mindestens FIND_SNR dB über dem Rauschen.
-       Darunter nennt die Engine die Amplitude zwar noch «verlässlich», sie kann aber weit danebenliegen (im Versuch mit
-       zugemischtem Rauschen bei 12 dB: 326° statt 222°). */
+       Bis 0.7.2 waren das 14 dB, weil die Engine 0.2.7 darunter eine falsche Amplitude «verlässlich» nannte (bei 12 dB: 326°
+       statt 222°). Die Engine 0.3.0 findet die Auslösung bis 12 dB (218° statt 217°) und meldet sie darunter als unsicher. Auf dem
+       Testhandy lag eine Uhr am 14.11.2026 an guten Stellen bei 12 bis 13 dB (237°, alle Schläge erkannt), und Tickwerk schickte
+       fünfmal weiter, bis eine Stelle 15 dB hatte; die Messung danach war mit 14 dB einwandfrei. Darum 12 dB. */
     var strong = !half && q.label === 'stark' && q.snrDb >= FIND_SNR && q.detectedFraction >= 0.95 && q.residualMs <= 0.3 && amp === 1;
     /* der wichtigste Grund, warum es nicht stark ist; «amp» nur, wenn sonst alles stimmt */
     var why = strong ? '' : half ? 'half' : q.residualMs > 0.3 ? 'shaky' : q.label === 'schwach' ? 'quiet' : q.detectedFraction < 0.95 ? 'miss' : q.label !== 'stark' || q.snrDb < FIND_SNR ? 'noise' : 'amp';
@@ -1157,7 +1209,8 @@
       title = T('Jetzt verschieben'); now = last;
       lead = F.cmp === 'better' ? T('Besser als vorher. In dieselbe Richtung weiter.') : F.cmp === 'worse' ? T('Schlechter als vorher. Zurück und in die andere Richtung.') :
         F.cmp === 'same' ? T('Etwa wie vorher. Eine andere Stelle versuchen: näher an die Krone, an den Boden oder ans Glas.') :
-          T('Verschieb das Handy ein wenig an der Uhr. Gleich hört Tickwerk wieder zu.');
+          T('Verschieb das Handy ein wenig an der Uhr.');
+      lead += ' ' + T('Dann «Stelle prüfen» tippen.');
     } else if (F.phase === 'return') {
       title = T('Zurück zu Stelle {n}', { n: F.best.n }); now = F.now;
       lead = F.hint === 'late' ? T('Tickwerk erkennt die Stelle noch nicht wieder. Liegt das Handy gut, «Hier messen» tippen.') :
@@ -1185,7 +1238,7 @@
     });
     $('fdHere').hidden = go; $('fdAgain').hidden = F.phase !== 'return';
     if (F.phase === 'return' || go) findCount(0, '');
-    else if (F.phase === 'move') findCount(FIND_MOVE, T('zum Verschieben'));
+    else if (F.phase === 'move') findCount(0, '');   /* statt der Zahl steht der Knopf «Stelle prüfen» (über data-phase in app.css) */
     else if (F.phase === 'listen' && !F.hint) findCount(FIND_LISTEN, T('ruhig halten'));
   }
   function findProbe(r, then) {
@@ -1202,11 +1255,7 @@
     if (o.onSearchTick) o.onSearchTick(t, r);
     bar($('fdLevel'), (20 * Math.log10(r.peak + 1e-9) + 80) / 60);
     if (t > FIND_LIMIT) { recStop(false); if (o.onTimeout) o.onTimeout(); return; }
-    if (F.phase === 'move') {
-      findCount(Math.ceil(FIND_MOVE - dt), T('zum Verschieben'));
-      if (dt >= FIND_MOVE) { F.phase = 'listen'; F.t0 = t; F.n++; F.tries = 0; F.hint = ''; findShow(r); }
-      return;
-    }
+    if (F.phase === 'move') return;   /* wartet auf «Stelle prüfen» (fdNext) */
     if (F.phase === 'listen') {
       var need = FIND_LISTEN + F.tries * FIND_RETRY;
       findCount(Math.max(1, Math.ceil(need - dt)), T('ruhig halten'));
@@ -1327,6 +1376,14 @@
   }
   $('fdBack').addEventListener('click', function () { if (sheetOpen === 'findSheet') closeSheet(); });
   $('fdHere').addEventListener('click', function () { if (rec && rec.find) findGo(rec, 'h'); });
+  /* Die neue Stelle liegt: zuhören. Die Sekunde nach dem Tippen zählt nicht mit (das Handy wurde eben berührt). */
+  $('fdNext').addEventListener('click', function () {
+    var r = rec, F = r && r.find;
+    if (!F || r.phase !== 'search' || F.phase !== 'move') return;
+    F.phase = 'listen'; F.t0 = r.heard / r.fs + FIND_TAP; F.n++; F.tries = 0; F.hint = '';
+    findShow(r);
+    findCount(FIND_LISTEN + FIND_TAP, T('ruhig halten'));
+  });
   $('fdAgain').addEventListener('click', function () {
     var r = rec, F = r && r.find;
     if (!F || r.phase !== 'search' || F.phase === 'go') return;
@@ -1334,7 +1391,7 @@
     findShow(r);
   });
   function findNoneText() { return T('An drei Stellen war kein Ticken zu hören. Ist die Uhr aufgezogen? Das Mikrofon sitzt an der Unterkante des Handys.'); }
-  function findTimeoutText() { return T('«Position finden» nach vier Minuten beendet. Nochmals versuchen oder ohne Suche messen.'); }
+  function findTimeoutText() { return T('«Position finden» nach sechs Minuten beendet. Nochmals versuchen oder ohne Suche messen.'); }
   /* Start aus einem Bildschirm: eine laufende Suche oder Messung endet, dann beginnt dieselbe Aufnahme mit «Position finden» */
   function findFrom(start) {
     return function () {
@@ -1383,7 +1440,7 @@
     var r = rec; if (!r) return;
     rec = null; teardown(r);
     var ext = r.ext && r.ext.state === 'extended' ? r.ext : null;
-    r.o.onDone(allSamples(r, Math.round(r.dur * r.fs)), r.fs, null, ext ? ext.from : 0, ext ? ext.first : null);
+    r.o.onDone(allSamples(r, Math.round(r.dur * r.fs)), r.fs, null, ext ? ext.from : 0, ext ? ext.first : null, tickSure(r));
   }
 
   /* Papierstreifen platzsparend: höchstens 300 Punkte, nur für die letzten Messungen (fürs Protokoll) */
@@ -1427,6 +1484,7 @@
       ppm: r.clockPpm || 0, fs: fs || null, eng: engineVersion || '', app: APP_VERSION
     };
     if (r.bphHalf) { m.bx = 1; m.beOk = false; m.ampOk = false; } else if (r.bphFrom) m.bf = r.bphFrom;
+    if (r.noise) { var na = Math.floor(r.noise.a); m.ns = [na, Math.max(na + 1, Math.ceil(r.noise.b))]; }
     if (source === 'Mikrofon') {
       if (findPf) { m.pf = findPf; findPf = null; }
       var cd = condOf(w), cu = cd ? condUt(cd, Date.now()) : null;
@@ -1500,7 +1558,7 @@
     if (!rec) redrawMeasure();
   }
   function redrawMeasure() {
-    if (lastShown) { drawTape($('mTape'), lastShown.r.trace); drawBeat($('mBeat'), lastShown.r.templates, lastShown.r.liftTimeMs); }
+    if (lastShown) { drawTape($('mTape'), lastShown.r.trace, null, nsOf(lastShown.m)); drawBeat($('mBeat'), lastShown.r.templates, lastShown.r.liftTimeMs); }
     else if (!busy) drawTape($('mTape'), null, T('Der Papierstreifen erscheint während der Messung.'));
   }
   function renderFree() {
@@ -1606,10 +1664,10 @@
         }
       },
       onCancel: function () { measureIdle(); $('mState').textContent = T('Bereit'); setStatus('status', T('Abgebrochen.'), ''); },
-      onDone: function (samples, fs, pre, extFrom, first) {
+      onDone: function (samples, fs, pre, extFrom, first, sure) {
         measureIdle();
         lastRec = { samples: samples, fs: fs, date: new Date(), watchName: w ? w.name : UNKNOWN.name, pos: settings.pos };
-        analyzeMeasure(samples, fs, 'Mikrofon', grc, pre, extFrom, first);
+        analyzeMeasure(samples, fs, 'Mikrofon', grc, pre, extFrom, first, sure);
       }
     });
   }
@@ -1636,11 +1694,11 @@
       ' ' + T('Darum gibt es keinen Wert. Handy und Uhr während der ganzen Messung ruhig lassen und nochmals messen.');
   }
   /* Abgelehnte Auswertung fürs Fehlerprotokoll (Diagnose): der Grundtext der Engine, bei einer Lücke im Ticken deren Lage */
-  function logFail(kind, res) {
+  function logFail(kind, res, ns) {
     var s = res && res.code === 'silence' ? res.silence : null, why = (res && res.reason) || 'Keine Messung möglich.', pre = 'Fehler in der Auswertung: ';
     if (s) logErr(kind, 'Lücke im Ticken', s.fromS + '–' + s.toS + ' / ' + s.totalS + ' s');
     else if (why.indexOf(pre) === 0) logErr(kind, 'Fehler in der Auswertung', why.slice(pre.length));
-    else logErr(kind, why);
+    else logErr(kind, why, ns ? 'Störung ' + ns[0] + '–' + ns[1] + ' s' : undefined);
   }
   /* Die Verlängerung liess sich nicht auswerten (dann gilt die zuerst gewählte Dauer, siehe extFallback): mit dem Grund ins Fehlerprotokoll */
   function logExtFail(res) {
@@ -1650,7 +1708,7 @@
   /* pre: schon gerechnetes Ergebnis derselben Aufnahme (aus der Prüfung vor einer möglichen Verlängerung), dann wird nicht
      nochmals gerechnet. extFrom: ursprünglich gewählte Dauer, wenn die Messung verlängert wurde; first: Aufnahme und
      Ergebnis dieser Dauer als Rückfall (siehe extFallback). */
-  function analyzeMeasure(samples, fs, source, grc, pre, extFrom, first) {
+  function analyzeMeasure(samples, fs, source, grc, pre, extFrom, first, sure) {
     var w = currentWatch(), pos = settings.pos, keepRec = lastRec;
     busy = true;
     $('mStart').disabled = true; $('mStartLabel').textContent = T('Rechnet …'); $('mState').textContent = T('Rechnet');
@@ -1672,14 +1730,16 @@
       if (!res || !res.ok) {
         clearReadout(); lastRec = keepRec;
         $('shareBtn').hidden = !lastRec;
-        logFail('mess', res);
-        setStatus('status', failText(res), 'err');
-        if (source !== 'Datei' && !(res && res.code === 'silence')) findOffer('m', T('Mit «Position finden» sucht Tickwerk mit dir eine Stelle, an der die Uhr gut zu hören ist.'));
+        var ns = failNoise(res, samples, fs, sure);
+        logFail('mess', res, ns);
+        setStatus('status', ns ? T('Zwischen Sekunde {a} und {b} hat ein Geräusch oder eine Bewegung die Messung gestört. Darum gibt es keinen Wert. Ruhig sitzen und nochmals messen.', { a: ns[0], b: ns[1] }) : failText(res), 'err');
+        if (!ns && source !== 'Datei' && !(res && res.code === 'silence')) findOffer('m', T('Mit «Position finden» sucht Tickwerk mit dir eine Stelle, an der die Uhr gut zu hören ist.'));
         runJob({ kind: 'quartzProbe', samples: samples.subarray(0, Math.min(samples.length, Math.round(12 * fs))), fs: fs }).then(function (qr) {
           if (qr && qr.quartz && !rec && !busy) showQuartzHint();
         });
         return;
       }
+      markNoise(res, samples, fs);
       var m = saveMeasurement(res, source, fs, { watch: w, pos: pos, gr: grc && w && grc.watchId === w.id ? grc : null });
       lastRec = keepRec;
       showResult(res, m);
@@ -1702,16 +1762,16 @@
   function findOffer(k, text) { $(k + 'FindText').textContent = text; $(k + 'Find').hidden = false; }
   /* Wertung einer gespeicherten Messung: { kind: good | okay | warn, text } */
   function rateVerdict(m) {
-    var kind, text, short;
+    var kind, text, short, ns = nsOf(m);
     if (m.bx) { kind = 'warn'; text = 'Tickwerk hat nur jeden zweiten Schlag gehört. Dieser Wert zählt nicht. Das Handy etwas anders an die Uhr legen, am besten an die Krone, und nochmals messen.'; short = 'Zählt nicht: nur jeder zweite Schlag erkannt.'; }
     else if (m.q === 'schwach') { kind = 'warn'; text = 'Nur ein grober Wert: das Signal ist schwach. Handy näher an die Krone und nochmals messen.'; short = 'Nur ein grober Wert: das Signal war schwach.'; }
-    else if (m.stable === false && m.sigma > SIGMA_COUNT) { kind = 'warn'; text = 'Der Gang schwankte während der Messung zu stark. Dieser Wert zählt nicht. Uhr und Handy ruhig halten und nochmals messen, am besten 60 s.'; short = 'Zählt nicht: Der Gang schwankte während der Messung zu stark.'; }
-    else if (m.stable === false) { kind = 'warn'; text = 'Die Klicks waren klar, aber der Gang schwankte während der Messung, darum das grössere ±. Der Wert zählt mit dem Vermerk «Gang könnte schwanken». Genauer wird er mit 60 s und ruhig gehaltenem Handy.'; short = 'Zählt mit dem Vermerk «Gang könnte schwanken».'; }
-    else if (m.sigma > SIGMA_SURE) { kind = 'warn'; text = 'Zu unsicher für eine Wertung (mehr als ±0,5 s/Tag). Länger messen und das Handy ruhig an die Krone halten.'; short = 'Zu unsicher für eine Wertung (mehr als ±0,5 s/Tag).'; }
+    else if (m.stable === false && m.sigma > SIGMA_COUNT) { kind = 'warn'; text = ns ? 'Zwischen Sekunde {a} und {b} hat ein Geräusch oder eine Bewegung die Messung gestört. Dieser Wert zählt nicht. Ruhig sitzen und nochmals messen.' : 'Der Gang schwankte während der Messung zu stark. Dieser Wert zählt nicht. Uhr und Handy ruhig halten und nochmals messen, am besten 60 s. Nach dem Hinlegen oder Aufziehen der Uhr vorher eine Minute warten.'; short = ns ? 'Zählt nicht: Die Messung war gestört.' : 'Zählt nicht: Der Gang schwankte während der Messung zu stark.'; }
+    else if (m.stable === false) { kind = 'warn'; text = ns ? 'Zwischen Sekunde {a} und {b} hat ein Geräusch oder eine Bewegung die Messung gestört, darum ist das ± unter dem Wert grösser als sonst. Der Wert zählt mit Vermerk. Ruhig sitzen und nochmals messen.' : 'Der Gang schwankte während der Messung, darum ist das ± unter dem Wert grösser als sonst. Der Wert zählt mit dem Vermerk «Gang könnte schwanken». Uhr eben hingelegt oder aufgezogen? Eine Minute warten.'; short = 'Zählt mit dem Vermerk «Gang könnte schwanken».'; }
+    else if (m.sigma > SIGMA_SURE) { kind = 'warn'; text = ns ? 'Zwischen Sekunde {a} und {b} hat ein Geräusch oder eine Bewegung die Messung gestört. Der Wert ist zu unsicher für eine Wertung (mehr als ±0,5 s/Tag). Ruhig sitzen und nochmals messen.' : 'Zu unsicher für eine Wertung (mehr als ±0,5 s/Tag). Länger messen und das Handy ruhig an die Krone halten.'; short = 'Zu unsicher für eine Wertung (mehr als ±0,5 s/Tag).'; }
     else if (m.rate >= -4 && m.rate <= 6) { kind = 'good'; text = short = 'Im Chronometer-Bereich (−4 bis +6 s/Tag).'; }
     else if (Math.abs(m.rate) <= 15) { kind = 'okay'; text = short = 'Gut für eine Uhr ohne Chronometer-Zertifikat.'; }
     else { kind = 'warn'; text = 'Deutlich daneben. In einer anderen Lage nochmals messen; bleibt es so, regulieren lassen.'; short = 'Deutlich daneben: in anderen Lagen prüfen, sonst regulieren lassen.'; }
-    return { kind: kind, text: T(text), short: T(short) };
+    return { kind: kind, text: T(text, ns), short: T(short) };
   }
   function showResult(r, m) {
     lastShown = { r: r, m: m };
@@ -1760,7 +1820,7 @@
       (full && m.amp && m.ampOk && !ampLow(m) && ampExcuse(m) === 'date' ? ' ' + T('Gemessen in den Stunden um den Datumswechsel: Die Amplitude kann dann tiefer sein als sonst.') : ''), 'ok');
     $('mStartLabel').textContent = T('Nochmals messen');
     $('shareBtn').hidden = !lastRec; $('imgBtn').hidden = false;
-    drawTape($('mTape'), r.trace);
+    drawTape($('mTape'), r.trace, null, nsOf(m));
     drawBeat($('mBeat'), r.templates, r.liftTimeMs);
   }
   $('mStart').addEventListener('click', measureStart);
@@ -2462,7 +2522,7 @@
         }
       },
       onCancel: function () { lpReady(p); setStatus('pStatus', T('Abgebrochen.'), ''); },
-      onDone: function (samples, fs, pre, extFrom, first) {
+      onDone: function (samples, fs, pre, extFrom, first, sure) {
         busy = true; showCount('pCount', null); $('scr-lpos').classList.remove('is-go');
         $('pStart').classList.remove('running'); $('pStart').disabled = true; $('pSearch').hidden = true;
         $('pStartLabel').textContent = T('Rechnet …'); $('pState').textContent = T('Rechnet'); bar($('pProg'), 0); bar($('pLevel'), 0);
@@ -2476,13 +2536,15 @@
             if (here) toast(extFailText({ from: extFrom, to: EXTEND_TO }));
           }
           if (!res || !res.ok) {
-            logFail('mess', res);
+            var ns = failNoise(res, samples, fs, sure);
+            logFail('mess', res, ns);
             if (here) {
-              lpReady(p); $('pStartLabel').textContent = T('Nochmals messen'); setStatus('pStatus', res && res.code === 'silence' ? failText(res) : T((res && res.reason) || 'Keine Messung möglich.') + ' ' + T('Nochmals messen.'), 'err');
-              if (!(res && res.code === 'silence')) findOffer('p', T('Mit «Position finden» sucht Tickwerk mit dir eine Stelle, an der die Uhr gut zu hören ist.'));
+              lpReady(p); $('pStartLabel').textContent = T('Nochmals messen'); setStatus('pStatus', ns ? T('Zwischen Sekunde {a} und {b} hat ein Geräusch oder eine Bewegung die Messung gestört. Darum gibt es keinen Wert. Ruhig sitzen und nochmals messen.', { a: ns[0], b: ns[1] }) : res && res.code === 'silence' ? failText(res) : T((res && res.reason) || 'Keine Messung möglich.') + ' ' + T('Nochmals messen.'), 'err');
+              if (!ns && !(res && res.code === 'silence')) findOffer('p', T('Mit «Position finden» sucht Tickwerk mit dir eine Stelle, an der die Uhr gut zu hören ist.'));
             }
             return;
           }
+          markNoise(res, fb ? fb.samples : samples, fs);
           var m = saveMeasurement(res, 'Mikrofon', fs, { watch: w, pos: pos, sess: sess, lset: setN });
           if (here) lpShowResult(p, m, res, true);
         });
@@ -2504,7 +2566,7 @@
     $('pBe').textContent = !pro ? 'Pro' : m.beOk ? fmt(m.be, 2) : '–';
     $('pSearch').hidden = true; bar($('pProg'), 0); bar($('pLevel'), 0);
     $('pStart').classList.remove('running'); $('pStart').disabled = false;
-    if (res) drawTape($('pTape'), res.trace); else drawTape($('pTape'), m.tr ? traceOf(m.tr) : null, T('Gemessen am {d}', { d: dateStr(m.date) }));
+    if (res) drawTape($('pTape'), res.trace, null, nsOf(m)); else drawTape($('pTape'), m.tr ? traceOf(m.tr) : null, T('Gemessen am {d}', { d: dateStr(m.date) }), nsOf(m));
     $('pAlt').hidden = false;
     /* Reicht die Stelle nicht, «Position finden» anbieten (wie beim Messen) */
     if (fresh && !m.pf && (m.bx || m.q === 'schwach' || (pro && !(m.amp && m.ampOk)))) findOffer('p', T('An dieser Stelle hört Tickwerk die Uhr nicht gut genug. Mit «Position finden» suchst du eine bessere.'));
@@ -2513,6 +2575,7 @@
     if (!ok) {
       $('pStartLabel').textContent = T('Nochmals messen'); $('pAlt').textContent = T('Zur Auswahl'); $('pAlt').dataset.act = 'back';
       if (m.q === 'schwach') setStatus('pStatus', T('Signal schwach (± {s} s/Tag): Diese Lage zählt nicht. Nochmals messen, Handy fester an die Krone.', { s: fmt(m.sigma, 2) }), 'err');
+      else if (m.ns) setStatus('pStatus', T('Zwischen Sekunde {a} und {b} hat ein Geräusch oder eine Bewegung die Messung gestört (± {s} s/Tag). Diese Lage zählt nicht. Ruhig sitzen und nochmals messen.', { a: m.ns[0], b: m.ns[1], s: fmt(m.sigma, 2) }), 'err');
       else if (m.stable === false) setStatus('pStatus', T('Das Signal war gut, aber der Gang schwankte während der Messung zu stark (± {s} s/Tag). Diese Lage zählt nicht. Nochmals messen: Handy nur leicht an die Krone halten, Arm aufstützen, am besten 60 s.', { s: fmt(m.sigma, 2) }) + swing, 'err');
       else setStatus('pStatus', T('Zu unsicher (± {s} s/Tag): Diese Lage zählt nicht. Nochmals messen, am besten 60 s, Handy ruhig an der Krone.', { s: fmt(m.sigma, 2) }), 'err');
       return;
@@ -2527,7 +2590,8 @@
     var left = RESULT_SECONDS;
     var label = function () { $('pStartLabel').textContent = T('Weiter') + ' · ' + left; };
     label();
-    if (shaky(m)) setStatus('pStatus', T('{p} gemessen. Die Klicks waren klar, aber der Gang schwankte während der Messung, darum ± {s} s/Tag. Die Lage zählt mit dem Vermerk «Gang könnte schwanken».', { p: POS[p.pos], s: fmt(m.sigma, 2) }) + swing, 'warn');
+    if (shaky(m) && m.ns) setStatus('pStatus', T('{p} gemessen. Zwischen Sekunde {a} und {b} hat ein Geräusch oder eine Bewegung die Messung gestört, darum ± {s} s/Tag. Die Lage zählt mit dem Vermerk «Gang könnte schwanken».', { p: POS[p.pos], a: m.ns[0], b: m.ns[1], s: fmt(m.sigma, 2) }), 'warn');
+    else if (shaky(m)) setStatus('pStatus', T('{p} gemessen. Die Klicks waren klar, aber der Gang schwankte während der Messung, darum ± {s} s/Tag. Die Lage zählt mit dem Vermerk «Gang könnte schwanken».', { p: POS[p.pos], s: fmt(m.sigma, 2) }) + swing, 'warn');
     else setStatus('pStatus', T('{p} gemessen. Gleich geht es zurück zur Auswahl.', { p: POS[p.pos] }), 'ok');
     lpTimer = setInterval(function () {
       if (top().s !== 'lpos' || top().p !== p) { lpStop(); return; }
@@ -4502,8 +4566,9 @@
     list.forEach(function (m) {
       var d = new Date(m.date), notes = [];
       if (m.bx) notes.push(whyNot(m));
-      else if (m.stable === false) notes.push(counted(m) ? shakyText(m) : T('Gang schwankt zu stark'));
+      else if (m.stable === false) notes.push(counted(m) ? shakyText(m) : whyNot(m));
       else if (!counted(m)) notes.push(whyNot(m));
+      if (m.ns) notes.push(T('Störung') + ' ' + m.ns[0] + '–' + m.ns[1] + ' s');   /* seit 0.7.3: Abschnitt, in dem ein Geräusch oder eine Bewegung störte */
       if (m.bf) notes.push(T('zuerst halbe Schlagzahl erkannt'));
       if (m.pf && m.pf.k === 's') notes.push(T('Position gefunden'));
       if (m.pf && m.pf.k === 'b') notes.push(T('beste von {n} Stellen', { n: m.pf.n }));
@@ -4577,7 +4642,8 @@
     lines.forEach(function (l, i) { ctx.fillText(l, g.w / 2, g.h / 2 + 4 + (i - (lines.length - 1) / 2) * 17); });
     ctx.restore();
   }
-  function drawTape(cv, trace, emptyMsg) {
+  /* span: { a, b } in Sekunden – der Abschnitt, in dem etwas die Messung gestört hat (orange hinterlegt) */
+  function drawTape(cv, trace, emptyMsg, span) {
     var g = setupCanvas(cv), ctx = g.ctx, w = g.w, h = g.h;
     var L = 50, R = 10, TP = 8, B = 20;
     if (!trace || !trace.length) { emptyText(g, emptyMsg || T('Noch keine Messung')); return; }
@@ -4597,6 +4663,10 @@
     }
     var xs = niceStep(Math.max(tMax, 1), 5);
     for (var s = 0; s <= tMax + 1e-9; s += xs) ctx.fillText(fmt(s, 0) + ' s', Math.min(Math.round(X(s)) - 6, w - R - 28), h - 5);
+    if (span && span.b > span.a) {
+      var xa = Math.max(L, X(span.a)), xb = Math.min(w - R, X(span.b));
+      if (xb > xa) { ctx.fillStyle = C.noise; ctx.fillRect(xa, TP, xb - xa, h - TP - B); }
+    }
     trace.forEach(function (p) {
       var yv = Math.max(yMin, Math.min(yMax, p.devMs));
       ctx.fillStyle = p.parity ? C.tock : C.lume;
@@ -4838,8 +4908,13 @@
   /* ---------- Was ist neu ----------
      Einmal nach einem Update zeigen, was dazugekommen ist und wo es zu finden ist; jederzeit unter «Mehr». Bei einer
      neuen Installation nicht (dort erklärt die Anleitung den Einstieg). settings.seenVersion merkt sich die Version. */
-  var NEWS_ORDER = ['0.7.2', '0.7.1', '0.7.0', '0.6.8', '0.6.7', '0.6.6', '0.6.5', '0.6.4'];   /* neuste zuerst; die älteren stehen im Blatt darunter, falls ein Update übersprungen wurde */
+  var NEWS_ORDER = ['0.7.3', '0.7.2', '0.7.1', '0.7.0', '0.6.8', '0.6.7', '0.6.6', '0.6.5', '0.6.4'];   /* neuste zuerst; die älteren stehen im Blatt darunter, falls ein Update übersprungen wurde */
   var NEWS = {
+    '0.7.3': [
+      { t: T('Störung statt «Gang schwankte»'), s: T('Stört ein Geräusch oder eine Bewegung die Messung, sagt Tickwerk das und nennt die Sekunden. Im Papierstreifen ist die Stelle orange hinterlegt.') },
+      { t: T('Klarer zum ±'), s: T('Schwankt der Gang, steht jetzt dabei, wo das ± zu finden ist. Neu ist auch der Rat, nach dem Hinlegen oder Aufziehen der Uhr eine Minute zu warten.') },
+      { t: T('Position finden in deinem Tempo'), s: T('Nach «Jetzt verschieben» wartet Tickwerk, bis du «Stelle prüfen» tippst. Eine gute Stelle gilt zudem früher als gefunden.') }
+    ],
     '0.7.2': [
       { t: T('Messen aus einem Guss'), s: T('Startet die Messung von selbst, läuft sie ohne Countdown weiter. Der Papierstreifen zeigt das Ticken vom Suchen bis zum Ergebnis durchgehend, und die Sekunden, in denen das Ticken schon klar war, zählen mit. Der vorläufige Wert erscheint erst, wenn er ruhig steht.') },
       { t: T('Feste Anordnung'), s: T('Papierstreifen und Werte tauschen während der Messung nicht mehr den Platz. «Position finden» sitzt direkt über dem Startknopf, beim Messen zusammen mit «Bedingungen».') }
@@ -4982,7 +5057,7 @@
       L.push(T('Letzte Messungen') + ':');
       if (!last.length) L.push('  –');
       last.forEach(function (m) {
-        L.push('  ' + diagStamp(m.date) + ' · ' + m.pos + ' · ' + signed(m.rate, 2) + ' ± ' + fmt(m.sigma, 2) + ' · ' + qText(m.q) + (m.stable === false ? ' (' + T('schwankt') + ')' : '') +
+        L.push('  ' + diagStamp(m.date) + ' · ' + m.pos + ' · ' + signed(m.rate, 2) + ' ± ' + fmt(m.sigma, 2) + ' · ' + qText(m.q) + (m.stable === false ? ' (' + T('schwankt') + ')' : '') + (m.ns ? ' · ' + T('Störung') + ' ' + m.ns[0] + '–' + m.ns[1] + ' s' : '') +
           ' · ' + Math.round(m.dur) + ' s · ' + m.bph + ' · ' + (m.fs ? Math.round(m.fs) + ' Hz · ' : '') + T(m.source) + ' · ' + (m.app || '?') + '/' + (m.eng || '?'));
       });
       L.push('');

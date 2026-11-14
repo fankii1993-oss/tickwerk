@@ -1,4 +1,4 @@
-# Tickwerk – Web-App 0.7.2 (Testversion)
+# Tickwerk – Web-App 0.7.3 (Testversion)
 
 Misst mit dem Handy-Mikrofon, wie genau eine mechanische Uhr geht: Gangabweichung, Abfallfehler, Amplitude, Schlagzahl. Die Aufnahme und die Messwerte bleiben auf dem Handy. Ins Internet gehen nur, wenn du in der App zustimmst, leere Zeitabfragen für den «Gang im Alltag» und für «Mit Internetzeit eichen»: an den öffentlichen Zeitdienst time.akamai.com und, wenn er nicht antwortet, an den Server, von dem die App kommt (siehe Datenschutzerklärung).
 
@@ -11,6 +11,14 @@ Seit dem 10.11.2026 legt Claude neue Versionen als Pull Request in den Ordner; �
 1. Im Repository den Ordner `tickwerk-app-0.1` öffnen.
 2. **Add file → Upload files**, den ganzen Inhalt dieses Pakets hineinziehen (Dateien und die Ordner `engine`, `fonts`, `icons`), **Commit changes**. Gleichnamige Dateien werden ersetzt; deine Uhren und Messungen bleiben auf dem Handy erhalten.
 3. App auf dem Handy öffnen. Nach ein paar Sekunden erscheint «Neue Version ist bereit»; unter Mehr auf **Neue Version: neu laden** tippen. Ab 0.6.3 lässt sich die Suche unter Mehr → **Nach Update suchen** auch von Hand anstossen.
+
+## Neu in 0.7.3
+
+- **Störung statt «Gang schwankte».** Schwankt eine Messung oder ist sie unsicher, sucht die App in der Aufnahme nach einem Abschnitt, der deutlich lauter ist als der Rest (ein Geräusch im Raum, eine Bewegung am Tisch oder am Handy). Findet sie einen, nennt das Ergebnis die Sekunden («Zwischen Sekunde 16 und 22 hat ein Geräusch oder eine Bewegung die Messung gestört»), und der Abschnitt ist im Papierstreifen orange hinterlegt. Eine Messung, die trotz Geräusch sicher ist, bekommt keinen Vermerk. Die Regeln, was zählt, sind unverändert.
+- **Klarer zum ±.** Der Satz bei schwankendem Gang sagt, wo das ± steht (in der Zeile unter dem Wert) und womit es verglichen wird (mit einer ruhigen Messung).
+- **Eine Minute warten.** Bei schwankendem Gang ohne Störung und in der Anleitung steht neu der Rat, nach dem Hinlegen oder Aufziehen der Uhr eine Minute zu warten.
+- **«Position finden» in deinem Tempo.** Nach «Jetzt verschieben» wartet Tickwerk, bis «Stelle prüfen» getippt wird, statt nach drei Sekunden von selbst weiterzuhören. «Position stimmt» verlangt neu 12 statt 14 dB Abstand zum Rauschen (die Mess-Engine 0.3.0 bestimmt die Amplitude dort noch richtig); alles andere bleibt (beide Schläge, kaum einer fehlt, ruhig, Amplitude verlässlich).
+- Die Diagnose nennt bei einer Messung die Sekunden der Störung. Die Mess-Engine ist unverändert 0.3.0; an den Werten einer Messung ändert sich nichts.
 
 ## Neu in 0.7.2
 
