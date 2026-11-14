@@ -194,7 +194,11 @@ h2 { margin: 0; font-family: var(--display); font-size: 20px; font-weight: 600; 
 .bar-col.weak i { background: rgba(138, 149, 163, 0.4); }
 .bar-col b { position: absolute; left: 50%; transform: translateX(-50%); font: 400 10px var(--mono); color: var(--muted); white-space: nowrap; }
 .bar-labels { display: flex; justify-content: space-around; gap: 4px; margin-top: -4px; }
-.bar-labels span { flex: 1 1 0; max-width: 44px; text-align: center; font: 400 11px var(--mono); color: var(--faint); white-space: nowrap; }
+/* Die Daten unter den Balken dürfen schmaler werden als ihr Text und stehen dann mittig über ihrem Platz hinaus (0.7.2). Vorher
+   hielt jedes Datum seine volle Breite: Acht Daten mit zweistelligem Tag («14.11.») machten die Seite auf 360 px breiten
+   Handys 9 px zu breit (gefunden von der Optik-Prüfung in der Nacht auf den 14.11.2026). */
+.bar-labels span { flex: 1 1 0; min-width: 0; max-width: 44px; display: flex; justify-content: center; font: 400 11px var(--mono); color: var(--faint); white-space: nowrap; }
+@media (max-width: 370px) { .bar-labels span { font-size: 10px; } }
 .insight { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border-radius: 16px; background: var(--lume-tint); }
 .insight svg { width: 22px; height: 22px; flex-shrink: 0; stroke-width: 2; color: var(--lume); }
 .insight.warn { background: var(--warn-soft); }
@@ -323,7 +327,22 @@ input[type="file"] { font-size: 13px; color: var(--muted); max-width: 100%; }
 .g-screen { fill: var(--inset); stroke: none; }
 .g-mic { fill: var(--lume); stroke: none; }
 .g-wave { stroke: var(--lume); stroke-width: 1.5; stroke-dasharray: 3 4; }
-.g-pulse { stroke: var(--lume); stroke-width: 2; }
+/* 0.7.2: Das Handy steht aufrecht und zeigt die Messansicht mit dem Papierstreifen: Kamera, Tasten, Wischleiste; auf dem
+   Bildschirm Name, Wert, Skala, Papierstreifen (Tick grün, Tack blau), Werte und der Knopf. Schmaler als die Karte, weil hoch. */
+.guide-fig svg.g-tall { max-width: 220px; }
+.g-cam { fill: var(--line2); stroke: none; }
+.g-btn { stroke: var(--text); stroke-width: 3; }
+.g-bar { stroke: var(--line2); stroke-width: 2.5; }
+.g-ui { stroke: var(--line2); stroke-width: 2.5; }
+.g-uiv { stroke: var(--muted); stroke-width: 2.5; }
+.g-val { fill: var(--text); stroke: none; font: 600 24px var(--display); text-anchor: middle; }
+.g-band { fill: rgba(184, 242, 138, 0.22); stroke: none; }
+.g-mark { stroke: var(--lume); stroke-width: 2; }
+.g-card { fill: var(--raise); stroke: rgba(184, 242, 138, 0.6); stroke-width: 1; }
+.g-tile { fill: var(--raise); stroke: none; }
+.g-tick { fill: var(--lume); stroke: none; }
+.g-tock { fill: var(--tock); stroke: none; }
+.g-main { fill: var(--lume); stroke: none; }
 .steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
 .steps li { display: flex; gap: 14px; align-items: flex-start; }
 .steps .num { flex-shrink: 0; width: 28px; height: 28px; border-radius: 14px; border: 1px solid var(--lume); color: var(--lume); display: flex; align-items: center; justify-content: center; font: 400 13px var(--mono); }
@@ -403,8 +422,14 @@ input[type="file"] { font-size: 13px; color: var(--muted); max-width: 100%; }
 .prose p { margin: 0; font-size: 14.5px; line-height: 1.55; color: var(--muted); }
 a.back { text-decoration: none; }
 
-/* Hauptknopf bleibt über der Tableiste sichtbar */
-#mStart { position: sticky; bottom: calc(var(--tabbar) + env(safe-area-inset-bottom) + 12px); z-index: 5; box-shadow: 0 6px 24px 8px rgba(11, 14, 18, 0.9); }
+/* Hauptknopf bleibt über der Tableiste sichtbar. Seit 0.7.2 mit der Zeile darüber («Position finden», «Bedingungen» oder
+   «Jetzt messen»): Beides steht in .dock und bleibt zusammen stehen; der dunkle Grund verhindert, dass der Inhalt durchscheint. */
+.dock { position: sticky; bottom: calc(var(--tabbar) + env(safe-area-inset-bottom) + 12px); z-index: 5; display: flex; flex-direction: column; gap: 8px; }
+/* der Grund ragt seitlich nur so weit hinaus, wie der Rand der Seite auf schmalen Handys breit ist (14 px): Mehr gäbe einen
+   waagrechten Überlauf (bei 360 px Breite gefunden von der Optik-Prüfung, 14.11.2026) */
+.dock::before { content: ""; position: absolute; z-index: -1; left: -14px; right: -14px; top: -18px; bottom: -14px; background: linear-gradient(to bottom, rgba(11, 14, 18, 0) 0, var(--bg) 16px); }
+.dock .btn-ghost { background: var(--bg); }
+.dock .actions { gap: 8px; }
 #lNext, #pStart { position: sticky; bottom: calc(env(safe-area-inset-bottom) + 12px); z-index: 5; box-shadow: 0 6px 24px 8px rgba(11, 14, 18, 0.9); }
 .bar .back { min-width: 0; }
 .bar .back span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 58vw; }
@@ -465,16 +490,36 @@ a.back { text-decoration: none; }
 .card-head { display: flex; flex-direction: column; gap: 2px; }
 
 /* ---------- 0.6.2 ---------- */
-/* Messen: alles Wichtige ohne Scrollen. Während der Aufnahme rückt der Papierstreifen über die Werte,
-   nach der Messung steht «Gespeichert …» unter dem Papierstreifen. */
+/* Messen: alles Wichtige ohne Scrollen. Seit 0.7.2 bleibt die Anordnung in allen Phasen gleich (vorher rückte der
+   Papierstreifen beim Start über die Werte und am Ende zurück): Wert, Skala, Status, Werte, Papierstreifen. Die Werte stehen
+   oben, damit sie im Ergebnis auch auf kleinen Bildschirmen nie unter den Knöpfen liegen. Nach der Messung steht
+   «Gespeichert …» unter dem Papierstreifen; oben steht dann die Wertung. */
 main { padding-top: calc(14px + env(safe-area-inset-top)); }
-#scr-measure { gap: 12px; }
-#scr-measure .mrow { min-height: 42px; }
+#scr-measure { gap: 10px; }
+#scr-measure .mrow { min-height: 40px; }
+#scr-measure .tape-card { padding: 10px 14px; }
+#mDock { gap: 6px; }
+#mDock .btn-ghost.small { min-height: 34px; }
 #scr-measure .scale-track { height: 34px; }
 #scr-measure .center-status, #scr-measure #mVerdict + .center-status { margin-top: -2px; }
-#mDetails, #mStart, #mActions { order: 2; }
-#scr-measure.is-running .mlist, #scr-measure.is-running #mFree { order: 1; }
 #scr-measure.has-result #status { order: 1; }
+#mDetails { order: 2; }
+#mDock { order: 3; }
+#mActions { order: 4; }
+/* Der Status hält Platz für zwei Zeilen frei: Wechselt der Text zwischen ein- und zweizeilig, rutscht darunter nichts */
+#scr-measure:not(.has-result) #status, #scr-measure #mVerdict { min-height: 40px; }
+#scr-measure #mVerdict { margin-top: -2px; }
+/* Der Countdown ist so hoch wie der Wert, den er ersetzt: Darunter verschiebt sich nichts (vorher 26 px) */
+#mCountBox .count-box { height: 84px; gap: 2px; }
+#mCountBox .count-n { font-size: 60px; }
+#mCountBox .count-t { font-size: 13px; }
+@media (max-width: 370px) { #mCountBox .count-box { height: 68px; } #mCountBox .count-n { font-size: 46px; } }
+/* Solange die Messzeit läuft, ist der Papierstreifen grün gerahmt: das Zeichen «jetzt zählt es» (statt des Countdowns) */
+#scr-measure.is-go .tape-card, #scr-lpos.is-go .lp-live { border-color: rgba(184, 242, 138, 0.5); }
+/* Lagen-Test und Regulieren: «Position finden» steht wie beim Messen über dem Startknopf. Die Reihenfolge im Dokument bleibt
+   (die Zeile wird über «Knopf läuft» ausgeblendet, siehe unten); verschoben wird nur die Darstellung. */
+#scr-lpos #pStart, #scr-lpos #pAlt, #scr-reg #rStart { order: 1; }
+#scr-reg > .hint { order: 2; }
 .chip select { padding: 0 28px 0 13px; }
 .chip::after { right: 12px; }
 .chip-btn { padding: 0 13px; }
@@ -579,7 +624,7 @@ label.btn-big.file-btn { display: flex; justify-content: center; cursor: pointer
 .find-panel[data-phase="best"] :is(.eyebrow, .find-main p, .find-n, .find-t, .mono-sub, .back) { color: var(--bg); }
 .find-panel[data-phase="good"] :is(.find-now, .find-spots, .level, .actions),
 .find-panel[data-phase="best"] :is(.find-now, .find-spots, .level, .actions) { visibility: hidden; }
-#scr-measure.is-running #mPre, #pStart.running ~ .pre-row, #pStart:disabled ~ .pre-row, #rStart.running ~ .pre-row, #rStart:disabled ~ .pre-row { display: none; }
+#scr-measure.is-running #mPre, #scr-measure.is-busy #mPre, #pStart.running ~ .pre-row, #pStart:disabled ~ .pre-row, #rStart.running ~ .pre-row, #rStart:disabled ~ .pre-row { display: none; }
 #mCondBtn.set::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 7px; border-radius: 50%; background: var(--lume); vertical-align: 1px; }
 .seg.seg-wide { display: flex; align-self: stretch; }
 .seg-wide button { flex: 1 1 0; min-width: 0; padding: 0 4px; }

@@ -65,7 +65,7 @@
   var UHREN = window.TICKWERK_UHREN || [];
   var CFG = window.TICKWERK_CONFIG || {};
   var FLAVOR = CFG.flavor === 'store' ? 'store' : 'test';
-  var APP_VERSION = '0.7.0';
+  var APP_VERSION = '0.7.2';
   var PREFIX = typeof CFG.storage === 'string' && /^[a-z][a-z0-9.]{2,30}$/.test(CFG.storage) ? CFG.storage : 'tickwerk.v1';
   var KEYS = { watches: PREFIX + '.watches', meas: PREFIX + '.measurements', settings: PREFIX + '.settings', session: PREFIX + '.session', pro: PREFIX + '.pro', log: PREFIX + '.log' };
   var PRO_SKU = typeof CFG.proSku === 'string' && /^[a-z0-9._]{1,40}$/.test(CFG.proSku) ? CFG.proSku : 'tickwerk_pro';
@@ -85,10 +85,21 @@
   var POS_ORDER = ['ZO', 'ZU', 'KU', 'KO', 'KL', 'KR'];
   var SETS = { 4: ['ZO', 'ZU', 'KU', 'KL'], 6: ['ZO', 'ZU', 'KU', 'KO', 'KL', 'KR'] };
   var C = { lume: '#B8F28A', tock: '#9FD8FF', faint: '#8A95A3', line: '#27303B', line2: '#3A4452', muted: '#AEB7C2', warn: '#F59B5E', text: '#EEF1F4', band: 'rgba(184, 242, 138, 0.10)' };
-  var LIVE_FIRST = 6, LIVE_EVERY = 3, LIVE_WINDOW = 10, SETTLE = 5;
+  /* Laufende Anzeige während der Messung (seit 0.7.2 aus einem Guss): Die erste Probe kommt gleich nach dem Start und nimmt
+     die Sekunden davor mit (der Mitschnitt läuft seit dem Öffnen des Mikrofons durch), der Papierstreifen wird also nie
+     geleert. Das Fenster wächst mit der Messung bis LIVE_MAX Sekunden: Der vorläufige Wert wird damit ruhiger statt mit
+     jedem kurzen Fenster zu springen. Gezeigt wird er erst, wenn er auf ± LIVE_SHOW s/Tag steht und mindestens LIVE_SHOW_AFTER
+     Sekunden hinter sich hat und zwei Proben nacheinander auf LIVE_AGREE s/Tag dasselbe sagen (im Versuch lag der Wert aus
+     fünf und sieben Sekunden bis 2 s/Tag daneben, obwohl die Engine ± 0,6 meldete). «Noch kein klares Ticken»
+     meldet die Anzeige wie bisher frühestens nach LIVE_WARN Sekunden Messzeit (die ersten Proben reichen noch in die Sekunden
+     vor dem Start zurück, in denen das Handy vielleicht eben erst angelegt wurde). Nächste Probe frühestens
+     nach LIVE_EVERY Sekunden und nach dem Doppelten der letzten Rechenzeit (auf langsamen Geräten seltener). */
+  var LIVE_FIRST = 0.5, LIVE_EVERY = 2, LIVE_MIN = 4, LIVE_MAX = 20, LIVE_SHOW = 1, LIVE_SHOW_AFTER = 7, LIVE_AGREE = 0.8, LIVE_WARN = 6, SETTLE = 5;
   /* Automatischer Start: zuhören, bis das Ticken in zwei kurzen Fenstern nacheinander klar ist */
-  var SEARCH_WINDOW = 4.5, SEARCH_EVERY = 1.25, SEARCH_NEED = 2, SEARCH_KEEP = 6, SEARCH_MAX = 120;
-  /* Countdown vor jeder Messung (statt Vibration): so lange hört Tickwerk schon zu, verwendet die Takte aber noch nicht */
+  var SEARCH_WINDOW = 4.5, SEARCH_EVERY = 1.25, SEARCH_NEED = 2, SEARCH_KEEP = 8, SEARCH_MAX = 120;
+  /* Countdown (statt Vibration): so lange hört Tickwerk schon zu, verwendet die Takte aber noch nicht. Seit 0.7.2 nur noch,
+     wo eben getippt wurde (Start ohne automatischen Start, «Jetzt messen») und nach «Position finden». Startet die Messung
+     von selbst, läuft sie ohne Countdown weiter: Das Ticken war dann schon zwei Proben lang klar. */
   var COUNTDOWN = 3;
   /* Gezählt wird bis ±0,5 s/Tag. Sind die Klicks klar, schwankt aber der Gang während der Messung, bis ±1,5 s/Tag mit Vermerk */
   var SIGMA_COUNT = 1.5, SIGMA_SURE = 0.5;
@@ -866,7 +877,8 @@
     try { await ctx.resume(); } catch (e) { /* egal */ }
     var r = { o: o, owner: o.owner, stream: stream, ctx: ctx, chunks: [], n: 0, total: 0, ring: o.ring ? Math.round(o.ring * ctx.sampleRate) : 0, fs: ctx.sampleRate, dur: o.dur,
       phase: o.search ? 'search' : 'measure', heard: 0, good: 0, nextSearch: SEARCH_WINDOW, searchBusy: false,
-      settleN: o.search ? 0 : Math.round((o.settle || 0) * ctx.sampleRate), skipped: 0, peak: 0, nextLive: LIVE_FIRST, liveBusy: false };
+      settleN: o.search ? 0 : Math.round((o.settle || 0) * ctx.sampleRate), skipped: 0, peak: 0, nextLive: LIVE_FIRST, liveBusy: false,
+      tail: [], tailN: 0, tailKeep: o.noLive ? 0 : Math.round((LIVE_MAX + 1) * ctx.sampleRate), goodFrom: null, instant: false, drawn: false, lost: false, liveOk: false, liveLast: null };
     var src = ctx.createMediaStreamSource(stream);
     var sink = ctx.createGain(); sink.gain.value = 0; sink.connect(ctx.destination);
     r.src = src; r.sink = sink;
@@ -903,6 +915,10 @@
   function onChunk(r, samples, peak) {
     if (rec !== r) return;
     r.peak = Math.max(r.peak * 0.85, peak);
+    if (r.tailKeep) {   /* Mitschnitt der letzten Sekunden über alle Phasen, nur für die laufende Anzeige (siehe LIVE_FIRST) */
+      r.tail.push(samples); r.tailN += samples.length;
+      while (r.tail.length > 1 && r.tailN - r.tail[0].length >= r.tailKeep) r.tailN -= r.tail.shift().length;
+    }
     if (r.phase === 'search') {   /* nur zuhören: die letzten Sekunden behalten, für die Prüfung des Signals */
       r.chunks.push(samples); r.n += samples.length; r.heard += samples.length;
       var keep = Math.round(SEARCH_KEEP * r.fs);
@@ -943,7 +959,7 @@
      Aufnahme bleiben bis dahin stehen (r.ext.first), als Rückfall, falls sich das Ganze nicht auswerten lässt (extFallback). */
   function recCheck(r) {
     var first = allSamples(r, Math.round(r.dur * r.fs));
-    r.ext = { state: 'checking', from: r.dur };
+    r.ext = { state: 'checking', from: Math.round(r.dur) };
     r.dur = EXTEND_TO;
     if (r.o.extend.onChecking) r.o.extend.onChecking(r);
     runJob({ samples: first, fs: r.fs, opts: r.o.extend.opts() }).then(function (res) {
@@ -984,13 +1000,28 @@
     var t = r.total / r.fs;
     if (o.onTick) o.onTick(Math.max(0, Math.ceil(r.dur - t)), t / r.dur, r);
     if (o.onFrame) o.onFrame(t, r);
-    if (!o.noLive && t >= r.nextLive && !r.liveBusy) {
+    if (!o.noLive && t >= r.nextLive && !r.liveBusy && r.tailN >= LIVE_MIN * r.fs) {
+      var began = Date.now();
       r.nextLive = t + LIVE_EVERY; r.liveBusy = true;
-      runJob({ samples: tailSamples(r, LIVE_WINDOW), fs: r.fs, opts: probeOpts(o.opts), live: true }).then(function (res) {
+      runJob({ samples: liveSamples(r, Math.min(LIVE_MAX, Math.max(SEARCH_WINDOW, t))), fs: r.fs, opts: probeOpts(o.opts), live: true }).then(function (res) {
         r.liveBusy = false;
-        if (rec === r && o.onLive) o.onLive(res);
+        r.nextLive = Math.max(r.nextLive, t + 2 * (Date.now() - began) / 1000);
+        var heard = heardOf(res);   /* r.liveOk: Der vorläufige Wert darf gezeigt werden (siehe LIVE_SHOW) */
+        r.liveOk = heard && res.rateSigma <= LIVE_SHOW && r.total >= LIVE_SHOW_AFTER * r.fs && r.liveLast != null && Math.abs(res.rate - r.liveLast) <= LIVE_AGREE;
+        r.liveLast = heard ? res.rate : null;
+        if (rec === r && o.onLive) o.onLive(res, r);
       });
     }
+  }
+  /* Die letzten Sekunden aus dem Mitschnitt (reicht vor den Beginn der Messzeit zurück) */
+  function liveSamples(r, seconds) {
+    var want = Math.min(r.tailN, Math.round(seconds * r.fs)), out = new Float32Array(want), pos = want;
+    for (var i = r.tail.length - 1; i >= 0 && pos > 0; i--) {
+      var c = r.tail[i], take = Math.min(c.length, pos);
+      out.set(c.subarray(c.length - take), pos - take);
+      pos -= take;
+    }
+    return out;
   }
   /* Wirklich Ticken gehört? Im Rauschen findet die schnelle Prüfung manchmal ein Scheinmuster: dann liegen die Schläge
      um Millisekunden neben dem Raster und heben sich kaum vom Rauschen ab. Echtes Ticken, auch leises: unter 2 ms, über 6 dB. */
@@ -1007,13 +1038,16 @@
     if (t > SEARCH_MAX) { recStop(false); if (o.onTimeout) o.onTimeout(); return; }
     if (r.searchBusy || t < r.nextSearch || r.n < SEARCH_WINDOW * r.fs) return;
     r.nextSearch = t + SEARCH_EVERY; r.searchBusy = true;
+    var from = r.heard - Math.min(r.n, Math.round(SEARCH_WINDOW * r.fs));   /* erster Takt dieser Probe, gezählt seit dem Öffnen */
     runJob({ samples: tailSamples(r, SEARCH_WINDOW), fs: r.fs, opts: probeOpts(o.opts), live: true }).then(function (res) {
       r.searchBusy = false;
       if (rec !== r || r.phase !== 'search') return;
       var good = heardOf(res) && res.quality.label !== 'schwach' && res.quality.detectedFraction >= 0.85;
       r.good = good ? r.good + 1 : 0;
+      r.goodFrom = good ? from : null;
+      if (heardOf(res)) r.drawn = true;
       if (o.onSearch) o.onSearch(res, r.good, t);
-      if (r.good >= SEARCH_NEED) { beginMeasure(r); return; }
+      if (r.good >= SEARCH_NEED) { beginMeasure(r, o.auto || 'count'); return; }
       /* Kein Uhrwerk-Ticken: vielleicht eine Quarzuhr (ein Schritt pro Sekunde)? Zweimal nacheinander erkannt → Hinweis */
       if (!heardOf(res) && o.onQuartz && t >= 6 && !r.qBusy) {
         r.qBusy = true;
@@ -1026,12 +1060,26 @@
       }
     });
   }
-  /* Signal klar: Countdown auf dem Bildschirm, danach zählt die Messzeit. Keine Vibration: Das Handy liegt an der Krone,
-     ein Vibrieren würde es verschieben und das Mikrofon nähme es auf. */
-  function beginMeasure(r) {
+  /* Die Suche ist zu Ende, die Messzeit beginnt. how:
+       'count' (auch ohne Angabe): Countdown auf dem Bildschirm, erst danach zählt die Messzeit. So nach «Jetzt messen» und
+               nach «Position finden» (dort wurde eben getippt oder das Handy eben verschoben). Keine Vibration: Das Handy
+               liegt an der Krone, ein Vibrieren würde es verschieben und das Mikrofon nähme es auf.
+       'now'   sofort, ohne Countdown (seit 0.7.2, wenn die Messung von selbst startet: Das Ticken war zwei Proben lang klar).
+       'retro' sofort, und vor die Messzeit kommt das Fenster der letzten guten Probe: Diese Sekunden sind schon gehört und
+               für gut befunden. Die Messung fängt damit nicht «von vorne» an, sondern läuft weiter; ausgewertet werden die
+               gewählte Dauer und diese Sekunden dazu (30 s gewählt → rund 35 s). */
+  function beginMeasure(r, how) {
     if (rec !== r || r.phase !== 'search') return;
-    r.phase = 'measure'; r.chunks = []; r.n = 0; r.total = 0; r.skipped = 0; r.settleN = Math.round(COUNTDOWN * r.fs); r.go = false;
-    r.nextLive = LIVE_FIRST; r.liveBusy = false;
+    var keep = how === 'retro' && r.goodFrom != null ? Math.min(r.n, Math.max(0, r.heard - r.goodFrom)) : 0, drop = r.n - keep;
+    r.phase = 'measure'; r.instant = how === 'now' || how === 'retro';
+    if (!keep) { r.chunks = []; r.n = 0; }
+    else while (drop > 0 && r.chunks.length) {   /* vorne abschneiden, bis nur das Fenster der guten Probe bleibt */
+      var c = r.chunks[0];
+      if (c.length <= drop) { r.chunks.shift(); r.n -= c.length; drop -= c.length; } else { r.chunks[0] = c.subarray(drop); r.n -= drop; drop = 0; }
+    }
+    r.total = r.n; r.skipped = 0; r.settleN = r.instant ? 0 : Math.round(COUNTDOWN * r.fs); r.go = false;
+    r.dur = r.o.dur + r.n / r.fs;   /* die gewählte Messzeit läuft ab jetzt voll; die Sekunden der guten Probe kommen vorne dazu (Wunsch vom 13.11.2026) */
+    r.nextLive = LIVE_FIRST; r.liveBusy = false; r.lost = false; r.liveOk = false; r.liveLast = null;
     if (r.o.onMeasureStart) r.o.onMeasureStart(r);
   }
   /* Grosser Countdown: vor dem Start 3, 2, 1; im Lagen-Test danach die restlichen Sekunden. n = null blendet ihn aus */
@@ -1040,7 +1088,7 @@
     box.classList.toggle('counting', n != null);
     if (n != null) { $(id + 'N').textContent = String(n); $(id + 'T').textContent = txt; }
   }
-  function recForceStart() { if (rec && rec.phase === 'search') beginMeasure(rec); }
+  function recForceStart() { if (rec && rec.phase === 'search') beginMeasure(rec, 'count'); }
 
   /* ---------- Position finden (0.7.0) ----------
      Eine geführte Suchphase im selben Rekorder: Das Mikrofon bleibt offen, und stimmt die Stelle, beginnt die Messung ohne
@@ -1116,7 +1164,7 @@
         T('Stark war das Ticken nirgends. Am besten war Stelle {n}. Leg das Handy wieder so hin und halte es ruhig: Die Messung startet, sobald Tickwerk die Stelle wiedererkennt.', { n: F.best.n });
     } else {
       title = T('Ruhig halten');
-      lead = F.phase === 'confirm' ? T('Das klingt gut. Noch einen Moment ruhig halten.') : F.hint === 'shaky' ? T('Noch unruhig. Handy und Uhr ganz still halten.') :
+      lead = F.phase === 'confirm' && F.cur && F.cur.strong ? T('Das klingt gut. Noch einen Moment ruhig halten.') : F.phase === 'confirm' ? T('Tickwerk hört zu und bewertet diese Stelle.') : F.hint === 'shaky' ? T('Noch unruhig. Handy und Uhr ganz still halten.') :
         F.hint === 'none' ? T('Noch kein Ticken zu hören. Das Mikrofon an die Uhr halten und still bleiben.') :
         F.n === 1 ? T('Halte das Mikrofon an die Uhr: Es sitzt an der Unterkante des Handys. Tickwerk hört zu und bewertet die Stelle.') : T('Tickwerk hört zu und bewertet diese Stelle.');
     }
@@ -1166,11 +1214,24 @@
       return;
     }
     if (F.phase === 'confirm') {
-      findCount(1, T('ruhig halten'));
-      if (dt >= SEARCH_EVERY && !F.busy) findProbe(r, function (res) {
-        var v = findRate(res, F);
+      /* Zweite (und wenn nötig dritte) Probe derselben Stelle, seit 0.7.2: Eine einzelne Probe kann danebenliegen. Auf dem Pixel
+         hörte eine Probe an unveränderter Stelle einmal gar nichts, eine andere fand nur die Amplitude nicht sicher, und
+         Tickwerk sagte beide Male «verschieben» (Diagnose vom 13.11.2026). Jetzt gilt: zwei starke Proben → Position stimmt;
+         sonst zählt die beste Probe der Stelle, nicht die letzte. */
+      /* Die dritte Probe wartet ein ganzes Fenster und einen Takt ab: Eine kurze Störung (ein Stoss, ein Geräusch) verdirbt
+         jede Probe, in deren Fenster sie liegt; erst ein Fenster danach ist wieder frei davon (Versuch mit stoer.wav). Der
+         Takt dazu, weil die Störung noch andauern kann, wenn die zweite Probe schon gescheitert ist. */
+      var need = F.cur.n >= 2 ? SEARCH_WINDOW + SEARCH_EVERY : SEARCH_EVERY;
+      findCount(Math.max(1, Math.ceil(need - dt)), T('ruhig halten'));
+      if (dt >= need && !F.busy) findProbe(r, function (res) {
+        var v = findRate(res, F), c = F.cur;
         findNote(F, 'C', v, res);
-        if (v.strong) { findSpot(r, v); findGo(r, 's'); } else findSpotDone(r, v);
+        c.n++;
+        if (v.strong) c.strong++; else if (!c.weak || v.score > c.weak.score) c.weak = v;
+        if (v.score > c.best.score) c.best = v;
+        if (c.strong >= 2) { findSpot(r, c.best); findGo(r, 's'); return; }
+        if (c.strong === 1 && c.n < 3) { F.t0 = r.heard / r.fs; findShow(r); return; }   /* eine von zwei Proben stark: Die dritte entscheidet */
+        findSpotDone(r, findSettle(c));
       });
       return;
     }
@@ -1209,8 +1270,16 @@
       }
       return;
     }
-    if (v.strong) { F.phase = 'confirm'; F.t0 = t; findShow(r); return; }
+    F.cur = { n: 1, strong: v.strong ? 1 : 0, best: v, weak: v.strong ? null : v };
+    if (v.strong || v.level >= 3) { F.phase = 'confirm'; F.t0 = t; findShow(r); return; }   /* stark oder gut: noch eine Probe, bevor Tickwerk urteilt */
     findSpotDone(r, v);
+  }
+  /* Wertung einer Stelle aus ihren zwei oder drei Proben: die beste. War nur eine davon stark, gilt die Stelle als gut,
+     nicht als stark; als Grund steht, was der schwächeren Probe fehlte (hörte sie nichts: «unruhig»). */
+  function findSettle(c) {
+    var b = c.best;
+    if (!b.strong) return b;
+    return { score: b.score, level: 3, why: c.weak && c.weak.level > 0 && c.weak.why ? c.weak.why : 'shaky', strong: false, bph: b.bph };
   }
   function findSpot(r, v) {
     var F = r.find, s = { n: F.n, score: v.score, level: v.level, why: v.why, bph: v.bph };
@@ -1324,9 +1393,31 @@
     for (var i = 0; i < trace.length; i += step) { t.push(+trace[i].t.toFixed(2)); d.push(+trace[i].devMs.toFixed(3)); p += trace[i].parity ? '1' : '0'; }
     return { t: t, d: d, p: p };
   }
+  /* Für die Diagnose: was die Mess-Engine (seit 0.3.0) bei der letzten Auswertung über Schlagzahl und Amplitude wusste.
+     Kurz und ohne Übersetzung, wie die Zeile zu «Position finden»: A/h · Abstand zum Rauschen · Amplitude (? = unsicher) ·
+     a|p = Suche im Mittel oder im Leistungsbild · G = leisester Pegel, den die Suche noch fände · P = Pegel der Auslösung
+     bei Tick/Tack · D = lautestes Geräusch danach · M = Muster leise-lauter-Fall · L = leiser zweiter Schlag (Anteil der
+     Energie; + ausgewertet, - zurück auf jeden zweiten Schlag) */
+  var lastEng = null;
+  function engNote(r) {
+    var i = r && r.ampInfo, q = r && r.quality, pc = function (v) { return Math.round(100 * v); }, L = [];
+    if (!r || !r.ok) return null;
+    L.push(r.bph + (r.bphHalf ? 'H' : r.bphFrom ? 'F' : ''));
+    if (q && isFinite(q.snrDb)) L.push(Math.round(q.snrDb) + 'dB');
+    L.push(r.amplitude ? Math.round(r.amplitude) + '°' + (r.amplitudeReliable ? '' : '?') : '–');
+    if (i) {
+      L.push((i.from || '-') + ' G' + (100 * i.lim).toFixed(1));
+      if (i.level) L.push('P' + pc(i.level[0]) + '/' + pc(i.level[1]));
+      if (i.later) L.push('D' + pc(i.later[0]) + '/' + pc(i.later[1]));
+      L.push('M' + (i.struct ? '+' : '-'));
+    }
+    if (r.weakBeat) L.push('L' + (r.weakBeat.ratio != null ? r.weakBeat.ratio.toFixed(2) : '?') + (r.weakBeat.used ? '+' : '-'));
+    return L.join(' ');
+  }
   /* c: { watch, pos, sess } */
   function saveMeasurement(r, source, fs, c) {
     var w = c.watch;
+    lastEng = { at: new Date().toISOString(), s: engNote(r) };
     var m = {
       id: nextId(), watchId: w ? w.id : '', watchName: w ? w.name : UNKNOWN.name, pos: c.pos, date: new Date().toISOString(), source: source,
       rate: +r.rate.toFixed(2), sigma: +r.rateSigma.toFixed(2), stable: r.rateStable !== false,
@@ -1431,38 +1522,43 @@
       setStatus('status', T('Signal gut. Die Messung beginnt nach dem Countdown. Nichts mehr bewegen.'), 'ok');
       showCount('mCount', COUNTDOWN, T('Gleich geht es los. Nichts mehr bewegen.'));
     }
-    function measuring() {
+    /* Die Messzeit beginnt. Seit 0.7.2 bleibt stehen, was der Papierstreifen beim Suchen schon zeigte, und läuft weiter;
+       startete die Messung von selbst (r.instant), gibt es keinen Countdown, nur diesen Satz und den grünen Rahmen. */
+    function measuring(r) {
       showCount('mCount', null);
+      $('mSearch').hidden = true;
       $('mState').textContent = T('Misst');
-      setStatus('status', T('Messung läuft. Nichts bewegen.'), 'busy');
-      drawTape($('mTape'), null, T('Der Papierstreifen erscheint nach ein paar Sekunden.'));
+      $('scr-measure').classList.add('is-go');
+      setStatus('status', r.instant ? T('Ticken klar. Die Messung läuft. Nichts mehr bewegen.') : T('Messung läuft. Nichts bewegen.'), r.instant ? 'ok' : 'busy');
+      if (!r.drawn) drawTape($('mTape'), null, T('Der Papierstreifen erscheint nach ein paar Sekunden.'));
     }
     recStart({
-      owner: 'measure', dur: settings.dur, search: find || settings.autoStart, settle: find || settings.autoStart ? 0 : COUNTDOWN, find: find, opts: watchOpts(w),
+      owner: 'measure', dur: settings.dur, search: find || settings.autoStart, auto: 'retro', settle: find || settings.autoStart ? 0 : COUNTDOWN, find: find, opts: watchOpts(w),
       onOpening: function () { $('mStart').disabled = true; setStatus('status', T('Mikrofon wird geöffnet …'), 'busy'); },
       onFail: function (msg) { $('mStart').disabled = false; setStatus('status', msg, 'err'); },
       onBegin: function (r) {
         clearReadout();
         $('mStart').disabled = false; $('mStart').classList.add('running'); setChipsDisabled(true);
-        $('scr-measure').classList.add('is-running');   /* während der Aufnahme steht der Papierstreifen über den Werten */
+        $('scr-measure').classList.add('is-running');   /* blendet «Position finden» und «Bedingungen» aus; die Anordnung bleibt seit 0.7.2 gleich */
         if (r.phase !== 'search') { $('mStartLabel').textContent = T('Abbrechen'); counting(); return; }
         $('mState').textContent = T('Sucht das Signal');
         $('mStartLabel').textContent = T('Abbrechen');
         $('mSearch').hidden = find;   /* bei «Position finden» liegt das Blatt darüber, mit eigenem «Hier messen» */
-        setStatus('status', T('Handy-Unterkante an die Krone halten und kurz ruhig bleiben. Sobald das Ticken klar ist, startet die Messung von selbst.'), 'busy');
+        setStatus('status', T('Handy-Unterkante an die Krone halten und ruhig bleiben. Die Messung startet von selbst.'), 'busy');
         drawTape($('mTape'), null, T('Tickwerk hört zu …'));
       },
       onSearchTick: function (t, r) { bar($('levelFill'), (20 * Math.log10(r.peak + 1e-9) + 80) / 60); },
       onSearch: function (res, good, t) {
         var heard = heardOf(res);
         setSignal(heard ? qLevel(res.quality) : 0);
-        if (heard) { drawTape($('mTape'), res.trace); $('mSigma').textContent = T('{bph} A/h erkannt', { bph: thousands(res.bph) }); }
+        if (heard) { drawTape($('mTape'), res.trace); $('mSigma').textContent = T('{bph} A/h erkannt', { bph: thousands(res.bph) }); $('mBph').textContent = thousands(res.bph); }
+        if (good >= SEARCH_NEED) return;   /* die Messung beginnt in diesem Augenblick: Ihr Satz folgt gleich, kein Zwischensatz */
         if (good) setStatus('status', T('Signal gut. Ruhig halten, die Messung startet gleich.'), 'ok');
         else if (heard) setStatus('status', T('Ticken erkannt, aber noch schwach. Das Handy etwas verschieben oder fester an die Krone halten.'), 'busy');
         else setStatus('status', t > 20 ? T('Noch kein klares Ticken. Ist die Uhr aufgezogen und der Raum ruhig? Sonst «Jetzt messen» tippen.') :
           T('Suche das Ticken … Handy-Unterkante an die Krone halten.'), 'busy');
       },
-      onMeasureStart: counting,
+      onMeasureStart: function (r) { if (!r.instant) counting(); },
       onSettle: function (left) { showCount('mCount', left, T('Gleich geht es los. Nichts mehr bewegen.')); },
       onGo: measuring,
       onQuartz: function () { measureIdle(); $('mState').textContent = T('Bereit'); showQuartzHint(); },
@@ -1489,16 +1585,23 @@
           setStatus('status', extendText(res), 'busy');
         }
       },
-      onLive: function (res) {
+      onLive: function (res, r) {
         if (heardOf(res)) {
-          $('mRate').textContent = signed(res.rate, 1); $('mRate').classList.add('live');
-          $('mSigma').textContent = T('vorläufig') + ' · ' + thousands(res.bph) + ' ' + T('A/h');
-          setMarker(res.rate, true); setSignal(qLevel(res.quality));
-          drawTape($('mTape'), res.trace);
-          /* während Prüfung und Verlängerung bleibt deren Hinweis stehen (er sagt, warum es länger dauert) */
-          if (!(rec && rec.ext)) setStatus('status', T('Ticken erkannt. Nichts bewegen, bis die Zeit um ist.'), 'ok');
-        } else {
-          setSignal(0);
+          /* der vorläufige Wert erscheint erst, wenn er einigermassen steht (LIVE_SHOW); vorher nur die Schlagzahl */
+          if (r.liveOk) {
+            $('mRate').textContent = signed(res.rate, 1); $('mRate').classList.add('live');
+            $('mSigma').textContent = T('vorläufig') + ' · ' + thousands(res.bph) + ' ' + T('A/h');
+            setMarker(res.rate, true);
+          } else if (!$('mRate').classList.contains('live')) $('mSigma').textContent = T('{bph} A/h erkannt', { bph: thousands(res.bph) });
+          setSignal(qLevel(res.quality));
+          $('mBph').textContent = thousands(res.bph);   /* die Schlagzahl steht schon während der Messung in ihrer Zeile */
+          drawTape($('mTape'), res.trace); r.drawn = true;
+          /* Während Prüfung und Verlängerung bleibt deren Hinweis stehen (er sagt, warum es länger dauert). Startete die
+             Messung von selbst, bleibt auch ihr Satz stehen: Das Ticken war schon vorher erkannt, ein neuer Satz wäre nur Unruhe. */
+          if (!(rec && rec.ext) && (!r.instant || r.lost)) setStatus('status', T('Ticken erkannt. Nichts bewegen, bis die Zeit um ist.'), 'ok');
+          r.lost = false;
+        } else if (r.total >= LIVE_WARN * r.fs) {
+          setSignal(0); r.lost = true;
           setStatus('status', T('Noch kein klares Ticken. Unterkante des Handys näher an die Krone, Raum ruhig halten.'), 'err');
         }
       },
@@ -1516,7 +1619,7 @@
   }
   function measureIdle() {
     showCount('mCount', null);
-    $('scr-measure').classList.remove('is-running');
+    $('scr-measure').classList.remove('is-running'); $('scr-measure').classList.remove('is-go');
     $('mStart').classList.remove('running'); $('mStart').disabled = false; setChipsDisabled(false); $('mSearch').hidden = true;
     bar($('mProg'), 0); bar($('levelFill'), 0);
     $('mStartLabel').textContent = lastShown ? T('Nochmals messen') : T('Messen');
@@ -1551,6 +1654,7 @@
     var w = currentWatch(), pos = settings.pos, keepRec = lastRec;
     busy = true;
     $('mStart').disabled = true; $('mStartLabel').textContent = T('Rechnet …'); $('mState').textContent = T('Rechnet');
+    $('scr-measure').classList.add('is-busy');   /* «Position finden» und «Bedingungen» bleiben weg, bis das Ergebnis steht */
     setStatus('status', T('Rechne …'), 'busy');
     var op = watchOpts(w, source === 'Datei' ? '' : usedMic);
     /* Eine Datei hat oft einen Vor- oder Nachlauf ohne Ticken (Handy noch nicht an der Uhr): Die Engine wertet dann nur
@@ -1558,6 +1662,7 @@
     if (source === 'Datei') op.trimSilence = true;
     (pre ? Promise.resolve(pre) : runJob({ samples: samples, fs: fs, opts: op })).then(function (res) {
       busy = false; $('mStart').disabled = false;
+      $('scr-measure').classList.remove('is-busy');
       var fb = extFallback(res, first);
       if (fb) {   /* die Verlängerung liess sich nicht auswerten: Es gilt die zuerst gewählte Dauer, auch als Aufnahme zum Teilen */
         logExtFail(res);
@@ -1610,7 +1715,7 @@
   }
   function showResult(r, m) {
     lastShown = { r: r, m: m };
-    $('scr-measure').classList.add('has-result');   /* «Gespeichert …» rückt unter den Papierstreifen */
+    $('scr-measure').classList.add('has-result');   /* «Gespeichert …» rückt unter den Papierstreifen; oben steht die Wertung */
     var w = findWatch(m.watchId), k = w ? kalById(w.kaliberId) : null, st = liftState(w);
     $('mRate').textContent = signed(r.rate, 1); $('mRate').classList.remove('live');
     $('mSigma').textContent = '± ' + fmt(r.rateSigma, 2) + ' ' + T('s/Tag') + ' · ' + fmt(r.duration, 0) + ' s · ' + T('{n} Schläge', { n: r.beatsUsed }) +
@@ -2243,7 +2348,7 @@
   function setPSignal(level) { $('pSignal').setAttribute('data-level', String(level)); $('pSignalText').textContent = LEVEL_TEXT[level]; }
   function lpReady(p) {
     lpStop();
-    showCount('pCount', null);
+    showCount('pCount', null); $('scr-lpos').classList.remove('is-go');
     $('pState').textContent = T('Bereit');
     $('pRate').textContent = '–'; $('pRate').classList.remove('live'); $('pSub').textContent = '';
     $('pMetrics').hidden = true; setPSignal(0); bar($('pLevel'), 0); bar($('pProg'), 0);
@@ -2275,7 +2380,7 @@
     var p = t.p, pos = p.pos, sess = session.id, setN = session.set, w = lagenWatch();
     lpReady(p); p.res = null;
     recStart({
-      owner: 'lpos', dur: settings.dur, search: find || settings.autoStart, settle: find || settings.autoStart ? 0 : SETTLE, find: find, opts: watchOpts(w),
+      owner: 'lpos', dur: settings.dur, search: find || settings.autoStart, auto: 'now', settle: find || settings.autoStart ? 0 : SETTLE, find: find, opts: watchOpts(w),
       onOpening: function () { $('pStart').disabled = true; setStatus('pStatus', T('Mikrofon wird geöffnet …'), 'busy'); },
       onFail: function (msg) { $('pStart').disabled = false; setStatus('pStatus', msg, 'err'); },
       onBegin: function (r) {
@@ -2293,19 +2398,23 @@
         var heard = heardOf(res);
         setPSignal(heard ? qLevel(res.quality) : 0);
         if (heard) { drawTape($('pTape'), res.trace); $('pSub').textContent = T('{bph} A/h erkannt', { bph: thousands(res.bph) }); }
+        if (good >= SEARCH_NEED) return;
         if (good) setStatus('pStatus', T('Signal gut. Ruhig halten, die Messung startet gleich.'), 'ok');
         else if (heard) setStatus('pStatus', T('Ticken erkannt, aber noch schwach. Das Handy etwas verschieben oder fester an die Krone halten.'), 'busy');
         else setStatus('pStatus', tt > 20 ? T('Noch kein klares Ticken. Ist die Uhr aufgezogen und der Raum ruhig? Sonst «Jetzt messen» tippen.') :
           T('Suche das Ticken … Handy-Unterkante an die Krone halten.'), 'busy');
       },
-      onMeasureStart: function () {
-        $('pSearch').hidden = true; $('pState').textContent = T('Gleich');
+      onMeasureStart: function (r) {
+        $('pSearch').hidden = true;
+        if (r.instant) return;   /* von selbst gestartet: kein Countdown (seit 0.7.2), die Messzeit läuft sofort */
+        $('pState').textContent = T('Gleich');
         setStatus('pStatus', T('Signal gut. Die Messung beginnt nach dem Countdown. Nichts mehr bewegen.'), 'ok');
         showCount('pCount', COUNTDOWN, T('Gleich geht es los. Nichts mehr bewegen.'));
       },
-      onGo: function () {
+      onGo: function (r) {
         $('pState').textContent = T('Misst');
-        setStatus('pStatus', T('Messung läuft. Nichts bewegen.'), 'busy');
+        $('scr-lpos').classList.add('is-go');
+        setStatus('pStatus', r.instant ? T('Ticken klar. Die Messung läuft. Nichts mehr bewegen.') : T('Messung läuft. Nichts bewegen.'), r.instant ? 'ok' : 'busy');
       },
       onQuartz: function () {
         lpReady(p);
@@ -2338,20 +2447,23 @@
           setStatus('pStatus', extendText(res), 'busy');
         }
       },
-      onLive: function (res) {
+      onLive: function (res, r) {
         if (heardOf(res)) {
-          $('pRate').textContent = signed(res.rate, 1); $('pRate').classList.add('live');
-          $('pSub').textContent = T('vorläufig') + ' · ' + thousands(res.bph) + ' ' + T('A/h');
+          if (r.liveOk) {   /* wie beim Messen: der vorläufige Wert erst, wenn er einigermassen steht */
+            $('pRate').textContent = signed(res.rate, 1); $('pRate').classList.add('live');
+            $('pSub').textContent = T('vorläufig') + ' · ' + thousands(res.bph) + ' ' + T('A/h');
+          } else if (!$('pRate').classList.contains('live')) $('pSub').textContent = T('{bph} A/h erkannt', { bph: thousands(res.bph) });
           setPSignal(qLevel(res.quality)); drawTape($('pTape'), res.trace);
-          if (!(rec && rec.ext)) setStatus('pStatus', T('Ticken erkannt. Nichts bewegen, bis die Zeit um ist.'), 'ok');
-        } else {
-          setPSignal(0);
+          if (!(rec && rec.ext) && (!r.instant || r.lost)) setStatus('pStatus', T('Ticken erkannt. Nichts bewegen, bis die Zeit um ist.'), 'ok');
+          r.lost = false;
+        } else if (r.total >= LIVE_WARN * r.fs) {
+          setPSignal(0); r.lost = true;
           setStatus('pStatus', T('Noch kein klares Ticken. Handy-Unterkante näher an die Krone, ohne die Uhr zu bewegen.'), 'err');
         }
       },
       onCancel: function () { lpReady(p); setStatus('pStatus', T('Abgebrochen.'), ''); },
       onDone: function (samples, fs, pre, extFrom, first) {
-        busy = true; showCount('pCount', null);
+        busy = true; showCount('pCount', null); $('scr-lpos').classList.remove('is-go');
         $('pStart').classList.remove('running'); $('pStart').disabled = true; $('pSearch').hidden = true;
         $('pStartLabel').textContent = T('Rechnet …'); $('pState').textContent = T('Rechnet'); bar($('pProg'), 0); bar($('pLevel'), 0);
         setStatus('pStatus', T('Rechne …'), 'busy');
@@ -4726,8 +4838,16 @@
   /* ---------- Was ist neu ----------
      Einmal nach einem Update zeigen, was dazugekommen ist und wo es zu finden ist; jederzeit unter «Mehr». Bei einer
      neuen Installation nicht (dort erklärt die Anleitung den Einstieg). settings.seenVersion merkt sich die Version. */
-  var NEWS_ORDER = ['0.7.0', '0.6.8', '0.6.7', '0.6.6', '0.6.5', '0.6.4'];   /* neuste zuerst; die älteren stehen im Blatt darunter, falls ein Update übersprungen wurde */
+  var NEWS_ORDER = ['0.7.2', '0.7.1', '0.7.0', '0.6.8', '0.6.7', '0.6.6', '0.6.5', '0.6.4'];   /* neuste zuerst; die älteren stehen im Blatt darunter, falls ein Update übersprungen wurde */
   var NEWS = {
+    '0.7.2': [
+      { t: T('Messen aus einem Guss'), s: T('Startet die Messung von selbst, läuft sie ohne Countdown weiter. Der Papierstreifen zeigt das Ticken vom Suchen bis zum Ergebnis durchgehend, und die Sekunden, in denen das Ticken schon klar war, zählen mit. Der vorläufige Wert erscheint erst, wenn er ruhig steht.') },
+      { t: T('Feste Anordnung'), s: T('Papierstreifen und Werte tauschen während der Messung nicht mehr den Platz. «Position finden» sitzt direkt über dem Startknopf, beim Messen zusammen mit «Bedingungen».') }
+    ],
+    '0.7.1': [
+      { t: T('Amplitude bei schwachem Signal'), s: T('Lag das Ticken nur wenig über dem Rauschen, konnte Tickwerk die Amplitude deutlich zu hoch angeben. Die Mess-Engine findet das leise erste Geräusch im Schlag jetzt auch im Rauschen. Gelingt das nicht, steht bei der Amplitude «unsicher», und sie zählt nicht für die Wertung.') },
+      { t: T('Leiser zweiter Schlag'), s: T('Ist einer der zwei Schläge einer Uhr viel leiser, erkennt Tickwerk die Schlagzahl jetzt auch, wenn bei der Uhr keine hinterlegt ist.') }
+    ],
     '0.7.0': [
       { t: T('Position finden'), s: T('Neuer Knopf beim Messen, im Lagen-Test und beim Regulieren. Tickwerk hört an jeder Stelle fünf Sekunden zu und sagt, ob sie besser oder schlechter ist als die vorige. Stimmt die Stelle, wird der Bildschirm grün, und die Messung startet von selbst.') },
       { t: T('Wertung aus mehreren Messungen'), s: T('Die Wertung einer Uhr stützt sich auf die letzten fünf sicheren Messungen statt auf die letzte allein. «Service prüfen» erscheint erst, wenn drei Messungen dasselbe sagen. Eine tiefe Amplitude zählt nicht, wenn die Uhr nicht voll aufgezogen war oder in den Stunden um den Datumswechsel gemessen wurde.') },
@@ -4857,6 +4977,7 @@
       L.push(T('Speicher') + ': ' + T('dauerhaft') + ' ' + (r[2] == null ? '?' : yn(r[2])) + (est.usage ? ' · ' + fmt(est.usage / 1048576, 1) + ' MB' : '') +
         ' · ' + T('Update bereit') + ': ' + yn(updReady));
       L.push(T('Position finden') + ': ' + (!findLast ? '–' : diagStamp(findLast.at) + ' · ' + (findLast.rows.join(' | ') || '–') + (findLast.end ? ' → ' + findLast.end : '')));
+      L.push(T('Letzte Auswertung') + ': ' + (!lastEng || !lastEng.s ? '–' : diagStamp(lastEng.at) + ' · ' + lastEng.s));
       L.push('');
       L.push(T('Letzte Messungen') + ':');
       if (!last.length) L.push('  –');

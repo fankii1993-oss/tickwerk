@@ -66,8 +66,6 @@
       <button type="button" class="btn-ghost small" id="mGrOpen" hidden>Zum Gangreserve-Test</button>
     </div>
     <p class="status center-status" id="status" data-kind="">«Messen» tippen und die Unterkante des Handys an die Krone halten.</p>
-    <div class="actions center" id="mSearch" hidden><button type="button" class="btn-ghost small" id="mForce">Jetzt messen</button><button type="button" class="btn-ghost small" id="mFindRun">Position finden</button></div>
-    <div class="actions center" id="mPre"><button type="button" class="btn-ghost small" id="mFindBtn">Position finden</button><button type="button" class="btn-ghost small" id="mCondBtn" aria-haspopup="dialog">Bedingungen</button></div>
     <div class="notice" id="mQuartz" hidden>
       <p>Das klingt nach einer Quarzuhr: ein Schritt pro Sekunde. Mechanische Uhren ticken 5- bis 10-mal pro Sekunde. Eine Quarzuhr misst Tickwerk nicht als Uhr, aber mit ihr lässt sich die Handy-Uhr eichen.</p>
       <button type="button" class="btn-ghost small" id="mQuartzGo">Handy-Uhr damit eichen</button>
@@ -109,7 +107,7 @@
           <span id="mSignalText">kein Signal</span><button type="button" class="info" data-info="signal" aria-label="Erklärung: Signal"></button>
         </span>
       </div>
-      <canvas class="plot" id="mTape" height="84" aria-label="Papierstreifen"></canvas>
+      <canvas class="plot" id="mTape" height="76" aria-label="Papierstreifen"></canvas>
       <div class="level" aria-hidden="true"><div class="level-fill" id="levelFill"></div></div>
     </div>
     <details class="card details" id="mDetails">
@@ -118,7 +116,12 @@
       <p class="hint" id="mDetailHint">Grün: Tick, blau: Tack. Gestrichelt: Auslösung und Fall.</p>
     </details>
 
-    <button type="button" class="btn-primary btn-big" id="mStart"><span class="prog" id="mProg"></span><span class="btn-label" id="mStartLabel">Messen</span></button>
+    <!-- seit 0.7.2: «Position finden» und «Bedingungen» sitzen direkt über dem Hauptknopf und bleiben mit ihm über der Tableiste stehen -->
+    <div class="dock" id="mDock">
+      <div class="actions center" id="mSearch" hidden><button type="button" class="btn-ghost small" id="mForce">Jetzt messen</button><button type="button" class="btn-ghost small" id="mFindRun">Position finden</button></div>
+      <div class="actions center" id="mPre"><button type="button" class="btn-ghost small" id="mFindBtn">Position finden</button><button type="button" class="btn-ghost small" id="mCondBtn" aria-haspopup="dialog">Bedingungen</button></div>
+      <button type="button" class="btn-primary btn-big" id="mStart"><span class="prog" id="mProg"></span><span class="btn-label" id="mStartLabel">Messen</span></button>
+    </div>
     <div class="actions center" id="mActions">
       <button type="button" class="btn-ghost small" id="imgBtn" hidden>Als Bild teilen</button>
       <button type="button" class="btn-ghost small" id="shareBtn" hidden>Aufnahme teilen (WAV)<span class="pro-tag">Pro</span></button>
@@ -543,21 +546,36 @@
       <p class="lead">So hört die App das Ticken deiner Uhr am besten.</p>
     </div>
     <figure class="guide-fig">
-      <svg viewBox="0 0 310 170" role="img" aria-label="Die Unterkante des Handys mit dem Mikrofon berührt die Krone der Uhr">
-        <rect x="82" y="8" width="46" height="26" rx="6" class="g-strap"/>
-        <rect x="82" y="136" width="46" height="26" rx="6" class="g-strap"/>
-        <circle cx="105" cy="85" r="60" class="g-case"/>
-        <circle cx="105" cy="85" r="49" class="g-ring"/>
-        <path d="M105 41v6M105 123v6M61 85h6M143 85h6" class="g-idx"/>
-        <path d="M105 85L105 55" class="g-hand"/>
-        <path d="M105 85L127 98" class="g-hand"/>
-        <circle cx="105" cy="85" r="3.5" class="g-pin"/>
-        <rect x="164" y="76" width="16" height="18" rx="3" class="g-crown"/>
-        <rect x="182" y="34" width="118" height="102" rx="16" class="g-phone"/>
-        <rect x="196" y="48" width="90" height="74" rx="6" class="g-screen"/>
-        <circle cx="189" cy="85" r="3" class="g-mic"/>
-        <circle cx="182" cy="85" r="13" class="g-wave"/>
-        <path d="M214 92h8l5-14 8 26 6-18 4 6h10" class="g-pulse"/>
+      <svg class="g-tall" viewBox="55 0 200 256" role="img" aria-label="Die Unterkante des Handys mit dem Mikrofon berührt die Krone der Uhr">
+        <!-- seit 0.7.2 neu gezeichnet: das Handy aufrecht und als Handy zu erkennen, auf dem Bildschirm die Messansicht mit dem
+             Papierstreifen (Wunsch vom 13.11.2026); seine Unterkante mit dem Mikrofon liegt an der Krone der Uhr darunter -->
+        <rect x="86" y="197" width="40" height="40" rx="6" class="g-strap"/>
+        <rect x="184" y="197" width="40" height="40" rx="6" class="g-strap"/>
+        <circle cx="155" cy="216" r="35" class="g-case"/>
+        <circle cx="155" cy="216" r="28" class="g-ring"/>
+        <path d="M155 191v4M130 216h4M176 216h4" class="g-idx"/>
+        <path d="M155 216L139 216" class="g-hand"/>
+        <path d="M155 216L163 203" class="g-hand"/>
+        <circle cx="155" cy="216" r="2.5" class="g-pin"/>
+        <rect x="149" y="170" width="12" height="11" rx="3" class="g-crown"/>
+        <path d="M198.5 52v22M198.5 82v12" class="g-btn"/>
+        <rect x="113" y="6" width="84" height="162" rx="13" class="g-phone"/>
+        <rect x="117" y="10" width="76" height="154" rx="9" class="g-screen"/>
+        <circle cx="155" cy="17" r="2" class="g-cam"/>
+        <path d="M124 27h34M124 32h22" class="g-ui"/>
+        <text x="153" y="58" class="g-val">+5</text>
+        <path d="M123 70h64" class="g-ui"/>
+        <rect x="147" y="64" width="16" height="6" class="g-band"/>
+        <path d="M167 61v10" class="g-mark"/>
+        <rect x="121" y="78" width="68" height="42" rx="5" class="g-card"/>
+        <g class="g-tick"><circle cx="127.0" cy="109.5" r="1.3"/><circle cx="132.1" cy="108.5" r="1.3"/><circle cx="137.2" cy="106.2" r="1.3"/><circle cx="142.3" cy="105.5" r="1.3"/><circle cx="147.4" cy="103.1" r="1.3"/><circle cx="152.5" cy="102.5" r="1.3"/><circle cx="157.6" cy="101.4" r="1.3"/><circle cx="162.7" cy="99.0" r="1.3"/><circle cx="167.8" cy="98.3" r="1.3"/><circle cx="172.9" cy="96.0" r="1.3"/><circle cx="178.0" cy="95.1" r="1.3"/><circle cx="183.1" cy="94.0" r="1.3"/></g>
+        <g class="g-tock"><circle cx="127.0" cy="114.0" r="1.3"/><circle cx="132.1" cy="113.0" r="1.3"/><circle cx="137.2" cy="112.1" r="1.3"/><circle cx="142.3" cy="109.8" r="1.3"/><circle cx="147.4" cy="109.0" r="1.3"/><circle cx="152.5" cy="106.7" r="1.3"/><circle cx="157.6" cy="105.6" r="1.3"/><circle cx="162.7" cy="104.9" r="1.3"/><circle cx="167.8" cy="102.6" r="1.3"/><circle cx="172.9" cy="101.9" r="1.3"/><circle cx="178.0" cy="99.5" r="1.3"/><circle cx="183.1" cy="98.5" r="1.3"/></g>
+        <rect x="121" y="124" width="68" height="19" rx="4" class="g-tile"/>
+        <path d="M126 130.5h18M126 136.5h14" class="g-ui"/><path d="M172 130.5h12M176 136.5h8" class="g-uiv"/>
+        <rect x="121" y="147" width="68" height="11" rx="5.5" class="g-main"/>
+        <path d="M145 161.5h20" class="g-bar"/>
+        <circle cx="155" cy="168" r="3" class="g-mic"/>
+        <circle cx="155" cy="169" r="13" class="g-wave"/>
       </svg>
     </figure>
     <ol class="steps">

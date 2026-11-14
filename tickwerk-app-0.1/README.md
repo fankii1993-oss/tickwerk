@@ -1,4 +1,4 @@
-# Tickwerk – Web-App 0.7.0 (Testversion)
+# Tickwerk – Web-App 0.7.2 (Testversion)
 
 Misst mit dem Handy-Mikrofon, wie genau eine mechanische Uhr geht: Gangabweichung, Abfallfehler, Amplitude, Schlagzahl. Die Aufnahme und die Messwerte bleiben auf dem Handy. Ins Internet gehen nur, wenn du in der App zustimmst, leere Zeitabfragen für den «Gang im Alltag» und für «Mit Internetzeit eichen»: an den öffentlichen Zeitdienst time.akamai.com und, wenn er nicht antwortet, an den Server, von dem die App kommt (siehe Datenschutzerklärung).
 
@@ -11,6 +11,23 @@ Seit dem 10.11.2026 legt Claude neue Versionen als Pull Request in den Ordner; �
 1. Im Repository den Ordner `tickwerk-app-0.1` öffnen.
 2. **Add file → Upload files**, den ganzen Inhalt dieses Pakets hineinziehen (Dateien und die Ordner `engine`, `fonts`, `icons`), **Commit changes**. Gleichnamige Dateien werden ersetzt; deine Uhren und Messungen bleiben auf dem Handy erhalten.
 3. App auf dem Handy öffnen. Nach ein paar Sekunden erscheint «Neue Version ist bereit»; unter Mehr auf **Neue Version: neu laden** tippen. Ab 0.6.3 lässt sich die Suche unter Mehr → **Nach Update suchen** auch von Hand anstossen.
+
+## Neu in 0.7.2
+
+- **Messen aus einem Guss.** Startet die Messung von selbst, läuft sie ohne Countdown weiter. Der Papierstreifen zeigt das Ticken vom Suchen bis zum Ergebnis durchgehend, statt nach dem Start neu anzufangen; die Sekunden, in denen das Ticken schon klar war, zählen zur Messzeit. Der Countdown bleibt, wo eben getippt wurde: beim Start ohne automatischen Start, nach «Jetzt messen» und nach «Position finden».
+- **Ruhigerer vorläufiger Wert.** Die laufende Anzeige rechnet über die ganze bisherige Messung (bis 20 Sekunden) statt über die letzten 10 Sekunden und zeigt den Wert erst, wenn er auf ± 1 s/Tag steht.
+- **Feste Anordnung.** Papierstreifen und Werte tauschen während der Messung nicht mehr den Platz. «Position finden» sitzt direkt über dem Startknopf (Messen, Lagen-Test, Regulieren), beim Messen zusammen mit «Bedingungen».
+- Die Mess-Engine ist unverändert 0.3.0; am Ergebnis einer Messung ändert sich nichts.
+
+## Neu in 0.7.1
+
+Mess-Engine 0.3.0. Die App selbst ist bis auf die Neuigkeiten und eine Zeile in der Diagnose unverändert.
+
+- **Amplitude bei schwachem Signal:** Die Engine sucht im Schlag das leise erste Geräusch (die Auslösung); aus seinem Abstand zum lautesten Geräusch folgt die Amplitude. Lag das Ticken nur wenig über dem Rauschen, ging die Auslösung unter, die Engine nahm das nächste Geräusch, und die Amplitude kam um rund die Hälfte zu hoch heraus (aus 219° wurden 320°, als «verlässlich» gemeldet). Neu sucht die Engine zusätzlich im Mittel der Leistung, aus dem sich das Rauschen abziehen lässt. An einer Testaufnahme stimmt die Amplitude damit bis etwa 11 dB Abstand zum Rauschen (vorher bis etwa 17 dB).
+- **Ehrlicher bei «verlässlich»:** Die Amplitude gilt nur noch als verlässlich, wenn ein verdecktes erstes Geräusch ausgeschlossen ist: Die Suche hätte auch ein sehr leises Geräusch gefunden, oder der Schlag zeigt das Muster leise, lauter, am lautesten. Sonst steht «unsicher», und die Amplitude zählt nicht für die Wertung.
+- **Leiser zweiter Schlag:** Die Engine verlangte bisher, dass der leisere der zwei Schläge mindestens ein Viertel der Energie des lauteren hat; sonst meldete sie die halbe Schlagzahl. Neu zählt auch ein leiserer Schlag, wenn er klar über dem Rauschen liegt und dieselbe Form hat. Gelingt die Auswertung mit beiden Schlägen nicht, gilt wie bisher die mit jedem zweiten. Die Korrektur aus 0.6.8 (hinterlegte Schlagzahl) bleibt als zweite Sicherung.
+- **Was gleich bleibt:** Bei sauberen Aufnahmen ändert sich kein Wert. Gang und Abfallfehler rechnet die Engine wie bisher.
+- **Diagnose:** neue Zeile «Letzte Auswertung» mit dem, was die Engine über Schlagzahl und Amplitude wusste.
 
 ## Neu in 0.7.0
 
