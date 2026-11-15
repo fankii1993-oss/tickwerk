@@ -50,6 +50,7 @@
       <div class="big-row"><span class="big" id="mRate">–</span><span class="big-unit">s/Tag</span></div>
       <div class="count-box"><span class="count-n" id="mCountN"></span><span class="count-t" id="mCountT"></span></div>
       <span class="sigma" id="mSigma"></span>
+      <span class="sigma live-note off" id="mLiveNote"></span>
     </div>
     <div class="scale" aria-hidden="true">
       <div class="scale-track">
@@ -64,6 +65,13 @@
       <p id="mGrText"></p>
       <button type="button" class="btn-link" id="mGrX">Nicht für den Test</button>
       <button type="button" class="btn-ghost small" id="mGrOpen" hidden>Zum Gangreserve-Test</button>
+    </div>
+    <div class="notice gr-notice" id="mLagen" hidden>
+      <p id="mLagenText"></p>
+      <div class="actions">
+        <button type="button" class="btn-primary small" id="mLagenGo">In Lagen-Test umwandeln</button>
+        <button type="button" class="btn-link" id="mLagenX">Nicht jetzt</button>
+      </div>
     </div>
     <p class="status center-status" id="status" data-kind="">«Messen» tippen und die Unterkante des Handys an die Krone halten.</p>
     <div class="notice" id="mQuartz" hidden>
@@ -143,6 +151,7 @@
       </button>
     </div>
     <div class="cards" id="watchCards"></div>
+    <p class="sort-hint" id="wSortHint" hidden>Lange drücken und ziehen, um die Reihenfolge zu ändern.</p>
     <div class="empty" id="watchEmpty" hidden>
       <p>Noch keine Uhr gespeichert. Mit einer eigenen Uhr stimmen Hebewinkel und Schlagzahl, und du siehst den Verlauf.</p>
       <button type="button" class="btn-primary" id="wAddFirst">Uhr hinzufügen</button>
@@ -385,6 +394,7 @@
       </div>
       <div class="big-row lp-rate"><span class="big big-md" id="pRate">–</span><span class="big-unit">s/Tag</span></div>
       <span class="sigma center" id="pSub"></span>
+      <span class="sigma center live-note" id="pLiveNote" hidden></span>
       <dl class="metrics" id="pMetrics" hidden>
         <div class="metric"><dt>Amplitude<button type="button" class="info" data-info="amp" aria-label="Erklärung: Amplitude"></button></dt><dd id="pAmp">–</dd><small id="pAmpNote"></small></div>
         <div class="metric"><dt>Abfallfehler<button type="button" class="info" data-info="be" aria-label="Erklärung: Abfallfehler"></button></dt><dd id="pBe">–</dd><small>ms</small></div>
