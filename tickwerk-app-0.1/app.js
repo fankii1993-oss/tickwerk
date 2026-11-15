@@ -65,7 +65,7 @@
   var UHREN = window.TICKWERK_UHREN || [];
   var CFG = window.TICKWERK_CONFIG || {};
   var FLAVOR = CFG.flavor === 'store' ? 'store' : 'test';
-  var APP_VERSION = '0.7.5';
+  var APP_VERSION = '0.7.6';
   var PREFIX = typeof CFG.storage === 'string' && /^[a-z][a-z0-9.]{2,30}$/.test(CFG.storage) ? CFG.storage : 'tickwerk.v1';
   var KEYS = { watches: PREFIX + '.watches', meas: PREFIX + '.measurements', settings: PREFIX + '.settings', session: PREFIX + '.session', pro: PREFIX + '.pro', log: PREFIX + '.log' };
   var PRO_SKU = typeof CFG.proSku === 'string' && /^[a-z0-9._]{1,40}$/.test(CFG.proSku) ? CFG.proSku : 'tickwerk_pro';
@@ -3181,6 +3181,18 @@
     $('dlPdf').disabled = !st.n; $('dlImg').disabled = !st.n;
     $('dlPdfBar').hidden = true;
   }
+  /* 0.7.6: Lagen-Test auflösen. Die Messungen bleiben und gelten wieder als einzelne Messungen: die Umkehrung von lagenConvert
+     (0.7.5), sie geht auch für einen gewöhnlichen Lagen-Test. Danach zeigt die Karte den Test davor, wenn es einen gibt;
+     liegen die Messungen nahe genug beisammen, erscheint oben wieder der Vorschlag zum Umwandeln. */
+  $('dlUndo').addEventListener('click', function () {
+    var w = detailWatch(), L = w ? lastLagenOf(measOf(w)) : null;
+    if (!L || rec || busy) return;
+    if (!window.confirm(T('Lagen-Test auflösen? Die Messungen bleiben erhalten und gelten wieder als einzelne Messungen.'))) return;
+    meas.forEach(function (m) { if (m.sess === L.id) { delete m.sess; delete m.lset; } });
+    if (session && session.id === L.id) { session = null; saveSession(); }
+    saveMeas(); toast(T('Lagen-Test aufgelöst.'));
+    renderDetail(top().p);
+  });
   $('dlImg').addEventListener('click', function () {
     var w = detailWatch(); if (!w) return;
     var L = lastLagenOf(measOf(w)); if (L) shareLagenImage(w, L.set, L.byPos, L.started, this);
@@ -4246,11 +4258,30 @@
       $('wName').value = w.name; setCal(kalById(w.kaliberId)); $('wLift').value = w.liftAngle; $('wBph').value = w.bph ? String(w.bph) : '';
       applyCal(kalById(w.kaliberId), true);
       $('watchFormTitle').textContent = T('Uhr bearbeiten'); $('wSave').textContent = T('Änderungen speichern'); $('wDelete').hidden = false;
+      renderOrder(w);
     } else {
+      renderOrder(null);
       $('wLift').value = 52; applyCal(null);
       $('watchFormTitle').textContent = T('Uhr hinzufügen'); $('wSave').textContent = T('Speichern'); $('wDelete').hidden = true;
     }
   }
+  /* 0.7.6: Platz der Uhr in «Meine Uhren», ohne Ziehen: für Tastatur und Bildschirmleser, wo langes Drücken und Ziehen (0.7.5)
+     nicht geht. Wirkt sofort, unabhängig von «Änderungen speichern». */
+  function renderOrder(w) {
+    var i = w ? watches.indexOf(w) : -1, show = i >= 0 && watches.length > 1;
+    $('wOrder').hidden = !show;
+    if (!show) return;
+    $('wOrderPos').textContent = T('Platz {i} von {n} in «Meine Uhren»', { i: i + 1, n: watches.length });
+    $('wUp').disabled = i === 0; $('wDown').disabled = i === watches.length - 1;
+  }
+  function moveWatch(d, btn) {
+    var t = top(), w = t.s === 'edit' && t.p.id ? findWatch(t.p.id) : null, i = w ? watches.indexOf(w) : -1, j = i + d;
+    if (i < 0 || j < 0 || j >= watches.length) return;
+    watches.splice(j, 0, watches.splice(i, 1)[0]); saveWatches(); renderOrder(w);
+    if (btn.disabled) $(btn.id === 'wUp' ? 'wDown' : 'wUp').focus();   /* am Rand angekommen: der Fokus bleibt bei den beiden Knöpfen */
+  }
+  $('wUp').addEventListener('click', function () { moveWatch(-1, this); });
+  $('wDown').addEventListener('click', function () { moveWatch(1, this); });
   /* Quarzuhr: Werk, Hebewinkel und Schlagzahl gibt es nicht */
   function quartzForm() { var q = $('wQuartz').checked; $('wMech').hidden = q; $('wFindBox').hidden = q; }
   $('wQuartz').addEventListener('change', quartzForm);
@@ -5217,8 +5248,12 @@
   /* ---------- Was ist neu ----------
      Einmal nach einem Update zeigen, was dazugekommen ist und wo es zu finden ist; jederzeit unter «Mehr». Bei einer
      neuen Installation nicht (dort erklärt die Anleitung den Einstieg). settings.seenVersion merkt sich die Version. */
-  var NEWS_ORDER = ['0.7.5', '0.7.4', '0.7.3', '0.7.2', '0.7.1', '0.7.0', '0.6.8', '0.6.7', '0.6.6', '0.6.5', '0.6.4'];   /* neuste zuerst; die älteren stehen im Blatt darunter, falls ein Update übersprungen wurde */
+  var NEWS_ORDER = ['0.7.6', '0.7.5', '0.7.4', '0.7.3', '0.7.2', '0.7.1', '0.7.0', '0.6.8', '0.6.7', '0.6.6', '0.6.5', '0.6.4'];   /* neuste zuerst; die älteren stehen im Blatt darunter, falls ein Update übersprungen wurde */
   var NEWS = {
+    '0.7.6': [
+      { t: T('Lagen-Test auflösen'), s: T('Auf der Karte «Letzter Lagen-Test» einer Uhr: Die Messungen bleiben und gelten wieder als einzelne Messungen. So lässt sich auch ein umgewandelter Lagen-Test zurücknehmen.') },
+      { t: T('Uhren ordnen ohne Ziehen'), s: T('Unter «Uhr bearbeiten» verschieben «Nach oben» und «Nach unten» die Uhr in der Liste, auch mit Tastatur und Bildschirmleser.') }
+    ],
     '0.7.5': [
       { t: T('Lagen-Test: Du bestimmst, wann es weitergeht'), s: T('Das Ergebnis einer Lage bleibt stehen, bis du «Weiter» oder «Nochmals messen» tippst. Vorher ging es nach drei Sekunden von selbst zurück.') },
       { t: T('Einzelne Messungen als Lagen-Test'), s: T('Hast du alle Lagen einer Uhr einzeln gemessen, innerhalb von 20 Minuten, schlägt Tickwerk vor, daraus einen Lagen-Test zu machen.') },

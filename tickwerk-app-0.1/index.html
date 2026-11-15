@@ -252,6 +252,7 @@
           <button type="button" class="btn-ghost small" id="dlPdf">Protokoll dieses Tests (PDF)</button>
           <button type="button" class="btn-ghost small" id="dlImg">Als Bild teilen</button>
           <button type="button" class="btn-ghost small" id="dlOpen" hidden>Fortsetzen</button>
+          <button type="button" class="btn-link" id="dlUndo">Lagen-Test auflösen</button>
         </div>
         <span class="pdfbar" id="dlPdfBar" hidden></span>
       </div>
@@ -323,6 +324,13 @@
       <p class="hint">Der Hebewinkel wirkt nur auf die Amplitude. Unbekannt: 52 Grad lassen. Die Schlagzahl erkennt Tickwerk selbst und meldet sich, wenn sie nicht zur Angabe passt.</p>
       </div>
       <button type="submit" class="btn-primary btn-big" id="wSave">Speichern</button>
+      <div class="order-row" id="wOrder" hidden>
+        <span class="mono-sub" id="wOrderPos" aria-live="polite"></span>
+        <div class="actions">
+          <button type="button" class="btn-ghost small" id="wUp">Nach oben</button>
+          <button type="button" class="btn-ghost small" id="wDown">Nach unten</button>
+        </div>
+      </div>
       <button type="button" class="btn-ghost btn-big danger" id="wDelete" hidden>Uhr löschen</button>
     </form>
   </section>
