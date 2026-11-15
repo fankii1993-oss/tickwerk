@@ -12,6 +12,16 @@ Seit dem 10.11.2026 legt Claude neue Versionen als Pull Request in den Ordner; �
 2. **Add file → Upload files**, den ganzen Inhalt dieses Pakets hineinziehen (Dateien und die Ordner `engine`, `fonts`, `icons`), **Commit changes**. Gleichnamige Dateien werden ersetzt; deine Uhren und Messungen bleiben auf dem Handy erhalten.
 3. App auf dem Handy öffnen. Nach ein paar Sekunden erscheint «Neue Version ist bereit»; unter Mehr auf **Neue Version: neu laden** tippen. Ab 0.6.3 lässt sich die Suche unter Mehr → **Nach Update suchen** auch von Hand anstossen.
 
+## Neu in 0.7.10
+
+- **Update ohne Mischzustand.** Bis 0.7.9 holte der Service Worker jede Datei im Hintergrund nochmals und legte sie in den Speicher. Diese Abfrage lief durch den Zwischenspeicher des Browsers; hielt der noch Dateien der Version davor (der Server lässt sie 10 Minuten gelten), lagen nach einem Update alte Dateien neben neuen. Die App lief dann einmal richtig und beim nächsten Öffnen gemischt: neue Seite, altes Programm, altes Aussehen. Nach einigen Minuten und zwei weiteren Starts stimmte es wieder.
+- **Was jetzt gilt.** Antworten kommen nur noch aus dem Speicher der Version; ein Auffrischen im Hintergrund gibt es nicht mehr. Eine neue Version kommt allein über das Installieren des Service Workers: Jede Datei wird frisch geholt und gegen ihre Prüfsumme (SHA-256, vom Build in `sw.js` eingesetzt) geprüft. Erst wenn alle stimmen, kommen sie in den Speicher. Stimmt eine nicht, bleibt die bisherige Version, und «Nach Update suchen» meldet, dass die neue nicht geladen werden konnte.
+- **Dateien ausserhalb des Speichers** (Testseiten, Texterkennung beim ersten Gebrauch) holt Tickwerk mit Nachfrage beim Server. Behalten wird davon nur die Texterkennung, in ihrem eigenen Speicher.
+- **Unverändert:** Die neue Version wird sofort aktiv, die offene Seite bietet «Neue Version: neu laden» an. Bis zum Neuladen kann die offene Seite Dateien der neuen Version nachladen.
+
+- **Katalog erweitert.** 501 Modelle von 123 Marken und 184 Werke (vorher 444, 114 und 160). Jedes neue Modell hat eine Quelle, die sein Werk nennt; die Liste liegt im Quellcode-Paket (`katalog/modelle-quellen-0710.md`). Ein Hebewinkel steht nur, wo die Seite des Werks ihn nennt.
+- **Berichtigt:** Ein Modell stand bei einem Werk mit 28’800 A/h; die Quelle führt es auch bei einem Werk mit 36’000 A/h. Es ist aus dem Eintrag entfernt.
+
 ## Neu in 0.7.9
 
 - **«Mehr» neu geordnet.** Zuoberst steht, was noch zu tun ist: die Karte «Handy-Uhr eichen», solange das Handy nicht geeicht oder die Eichung über sechs Monate alt ist (mit dem Grund: Ohne Eichung kann die Gangabweichung je nach Handy um ein bis zwei Sekunden pro Tag danebenliegen, manchmal mehr); eine bereite neue Version; fällige Messungen je Uhr (Gangreserve-Test, Zeitvergleich); «Tickwerk Pro», solange gratis.

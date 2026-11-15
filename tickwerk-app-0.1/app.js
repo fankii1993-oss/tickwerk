@@ -65,7 +65,7 @@
   var UHREN = window.TICKWERK_UHREN || [];
   var CFG = window.TICKWERK_CONFIG || {};
   var FLAVOR = CFG.flavor === 'store' ? 'store' : 'test';
-  var APP_VERSION = '0.7.9';
+  var APP_VERSION = '0.7.10';
   var PREFIX = typeof CFG.storage === 'string' && /^[a-z][a-z0-9.]{2,30}$/.test(CFG.storage) ? CFG.storage : 'tickwerk.v1';
   var KEYS = { watches: PREFIX + '.watches', meas: PREFIX + '.measurements', settings: PREFIX + '.settings', session: PREFIX + '.session', pro: PREFIX + '.pro', log: PREFIX + '.log' };
   var PRO_SKU = typeof CFG.proSku === 'string' && /^[a-z0-9._]{1,40}$/.test(CFG.proSku) ? CFG.proSku : 'tickwerk_pro';
@@ -5936,8 +5936,12 @@
   /* ---------- Was ist neu ----------
      Einmal nach einem Update zeigen, was dazugekommen ist und wo es zu finden ist; jederzeit unter «Mehr». Bei einer
      neuen Installation nicht (dort erklärt die Anleitung den Einstieg). settings.seenVersion merkt sich die Version. */
-  var NEWS_ORDER = ['0.7.9', '0.7.8', '0.7.7', '0.7.6', '0.7.5', '0.7.4', '0.7.3', '0.7.2', '0.7.1', '0.7.0', '0.6.8', '0.6.7', '0.6.6', '0.6.5', '0.6.4'];   /* neuste zuerst; die älteren stehen im Blatt darunter, falls ein Update übersprungen wurde */
+  var NEWS_ORDER = ['0.7.10', '0.7.9', '0.7.8', '0.7.7', '0.7.6', '0.7.5', '0.7.4', '0.7.3', '0.7.2', '0.7.1', '0.7.0', '0.6.8', '0.6.7', '0.6.6', '0.6.5', '0.6.4'];   /* neuste zuerst; die älteren stehen im Blatt darunter, falls ein Update übersprungen wurde */
   var NEWS = {
+    '0.7.10': [
+      { t: T('Update ohne alte Dateien'), s: T('Nach einem Update konnte Tickwerk beim nächsten Öffnen einige Minuten mit alten Dateien laufen: «Mehr» sah falsch aus, und Knöpfe taten nichts. Das ist behoben. Tickwerk prüft jetzt jede Datei eines Updates und wechselt nur als Ganzes zur neuen Version.') },
+      { t: T('Mehr Uhren und Werke'), s: T('Die Suche kennt 57 weitere Modelle und 24 weitere Werke. Aufgenommen ist weiterhin nur, wofür eine Quelle das verbaute Werk nennt.') }
+    ],
     '0.7.9': [
       { t: T('«Mehr» neu geordnet'), s: T('Die Eichung steht zuoberst, solange das Handy nicht geeicht ist; danach findest du sie unter «Genauigkeit». Die übrigen Punkte stehen in Gruppen zum Auf- und Zuklappen. Ihre Farbe wählst du in den Einstellungen.') }
     ],
