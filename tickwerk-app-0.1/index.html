@@ -19,6 +19,7 @@
   <!-- ======================= MESSEN ======================= -->
   <section class="screen" id="scr-measure" aria-label="Messen">
     <div class="mhead">
+      <canvas class="foto foto-head" id="mFoto" data-px="44" width="1" height="1" aria-hidden="true" hidden></canvas>
       <div class="mhead-txt">
         <span class="eyebrow" id="mState">Bereit</span>
         <span class="mwatch-name" id="mWatchName">Unbekannte Uhr</span>
@@ -171,6 +172,7 @@
         </button>
       </span>
     </div>
+    <canvas class="foto foto-big" id="dFoto" data-px="184" width="1" height="1" aria-hidden="true" hidden></canvas>
     <div class="title-block">
       <h1 class="h1-sm" id="dName"></h1>
       <span class="mono-sub" id="dCal"></span>
@@ -286,6 +288,19 @@
         <ul class="suggest" id="wFindList" role="listbox" aria-label="Vorschläge" hidden></ul>
         <p class="hint" id="wFindNote"></p>
         <button type="button" class="btn-link left" id="wMissing" hidden>Modell fehlt? Melden</button>
+        <div class="lies-row" id="wLiesRow">
+          <button type="button" class="btn-ghost small" id="wLiesCamBtn">Per Foto anlegen</button>
+          <button type="button" class="btn-link" id="wLiesPickBtn">Foto aus der Galerie</button>
+        </div>
+        <p class="hint" id="wLiesHint">Tickwerk liest die Schrift auf dem Zifferblatt und schlägt Uhren aus dem Katalog vor. Beim ersten Mal lädt es dafür die Texterkennung (rund 3 MB). Das Foto bleibt auf dem Handy.</p>
+        <div class="lies" id="wLies" hidden>
+          <p class="hint" id="wLiesStatus" role="status"></p>
+          <ul class="suggest lies-list" id="wLiesList" aria-label="Vorschläge aus dem Foto"></ul>
+          <button type="button" class="btn-link left" id="wLiesMore" hidden></button>
+          <button type="button" class="btn-ghost small" id="wLiesAgain" hidden>Nochmals versuchen</button>
+        </div>
+        <input type="file" id="wLiesCam" accept="image/*" capture="environment" hidden>
+        <input type="file" id="wLiesIn" accept="image/*" hidden>
       </div>
       <div class="field">
         <label for="wName">Name</label>
@@ -323,6 +338,21 @@
       </div>
       <p class="hint">Der Hebewinkel wirkt nur auf die Amplitude. Unbekannt: 52 Grad lassen. Die Schlagzahl erkennt Tickwerk selbst und meldet sich, wenn sie nicht zur Angabe passt.</p>
       </div>
+      <div class="field" id="wFotoBox" role="group" aria-labelledby="wFotoLabel">
+        <span class="field-label" id="wFotoLabel">Foto</span>
+        <div class="foto-row">
+          <canvas class="foto foto-edit" id="wFotoPrev" data-px="72" width="1" height="1" aria-hidden="true" hidden></canvas>
+          <div class="actions">
+            <button type="button" class="btn-ghost small" id="wFotoCamBtn">Foto aufnehmen</button>
+            <button type="button" class="btn-ghost small" id="wFotoPickBtn">Foto wählen</button>
+            <button type="button" class="btn-link" id="wFotoDel" hidden>Foto entfernen</button>
+          </div>
+        </div>
+        <p class="hint" id="wFotoNote" role="status"></p>
+        <p class="hint">Tickwerk schneidet das Zifferblatt rund aus. Das Foto bleibt auf diesem Handy.</p>
+        <input type="file" id="wFotoCam" accept="image/*" capture="environment" hidden>
+        <input type="file" id="wFotoIn" accept="image/*" hidden>
+      </div>
       <button type="submit" class="btn-primary btn-big" id="wSave">Speichern</button>
       <div class="order-row" id="wOrder" hidden>
         <span class="mono-sub" id="wOrderPos" aria-live="polite"></span>
@@ -333,6 +363,25 @@
       </div>
       <button type="button" class="btn-ghost btn-big danger" id="wDelete" hidden>Uhr löschen</button>
     </form>
+  </section>
+
+  <!-- ======================= FOTO ZUSCHNEIDEN (0.7.7) ======================= -->
+  <section class="screen" id="scr-foto" aria-label="Foto zuschneiden" hidden>
+    <div class="bar">
+      <button type="button" class="back" data-back><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span>Zurück</span></button>
+    </div>
+    <h1 class="h1-sm">Foto zuschneiden</h1>
+    <p class="hint" id="feHint">Schieb das Foto, bis das Zifferblatt den Kreis füllt. Die 12 gehört nach oben.</p>
+    <canvas class="fe-stage" id="feStage" width="1" height="1" tabindex="0" role="img" aria-label="Ausschnitt des Fotos. Mit den Pfeiltasten schieben, mit Plus und Minus die Grösse ändern."></canvas>
+    <div class="fe-ctl">
+      <label for="feZoom">Grösse</label>
+      <input type="range" id="feZoom" min="0" max="100" step="1" value="50">
+      <label for="feTilt">Fein drehen</label>
+      <input type="range" id="feTilt" min="-20" max="20" step="0.5" value="0">
+      <button type="button" class="btn-ghost small" id="feTurn">Um 90° drehen</button>
+    </div>
+    <button type="button" class="btn-primary btn-big" id="feOk">Foto übernehmen</button>
+    <button type="button" class="btn-ghost btn-big" id="feCancel">Abbrechen</button>
   </section>
 
   <!-- ======================= LAGEN-TEST ======================= -->
@@ -614,36 +663,53 @@
   <!-- ======================= MEHR ======================= -->
   <section class="screen" id="scr-more" aria-label="Mehr" hidden>
     <div class="title-block"><h1>Mehr</h1><span class="mono-sub" id="moreVersion"></span></div>
-    <ul class="menu">
-      <li><button type="button" data-go="pro"><span class="menu-t">Tickwerk Pro</span><span class="menu-s" id="moreProState"></span></button></li>
-    </ul>
-    <div class="section gap">
-      <span class="eyebrow">Werkzeuge</span>
-      <ul class="menu" id="moreTools"></ul>
-    </div>
-    <div class="section gap">
-      <span class="eyebrow">App</span>
-      <ul class="menu">
-        <li><button type="button" data-go="guide"><span class="menu-t">Mikrofon anlegen</span><span class="menu-s">So misst du richtig</span></button></li>
-        <li><button type="button" data-go="history"><span class="menu-t">Alle Messungen</span><span class="menu-s" id="moreHistory"></span></button></li>
-        <li><button type="button" data-go="settings"><span class="menu-t">Einstellungen</span><span class="menu-s">Sprache, Mikrofon, Datei auswerten, Daten sichern</span></button></li>
-        <li><a href="datenschutz.html"><span class="menu-t">Datenschutz</span><span class="menu-s">Was mit deinen Daten passiert</span></a></li>
-      </ul>
-    </div>
-    <div class="section gap">
-      <span class="eyebrow">Version</span>
-      <ul class="menu">
-        <li><button type="button" id="newsBtn"><span class="menu-t">Was ist neu</span><span class="menu-s" id="newsSub"></span></button></li>
-        <li><button type="button" id="updCheck"><span class="menu-t">Nach Update suchen</span><span class="menu-s" id="updState" role="status"></span></button></li>
-        <li><button type="button" id="diagBtn"><span class="menu-t">Diagnose teilen</span><span class="menu-s">Version, Handy, Mikrofon und letzte Fehler als Text</span></button></li>
-      </ul>
-    </div>
-    <div class="actions">
-      <button type="button" class="btn-ghost small" id="installBtn" hidden>App installieren</button>
+    <div class="more-first" id="moreFirst">
+      <div class="mfirst" id="moreCal" hidden>
+        <div class="mfirst-h"><svg class="mico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg><span class="mfirst-t" id="moreCalT">Handy-Uhr eichen</span><span class="mchip" id="moreCalChip">noch offen</span></div>
+        <p id="moreCalP"></p>
+        <div class="actions"><button type="button" class="btn-primary" id="moreCalGo">Jetzt eichen</button><span class="menu-s" id="moreCalS">2½ Minuten mit einer Quarzuhr</span></div>
+      </div>
       <button type="button" class="btn-ghost small" id="updateBtn" hidden>Neue Version: neu laden</button>
+      <button type="button" class="btn-ghost small" id="installBtn" hidden>App installieren</button>
+      <ul class="menu" id="moreDue" hidden></ul>
+      <ul class="menu" id="moreProSlot"><li id="moreProLi"><button type="button" class="mrow" data-go="pro"><svg class="mico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4l2.4 5 5.6.7-4.1 3.8 1 5.5L12 16.4 7.1 19l1-5.5L4 9.7l5.6-.7z"/></svg><span class="mtxt"><span class="menu-t">Tickwerk Pro</span><span class="menu-s" id="moreProState"></span></span><svg class="mch" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button></li></ul>
     </div>
+    <details class="macc" id="moreAccTools">
+      <summary><span class="macc-t">Werkzeuge für die Uhr</span><span class="macc-r"><span class="macc-s" id="moreAccToolsS"></span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></span></summary>
+      <ul class="menu" id="moreTools"></ul>
+    </details>
+    <details class="macc" id="moreAccGenau">
+      <summary><span class="macc-t">Genauigkeit</span><span class="macc-r"><span class="macc-s" id="moreAccGenauS"></span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></span></summary>
+      <ul class="menu">
+        <li id="moreCalLi"><button type="button" class="mrow" id="moreCalRow" data-tool="eichen"><svg class="mico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg><span class="mtxt"><span class="menu-t">Eichung</span><span class="menu-s" id="moreCalSub"></span></span><svg class="mch" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button></li>
+        <li><button type="button" class="mrow" data-go="guide"><svg class="mico" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4"/></svg><span class="mtxt"><span class="menu-t">Mikrofon anlegen</span><span class="menu-s">So misst du richtig</span></span><svg class="mch" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button></li>
+      </ul>
+    </details>
+    <details class="macc" id="moreAccDaten">
+      <summary><span class="macc-t">Deine Daten</span><span class="macc-r"><span class="macc-s" id="moreAccDatenS"></span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></span></summary>
+      <ul class="menu">
+        <li><button type="button" class="mrow" data-go="history"><svg class="mico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7h11M9 12h11M9 17h11M4.5 7h.01M4.5 12h.01M4.5 17h.01"/></svg><span class="mtxt"><span class="menu-t">Alle Messungen</span><span class="menu-s" id="moreHistory"></span></span><svg class="mch" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button></li>
+        <li><button type="button" class="mrow" id="moreBackup"><svg class="mico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v10M8 10l4 4 4-4M5 19h14"/></svg><span class="mtxt"><span class="menu-t">Daten sichern</span><span class="menu-s">Sicherung speichern oder laden</span></span><svg class="mch" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button></li>
+      </ul>
+    </details>
+    <details class="macc" id="moreAccApp">
+      <summary><span class="macc-t">App</span><span class="macc-r"><span class="macc-s" id="moreAccAppS"></span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></span></summary>
+      <ul class="menu" id="moreAppList">
+        <li><button type="button" class="mrow" data-go="settings"><svg class="mico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg><span class="mtxt"><span class="menu-t">Einstellungen</span><span class="menu-s">Sprache, Mikrofon, Datei auswerten, Daten sichern</span></span><svg class="mch" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button></li>
+        <li><button type="button" class="mrow" id="newsBtn"><svg class="mico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16v-5a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 21h4"/></svg><span class="mtxt"><span class="menu-t">Was ist neu</span><span class="menu-s" id="newsSub"></span></span><svg class="mch" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button></li>
+        <li><button type="button" class="mrow" id="updCheck"><svg class="mico" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v5h-5"/></svg><span class="mtxt"><span class="menu-t">Nach Update suchen</span><span class="menu-s" id="updState" role="status"></span></span><svg class="mch" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button></li>
+      </ul>
+    </details>
+    <details class="macc" id="moreAccHilfe">
+      <summary><span class="macc-t">Hilfe</span><span class="macc-r"><span class="macc-s" id="moreAccHilfeS"></span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></span></summary>
+      <ul class="menu">
+        <li><button type="button" class="mrow" id="diagBtn"><svg class="mico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l2-6 4 12 2-6h6"/></svg><span class="mtxt"><span class="menu-t">Diagnose teilen</span><span class="menu-s">Version, Handy, Mikrofon und letzte Fehler als Text</span></span><svg class="mch" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button></li>
+        <li><a class="mrow" href="datenschutz.html"><svg class="mico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z"/></svg><span class="mtxt"><span class="menu-t">Datenschutz</span><span class="menu-s">Was mit deinen Daten passiert</span></span><svg class="mch" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></a></li>
+      </ul>
+    </details>
     <p class="hint" id="versionInfo"></p>
     <p class="hint">Tickwerk misst mit dem Smartphone-Mikrofon. Die Werte sind eine Selbstmessung, keine amtliche Prüfung. Schriften: Inter, Space Grotesk, IBM Plex Mono (SIL Open Font License).</p>
+    <p class="hint">Texterkennung für «Per Foto anlegen»: Tesseract (Apache-Lizenz 2.0) und tesseract-wasm (BSD-Lizenz).</p>
   </section>
 
   <!-- ======================= TICKWERK PRO ======================= -->
@@ -703,6 +769,17 @@
       </div>
     </div>
     <div class="card">
+      <div class="field">
+        <label for="accLook">Farbe der Gruppen unter «Mehr»</label>
+        <select id="accLook">
+          <option value="tint">Grün getönt</option>
+          <option value="full">Grün</option>
+          <option value="card">Wie die Karten</option>
+          <option value="open">Nur die offene Gruppe grün</option>
+        </select>
+      </div>
+    </div>
+    <div class="card">
       <label class="switch"><input type="checkbox" id="autoStart"><span>Messung automatisch starten</span></label>
       <p class="hint">Tickwerk hört nach «Messen» zuerst nur zu und beginnt von selbst, sobald das Ticken klar ist.</p>
       <label class="switch"><input type="checkbox" id="extendOn"><span>Unsichere Messung verlängern</span></label>
@@ -740,7 +817,7 @@
         <div class="actions"><label class="btn-ghost small file-btn">Datei wählen<input type="file" id="fileIn" accept="audio/*,.wav,.m4a,.mp3"></label></div>
       </div>
     </div>
-    <div class="card">
+    <div class="card" id="setBackup">
       <span class="card-title">Daten sichern</span>
       <p class="hint">Deine Uhren und Messungen bleiben nur auf diesem Handy. Eine Sicherung kannst du auf ein neues Handy übertragen.</p>
       <div class="actions">

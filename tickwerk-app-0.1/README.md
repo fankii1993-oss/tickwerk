@@ -12,6 +12,31 @@ Seit dem 10.11.2026 legt Claude neue Versionen als Pull Request in den Ordner; �
 2. **Add file → Upload files**, den ganzen Inhalt dieses Pakets hineinziehen (Dateien und die Ordner `engine`, `fonts`, `icons`), **Commit changes**. Gleichnamige Dateien werden ersetzt; deine Uhren und Messungen bleiben auf dem Handy erhalten.
 3. App auf dem Handy öffnen. Nach ein paar Sekunden erscheint «Neue Version ist bereit»; unter Mehr auf **Neue Version: neu laden** tippen. Ab 0.6.3 lässt sich die Suche unter Mehr → **Nach Update suchen** auch von Hand anstossen.
 
+## Neu in 0.7.9
+
+- **«Mehr» neu geordnet.** Zuoberst steht, was noch zu tun ist: die Karte «Handy-Uhr eichen», solange das Handy nicht geeicht oder die Eichung über sechs Monate alt ist (mit dem Grund: Ohne Eichung kann die Gangabweichung je nach Handy um ein bis zwei Sekunden pro Tag danebenliegen, manchmal mehr); eine bereite neue Version; fällige Messungen je Uhr (Gangreserve-Test, Zeitvergleich); «Tickwerk Pro», solange gratis.
+- **Gruppen zum Auf- und Zuklappen.** «Werkzeuge für die Uhr», «Genauigkeit», «Deine Daten», «App», «Hilfe». Beim ersten Mal ist «Werkzeuge für die Uhr» offen; Tickwerk merkt sich den Stand. Rechts im Kopf jeder Gruppe steht eine Kurzinfo (Anzahl Werkzeuge, «geeicht», Anzahl Messungen, Pro und Version).
+- **Wohin was gewandert ist.** Die Eichung steht nach dem Eichen unter «Genauigkeit» (mit Wert und Datum), «Tickwerk Pro» nach dem Freischalten unter «App». «Daten sichern» hat eine eigene Zeile unter «Deine Daten» und führt zur Karte in den Einstellungen.
+- **Farbe einstellbar.** Einstellungen, «Farbe der Gruppen unter «Mehr»»: grün getönt (Standard), grün, wie die Karten, oder nur die offene Gruppe grün (die zugeklappten wie die Karten).
+- **Symbole.** Jede Zeile unter «Mehr» hat ein Symbol und einen Pfeil.
+
+## Neu in 0.7.8
+
+- **Uhr per Foto anlegen.** Unter «Uhr hinzufügen» steht «Per Foto anlegen» (Kamera) und «Foto aus der Galerie»; bei einer bestehenden Uhr heisst der Knopf «Modell per Foto finden». Nach dem Zuschneiden liest Tickwerk die Schrift auf dem Zifferblatt und zeigt passende Uhren aus dem Katalog, dazu die Wörter, die es erkannt hat. Übernommen wird nur, was angetippt wird; die Suche bleibt daneben bestehen. Das Foto wird zugleich das Foto der Uhr.
+- **Gelesen wird auf dem Gerät.** Die Texterkennung (Tesseract als WebAssembly, Ordner `ocr/`) läuft in einem eigenen Worker. Sie wird erst beim ersten Gebrauch geladen (rund 3 MB) und danach vom Service Worker in einem eigenen Speicher behalten, der ein Update der App überlebt. Die Regeln der Seite (Content Security Policy) bleiben unverändert.
+- **Wie verglichen wird.** Gelesene Wörter werden unscharf mit Marke und Modellname im Katalog verglichen (gleiches Wort, Wortteil ab fünf Zeichen, ein bis zwei falsche Zeichen). Die gelesene Marke zählt drei Punkte, jedes Modellwort zwei; ab zwei Punkten ist ein Modell ein Vorschlag. Findet sich nichts, liest Tickwerk das Bild noch in den drei anderen Lagen (falls die 12 nicht oben steht).
+- **Grenzen.** Verdecken die Zeiger die Schrift, spiegelt das Glas oder steht der Modellname nicht auf dem Zifferblatt, findet Tickwerk nur die Marke, nichts oder das Falsche. Abgestimmt ist das Lesen an wenigen echten Fotos. Uhren, die gleich aussehen und je nach Baujahr ein anderes Werk haben, kann ein Foto nicht unterscheiden: Hier wählt weiterhin der Mensch.
+- **Mehr Auflösung beim Zuschneiden.** Das Foto wird mit bis zu 2400 statt 1600 Bildpunkten Kantenlänge verarbeitet, damit die Schrift lesbar bleibt.
+
+## Neu in 0.7.7
+
+- **Foto der Uhr.** Unter «Uhr bearbeiten»: «Foto aufnehmen» öffnet die Kamera des Handys, «Foto wählen» die Galerie. Auf «Foto zuschneiden» liegt das Foto unter einem festen Kreis: schieben mit dem Finger, die Grösse mit zwei Fingern oder dem Regler ändern, «Um 90° drehen» für quer aufgenommene Fotos, «Fein drehen» zum Ausrichten. Tickwerk sucht das Zifferblatt und schlägt den Kreis vor; der Vorschlag ist ein Anfang und lässt sich frei ändern.
+- **Wo das Foto erscheint.** Auf der Karte in «Meine Uhren» (rechts unter dem Pfeil), gross auf der Seite der Uhr, klein neben dem Namen auf «Messen» und in «Uhr wählen». So ist auf einen Blick zu sehen, welche Uhr gewählt ist.
+- **Was gespeichert wird.** Nur der runde Ausschnitt (512 mal 512 Bildpunkte, JPEG), auf dem Handy im Speicher der App (IndexedDB). Angaben aus der Bilddatei wie Ort und Aufnahmezeit gehen dabei verloren. Der Ausschnitt steht in der Sicherung und kommt beim Laden einer Sicherung mit der Uhr zurück. «Foto entfernen», «Uhr löschen» und «Alle Daten löschen» entfernen ihn.
+- **Karten in «Meine Uhren».** Der Verlauf steht neu unten rechts, neben Einstufung und Fusszeile. Oben rechts ist Platz für das Foto; ohne Foto bleibt er frei.
+- **Technik.** Die Fotos werden auf eine Zeichenfläche (`canvas`) gezeichnet statt als Bild eingebunden: Die Regel der Seite für Bilder (`img-src 'self'`) bleibt unverändert. Die Datenschutzseite nennt die Fotos in allen vier Sprachen.
+- **Kleinigkeit.** «Nicht jetzt» beim Vorschlag zum Lagen-Test bleibt erhalten, wenn die Uhr danach bearbeitet wird.
+
 ## Neu in 0.7.6
 
 - **Lagen-Test auflösen.** Auf der Seite der Uhr, Karte «Letzter Lagen-Test»: «Lagen-Test auflösen» nimmt den Messungen die gemeinsame Sitzung, nach einer Rückfrage. Die Messungen bleiben und gelten wieder als einzelne Messungen. Das ist die Umkehrung von «In Lagen-Test umwandeln» (0.7.5) und geht auch für einen gewöhnlichen oder einen angefangenen Lagen-Test (dieser ist damit beendet). Liegen die Messungen höchstens 20 Minuten auseinander, steht danach wieder der Vorschlag zum Umwandeln da.
@@ -238,5 +263,6 @@ Aufgeräumt: Die Funktionen sind dieselben wie in 0.6.1, sie sind aber leichter 
 - `datenschutz.html`, `privacy.html`, `privacy-fr.html`, `privacy-it.html` – Datenschutzerklärung in vier Sprachen
 - `sw.js`, `manifest.webmanifest`, `icons/` – Installation und Offline-Betrieb
 - `fonts/` – Schriften (SIL Open Font License, siehe OFL-Dateien)
+- `ocr/` – Texterkennung für «Per Foto anlegen»: `lib.js` und die gepackten `.wasm`-Dateien aus tesseract-wasm 0.11.0 (BSD-Lizenz; darin Tesseract, Apache-Lizenz 2.0), `eng.traineddata.gz` aus tessdata_fast (Apache-Lizenz 2.0), `worker.js` von Tickwerk; Lizenzen in `ocr/LICENSE.txt`
 
 Gebaut mit `tools/build-app.py` aus dem Tickwerk-Projekt.
