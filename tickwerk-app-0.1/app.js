@@ -65,7 +65,7 @@
   var UHREN = window.TICKWERK_UHREN || [];
   var CFG = window.TICKWERK_CONFIG || {};
   var FLAVOR = CFG.flavor === 'store' ? 'store' : 'test';
-  var APP_VERSION = '0.7.4';
+  var APP_VERSION = '0.7.5';
   var PREFIX = typeof CFG.storage === 'string' && /^[a-z][a-z0-9.]{2,30}$/.test(CFG.storage) ? CFG.storage : 'tickwerk.v1';
   var KEYS = { watches: PREFIX + '.watches', meas: PREFIX + '.measurements', settings: PREFIX + '.settings', session: PREFIX + '.session', pro: PREFIX + '.pro', log: PREFIX + '.log' };
   var PRO_SKU = typeof CFG.proSku === 'string' && /^[a-z0-9._]{1,40}$/.test(CFG.proSku) ? CFG.proSku : 'tickwerk_pro';
@@ -96,7 +96,7 @@
      meldet die Anzeige wie bisher frühestens nach LIVE_WARN Sekunden Messzeit (die ersten Proben reichen noch in die Sekunden
      vor dem Start zurück, in denen das Handy vielleicht eben erst angelegt wurde). Nächste Probe frühestens
      nach LIVE_EVERY Sekunden und nach dem Doppelten der letzten Rechenzeit (auf langsamen Geräten seltener). */
-  var LIVE_FIRST = 0.5, LIVE_EVERY = 2, LIVE_MIN = 4, LIVE_MAX = 20, LIVE_SHOW = 1, LIVE_SHOW_AFTER = 7, LIVE_AGREE = 0.8, LIVE_STALE = 2, LIVE_WARN = 6, SETTLE = 5;
+  var LIVE_FIRST = 0.5, LIVE_EVERY = 2, LIVE_MIN = 4, LIVE_MAX = 20, LIVE_SHOW = 1, LIVE_SHOW_AFTER = 7, LIVE_AGREE = 0.8, LIVE_STALE = 2, LIVE_MISS = 3, LIVE_WARN = 6, SETTLE = 5;
   /* Automatischer Start: zuhören, bis das Ticken in zwei kurzen Fenstern nacheinander klar ist */
   var SEARCH_WINDOW = 4.5, SEARCH_EVERY = 1.25, SEARCH_NEED = 2, SEARCH_KEEP = 14, SEARCH_MAX = 120;
   /* Countdown (statt Vibration): so lange hört Tickwerk schon zu, verwendet die Takte aber noch nicht. Seit 0.7.2 nur noch,
@@ -111,9 +111,9 @@
      NOISE_HOP Sekunden); als ruhig gilt das untere Viertel der Fenster, als laut, was NOISE_DB darüber liegt. Ist mehr als
      NOISE_MAX der Aufnahme laut, ist es keine Störung, sondern ein unsteter Pegel. Gesucht wird nur, wenn die Messung
      ohnehin schwankt oder unsicher ist: Eine gute Messung bekommt wegen eines Geräuschs keinen Vermerk. */
-  var NOISE_HOP = 0.5, NOISE_DB = 5, NOISE_GAP = 1, NOISE_MAX = 0.5;
+  var NOISE_HOP = 0.5, NOISE_DB = 5, NOISE_GAP = 1, NOISE_MAX = 0.5, NOISE_MIN = 1.5;
   /* Der lauteste zusammenhängende Abschnitt: { a, b } in Sekunden ab Beginn der Aufnahme, oder null */
-  function noiseSpan(samples, fs, db) {   /* db: eigene Schwelle statt NOISE_DB (Position finden) */
+  function noiseSpan(samples, fs, db, minLen) {   /* db: eigene Schwelle statt NOISE_DB (Position finden); minLen: Mindestdauer in Sekunden */
     var hop = Math.round(NOISE_HOP * fs), nb = Math.floor(samples.length / hop), e = [], w = [], i, j;
     if (nb < 12) return null;
     for (i = 0; i < nb; i++) { var s = 0, o = i * hop; for (j = 0; j < hop; j++) s += samples[o + j] * samples[o + j]; e.push(s / hop); }
@@ -130,12 +130,13 @@
     var a = best.a, b = best.b + 1;   /* Ränder auf die halben Sekunden legen, die selbst laut sind */
     while (a < b && !(e[a] > lim)) a++;
     while (b > a && !(e[b] > lim)) b--;
+    if (minLen && (b + 1 - a) * NOISE_HOP < minLen) return null;
     return { a: a * NOISE_HOP, b: (b + 1) * NOISE_HOP };
   }
   /* Nach der Auswertung: Schwankt die Messung oder ist sie unsicher, nach einer Störung suchen (res.noise) */
   function markNoise(res, samples, fs) {
     if (!res || !res.ok || res.trimmed || !(res.rateStable === false || res.rateSigma > SIGMA_SURE)) return;
-    var ns = noiseSpan(samples, fs);
+    var ns = noiseSpan(samples, fs, 0, NOISE_MIN);   /* seit 0.7.5: Ein einzelner Knack unter anderthalb Sekunden gilt nicht als Grund */
     if (ns) res.noise = ns;
   }
   /* Die Auswertung ist gescheitert («Kein regelmässiges Ticken gefunden»), obwohl das Ticken vor dem Start klar war (sure:
@@ -143,7 +144,7 @@
      Rückgabe [von, bis] in ganzen Sekunden oder null. Eine Lücke im Ticken (code 'silence') hat ihre eigene Meldung. */
   function failNoise(res, samples, fs, sure) {
     if (!sure || (res && (res.ok || res.code === 'silence'))) return null;
-    var ns = noiseSpan(samples, fs);
+    var ns = noiseSpan(samples, fs, 0, NOISE_MIN);   /* seit 0.7.5: Ein einzelner Knack unter anderthalb Sekunden gilt nicht als Grund */
     if (!ns) return null;
     var a = Math.floor(ns.a);
     return [a, Math.max(a + 1, Math.ceil(ns.b))];
@@ -189,6 +190,8 @@
       out.gr = { id: str(w.gr.id, 24), t0: isNaN(g0.getTime()) ? '' : g0.toISOString() };
       if (out.gr.t0 && !isNaN(gs.getTime())) out.gr.stop = gs.toISOString();
     }
+    /* 0.7.5: «Nicht jetzt» beim Vorschlag, einzelne Messungen zum Lagen-Test zu machen (Nummer der Messung, bei der gefragt wurde) */
+    if (finite(w.lsk, 0) > 0) out.lsk = finite(w.lsk, 0);
     return out;
   }
   function cleanTrace(tr) {
@@ -1053,14 +1056,33 @@
       var began = Date.now();
       r.nextLive = t + LIVE_EVERY; r.liveBusy = true;
       runJob({ samples: liveSamples(r, Math.min(LIVE_MAX, Math.max(SEARCH_WINDOW, t))), fs: r.fs, opts: probeOpts(o.opts), live: true }).then(function (res) {
+        var heard = heardOf(res), lv = heard ? qLevel(res.quality) : 0;
+        /* 0.7.5: Fehlen dem Mikrofon ein paar Millisekunden Ton oder vibriert das Handy kurz, meldet die lange Probe (bis LIVE_MAX
+           Sekunden) «schwach» oder gar nichts, solange die Stelle in ihrem Fenster liegt, also bis zu 20 Sekunden lang, obwohl das
+           Ticken einwandfrei ist (die Auswertung am Ende gleicht den Aussetzer aus). Auf dem Testhandy hiess es darum mitten in
+           einer ruhigen Messung «Signal schwach» (14.11.2026). Ist die lange Probe nicht mindestens «gut», sagt darum eine kurze
+           Probe über die letzten SEARCH_WINDOW Sekunden, wie das Signal jetzt ist. */
+        if (lv >= 3 || rec !== r) { liveDone(res, null); return; }
+        runJob({ samples: liveSamples(r, SEARCH_WINDOW), fs: r.fs, opts: probeOpts(o.opts), live: true }).then(function (res2) { liveDone(res, res2); });
+      });
+      var liveDone = function (res, res2) {
         r.liveBusy = false;
         r.nextLive = Math.max(r.nextLive, t + 2 * (Date.now() - began) / 1000);
-        var heard = heardOf(res);   /* r.liveOk: Der vorläufige Wert darf gezeigt werden (siehe LIVE_SHOW) */
+        var heard = heardOf(res), heard2 = heardOf(res2);   /* r.liveOk: Der vorläufige Wert darf gezeigt werden (siehe LIVE_SHOW) */
         r.liveOk = heard && res.rateSigma <= LIVE_SHOW && r.total >= LIVE_SHOW_AFTER * r.fs && r.liveLast != null && Math.abs(res.rate - r.liveLast) <= LIVE_AGREE;
         r.liveStale = r.liveOk ? 0 : (r.liveStale || 0) + 1;   /* so viele Proben nacheinander haben den gezeigten Wert nicht bestätigt */
         r.liveLast = heard ? res.rate : null;
+        /* r.liveNow: das Signal jetzt (die bessere der zwei Proben); r.liveMiss: so viele Runden nacheinander hat keine Probe das
+           Ticken gehört. «Noch kein klares Ticken» kommt erst nach LIVE_MISS Runden: Ein kurzes Geräusch liegt bis zu drei
+           Runden lang im kurzen Fenster. */
+        r.liveNow = { heard: heard || heard2, level: Math.max(heard ? qLevel(res.quality) : 0, heard2 ? qLevel(res2.quality) : 0), bph: heard ? res.bph : heard2 ? res2.bph : 0 };
+        r.liveMiss = r.liveNow.heard ? 0 : (r.liveMiss || 0) + 1;
+        /* Auch eine tiefere Stufe («mittel», «schwach») zeigt die Anzeige erst, wenn sie LIVE_MISS Runden lang anhält: Liegt der
+           Aussetzer noch im kurzen Fenster, sind beide Proben einen Moment lang schwächer. r.liveLevel ist die gezeigte Stufe. */
+        r.liveLow = r.liveNow.level >= 3 ? 0 : (r.liveLow || 0) + 1;
+        if (r.liveNow.level >= 3 || r.liveLow >= LIVE_MISS || r.liveLevel == null || r.liveNow.level > r.liveLevel) r.liveLevel = r.liveNow.level;
         if (rec === r && o.onLive) o.onLive(res, r);
-      });
+      };
     }
   }
   /* Die letzten Sekunden aus dem Mitschnitt (reicht vor den Beginn der Messzeit zurück) */
@@ -1132,7 +1154,7 @@
     r.total = r.n; r.skipped = 0; r.settleN = r.instant ? 0 : Math.round(COUNTDOWN * r.fs); r.go = false;
     /* die gewählte Messzeit läuft ab jetzt voll; die Sekunden der guten Probe kommen vorne dazu (Wunsch vom 13.11.2026) */
     r.dur = r.o.dur + (fixed && r.n >= fixed * r.fs ? fixed : r.n / r.fs);
-    r.nextLive = LIVE_FIRST; r.liveBusy = false; r.lost = false; r.liveOk = false; r.liveLast = null; r.liveStale = 0;
+    r.nextLive = LIVE_FIRST; r.liveBusy = false; r.lost = false; r.liveOk = false; r.liveLast = null; r.liveStale = 0; r.liveMiss = 0; r.liveNow = null; r.liveLow = 0; r.liveLevel = null;
     if (r.o.onMeasureStart) r.o.onMeasureStart(r);
   }
   /* Grosser Countdown: vor dem Start 3, 2, 1; im Lagen-Test danach die restlichen Sekunden. n = null blendet ihn aus */
@@ -1540,8 +1562,19 @@
     ['mBe', 'mAmp'].forEach(function (id) { $(id).classList.toggle('locked', locked); });
     $('mBeTag').hidden = true; $('mAmpTag').hidden = true;   /* der Wert selbst zeigt «Pro» */
   }
+  /* 0.7.5: Der vorläufige (graue) Wert verschwand am Ende der Messung sofort. Jetzt bleibt er sichtbar: unter dem Ergebnis als
+     «Vorläufig zuletzt», und gibt die Auswertung keinen Wert, bleiben er und sein Papierstreifen blass stehen (liveKept). */
+  var liveLast = null, liveKept = null, liveNote = null;
+  function liveNoteSet(id, rate) {
+    var el = $(id);
+    /* Auf «Messen» behält die Zeile ihren Platz, auch leer (Klasse off): Werte und Papierstreifen stehen in allen Phasen an
+       derselben Stelle (feste Anordnung seit 0.7.2). Im Lagen-Test wird sie ein- und ausgeblendet. */
+    if (id === 'mLiveNote') el.classList.toggle('off', rate == null); else el.hidden = rate == null;
+    el.textContent = rate == null ? '' : T('Vorläufig zuletzt: {r} s/Tag (letzte {n} s)', { r: signed(rate, 1), n: LIVE_MAX });
+  }
   function clearReadout() {
-    lastShown = null; lastRec = null;
+    lastShown = null; lastRec = null; liveKept = null;
+    liveNoteSet('mLiveNote', null); $('mLagen').hidden = true;
     $('scr-measure').classList.remove('has-result');
     grInfo = null; renderGrNotice();
     $('mRate').textContent = '–'; $('mRate').classList.remove('live', 'stale'); $('mSigma').textContent = '';
@@ -1558,9 +1591,55 @@
     return settings.autoStart ? T('«Messen» tippen und die Unterkante des Handys an die Krone halten. Tickwerk startet, sobald das Ticken klar ist.') :
       T('Unterkante des Handys an die Krone halten, dann «Messen» tippen.');
   }
+  /* ---------- Einzelne Messungen als Lagen-Test (0.7.5) ----------
+     Wer alle Lagen einer Uhr einzeln misst, statt den Lagen-Test zu öffnen, bekam keine Auswertung über die Lagen.
+     Liegen die Messungen höchstens LAGEN_SPAN auseinander, schlägt Tickwerk vor, daraus einen Lagen-Test zu machen.
+     Massgebend ist die neuste einzelne Messung der Uhr: von ihr aus zurück, je Lage die neuste, die zählt.
+     Umwandeln heisst nur: Die Messungen bekommen eine gemeinsame Sitzung (sess) wie beim Lagen-Test; sonst bleibt alles gleich.
+     «Nicht jetzt» merkt sich den Stand bei der Uhr (lsk = die neuste einzelne Messung): Erst eine neue Messung fragt wieder. */
+  var LAGEN_SPAN = 20 * 60;
+  function lagenFromSingles(w) {
+    if (!w || w.quarz || !isPro()) return null;
+    var list = meas.filter(function (m) { return m.watchId === w.id && !m.sess && m.source === 'Mikrofon'; });
+    if (!list.length) return null;
+    var last = list[list.length - 1], t1 = new Date(last.date).getTime(), t0 = t1, by = Object.create(null);
+    if (w.lsk === last.id) return null;
+    list.forEach(function (m) {
+      var t = new Date(m.date).getTime();
+      if (t <= t1 && t1 - t <= LAGEN_SPAN * 1000 && counted(m) && own(POS, m.pos)) by[m.pos] = m;
+    });
+    var n = SETS[6].every(function (p) { return by[p]; }) ? 6 : SETS[4].every(function (p) { return by[p]; }) ? 4 : 0;
+    if (!n) return null;
+    var ms = SETS[n].map(function (p) { return by[p]; });
+    ms.forEach(function (m) { t0 = Math.min(t0, new Date(m.date).getTime()); });
+    return { n: n, key: last.id, list: ms, minutes: Math.max(2, Math.ceil((t1 - t0) / 60000)) };
+  }
+  function lagenConvert(w) {
+    var c = rec || busy ? null : lagenFromSingles(w);
+    if (!c) return false;
+    var id = 's' + Date.now().toString(36);
+    c.list.forEach(function (m) { m.sess = id; m.lset = c.n; });
+    saveMeas();
+    toast(T('Lagen-Test mit {n} Lagen gespeichert.', { n: c.n }));
+    return true;
+  }
+  function lagenSkip(w) {
+    var c = lagenFromSingles(w);
+    if (c) { w.lsk = c.key; saveWatches(); }
+  }
+  function renderLagenOffer() {
+    var w = currentWatch(), c = rec ? null : lagenFromSingles(w);
+    $('mLagen').hidden = !c;
+    if (c) $('mLagenText').textContent = T('Alle {n} Lagen von «{w}» sind einzeln gemessen, innerhalb von {m} Minuten. Soll daraus ein Lagen-Test werden? Die Messungen bleiben, wie sie sind.', { n: c.n, w: w.name, m: c.minutes });
+  }
+  $('mLagenGo').addEventListener('click', function () {
+    var w = currentWatch();
+    if (w && lagenConvert(w)) { renderLagenOffer(); openWatch(w.id, 'lg'); }
+  });
+  $('mLagenX').addEventListener('click', function () { var w = currentWatch(); if (w) lagenSkip(w); renderLagenOffer(); });
   function renderMeasure() {
     var w = currentWatch(), k = w ? kalById(w.kaliberId) : null;
-    renderGrNotice();
+    renderGrNotice(); renderLagenOffer();
     if (settings.watchId && !w) { settings.watchId = ''; saveSettings(); }
     $('mWatchName').textContent = w ? w.name : UNKNOWN.name;
     $('mWatchSub').textContent = watchSub(w) + (ppmOf(micKey()) ? ' · ' + T('geeicht') : '') + micNote();   /* kurz, damit die Zeile selten umbricht */
@@ -1572,6 +1651,7 @@
   }
   function redrawMeasure() {
     if (lastShown) { drawTape($('mTape'), lastShown.r.trace, null, nsOf(lastShown.m)); drawBeat($('mBeat'), lastShown.r.templates, lastShown.r.liftTimeMs); }
+    else if (liveKept) drawTape($('mTape'), liveKept.trace);
     else if (!busy) drawTape($('mTape'), null, T('Der Papierstreifen erscheint während der Messung.'));
   }
   function renderFree() {
@@ -1608,7 +1688,7 @@
       onOpening: function () { $('mStart').disabled = true; setStatus('status', T('Mikrofon wird geöffnet …'), 'busy'); },
       onFail: function (msg) { $('mStart').disabled = false; setStatus('status', msg, 'err'); },
       onBegin: function (r) {
-        clearReadout();
+        clearReadout(); liveLast = null;
         $('mStart').disabled = false; $('mStart').classList.add('running'); setChipsDisabled(true);
         $('scr-measure').classList.add('is-running');   /* blendet «Position finden» und «Bedingungen» aus; die Anordnung bleibt seit 0.7.2 gleich */
         if (r.phase !== 'search') { $('mStartLabel').textContent = T('Abbrechen'); counting(); return; }
@@ -1663,19 +1743,24 @@
             $('mRate').textContent = signed(res.rate, 1); $('mRate').classList.add('live'); $('mRate').classList.remove('stale');
             $('mSigma').textContent = T('vorläufig') + ' · ' + thousands(res.bph) + ' ' + T('A/h');
             setMarker(res.rate, true);
+            liveLast = { rate: res.rate, bph: res.bph, trace: res.trace };
           } else if (!$('mRate').classList.contains('live')) $('mSigma').textContent = T('{bph} A/h erkannt', { bph: thousands(res.bph) });
           else if (r.liveStale >= LIVE_STALE) {   /* der Wert steht noch da, aber die Proben sagen inzwischen anderes: blass, mit Vermerk */
             $('mRate').classList.add('stale'); $('mMarker').classList.add('stale');
             $('mSigma').textContent = T('ändert sich noch') + ' · ' + thousands(res.bph) + ' ' + T('A/h');
           }
-          setSignal(qLevel(res.quality));
-          $('mBph').textContent = thousands(res.bph);   /* die Schlagzahl steht schon während der Messung in ihrer Zeile */
           drawTape($('mTape'), res.trace); r.drawn = true;
+        }
+        var now = r.liveNow;
+        if (now && now.heard) {   /* das Signal jetzt: die bessere der zwei Proben (siehe liveDone) */
+          setSignal(r.liveLevel);
+          if (!heardOf(res) && !$('mRate').classList.contains('live')) $('mSigma').textContent = T('{bph} A/h erkannt', { bph: thousands(now.bph) });
+          $('mBph').textContent = thousands(now.bph);   /* die Schlagzahl steht schon während der Messung in ihrer Zeile */
           /* Während Prüfung und Verlängerung bleibt deren Hinweis stehen (er sagt, warum es länger dauert). Startete die
              Messung von selbst, bleibt auch ihr Satz stehen: Das Ticken war schon vorher erkannt, ein neuer Satz wäre nur Unruhe. */
           if (!(rec && rec.ext) && (!r.instant || r.lost)) setStatus('status', T('Ticken erkannt. Nichts bewegen, bis die Zeit um ist.'), 'ok');
           r.lost = false;
-        } else if (r.total >= LIVE_WARN * r.fs) {
+        } else if (r.liveMiss >= LIVE_MISS && r.total >= LIVE_WARN * r.fs) {
           setSignal(0); r.lost = true;
           setStatus('status', T('Noch kein klares Ticken. Unterkante des Handys näher an die Krone, Raum ruhig halten.'), 'err');
         }
@@ -1744,7 +1829,7 @@
          mit, was herausgekommen wäre. Das zeigt Tickwerk jetzt: Mittelwert, ± und Papierstreifen, mit «Dieser Wert zählt nicht».
          Eine Uhr mit stark schwankendem Gang bekam sonst nie ein Ergebnis (14.11.2026: in zwei Minuten zwischen −4 und +14 s/Tag,
          bei 30 dB und allen Schlägen). Hat ein Geräusch gestört, bleibt es bei «kein Wert»: Dann sagt die Zahl nichts über die Uhr. */
-      if (res && !res.ok && res.code === 'wander' && res.partial && !noiseSpan(samples, fs)) res = res.partial;
+      if (res && !res.ok && res.code === 'wander' && res.partial && !noiseSpan(samples, fs, 0, NOISE_MIN)) res = res.partial;
       var fb = extFallback(res, first);
       if (fb) {   /* die Verlängerung liess sich nicht auswerten: Es gilt die zuerst gewählte Dauer, auch als Aufnahme zum Teilen */
         logExtFail(res);
@@ -1752,7 +1837,14 @@
         if (keepRec) keepRec.samples = samples;
       } else if (res && res.ok && extFrom) res.extFrom = extFrom;
       if (!res || !res.ok) {
+        var kept = source === 'Datei' ? null : liveLast;
         clearReadout(); lastRec = keepRec;
+        if (kept) {   /* 0.7.5: der letzte vorläufige Wert bleibt blass stehen, mit seinem Papierstreifen */
+          liveKept = kept;
+          $('mRate').textContent = signed(kept.rate, 1); $('mRate').classList.add('live', 'stale');
+          $('mSigma').textContent = T('Letzter vorläufiger Wert · zählt nicht');
+          drawTape($('mTape'), kept.trace);
+        }
         $('shareBtn').hidden = !lastRec;
         var ns = failNoise(res, samples, fs, sure);
         logFail('mess', res, ns);
@@ -1766,6 +1858,7 @@
       markNoise(res, samples, fs);
       var m = saveMeasurement(res, source, fs, { watch: w, pos: pos, gr: grc && w && grc.watchId === w.id ? grc : null });
       lastRec = keepRec;
+      liveNote = source !== 'Datei' && liveLast ? { id: m.id, rate: liveLast.rate } : null;
       showResult(res, m);
       renderFree();
       if (m.gr) grSaved(m);
@@ -1805,6 +1898,8 @@
     $('mSigma').textContent = '± ' + fmt(r.rateSigma, 2) + ' ' + T('s/Tag') + ' · ' + fmt(r.duration, 0) + ' s · ' + T('{n} Schläge', { n: r.beatsUsed }) +
       (r.rateStable === false && r.halves ? ' · ' + T('schwankt') + ' (' + signed(r.halves.rate[0], 1) + ' / ' + signed(r.halves.rate[1], 1) + ')' : '');
     setMarker(r.rate, false);
+    liveNoteSet('mLiveNote', liveNote && liveNote.id === m.id ? liveNote.rate : null);
+    renderLagenOffer();
     var vd = rateVerdict(m);
     $('mVerdict').hidden = false; $('mVerdict').setAttribute('data-kind', vd.kind); $('mVerdictText').textContent = vd.text;
     var full = showsPro(m);
@@ -1821,10 +1916,14 @@
     $('mBph').textContent = thousands(r.bph);
     var expBph = w && w.bph ? w.bph : 0, mismatch = !!expBph && expBph !== r.bph;
     $('mBphNote').textContent = mismatch ? T('erwartet {bph}', { bph: thousands(expBph) }) : T('A/h');
-    $('bphWarn').hidden = !mismatch;
     /* 0.7.4: Passt die erkannte Schlagzahl zu einer anderen gespeicherten Uhr, ist wohl die falsche gewählt (dreimal passiert am
        13. und 14.11.2026). Dann zuerst das fragen und das Umhängen anbieten; die Schlagzahl überschreiben bleibt möglich. */
-    var fits = mismatch && !(r.bphHalf || m.bx) && movable(m) ? mechWatches().filter(function (x) { return x.id !== w.id && x.bph === r.bph; }).slice(0, 3) : [];
+    /* 0.7.5: Ist bei der gewählten Uhr keine Schlagzahl hinterlegt («Schlagzahl automatisch»), gilt als Vergleich die Schlagzahl der
+       Mehrheit ihrer bisherigen Messungen (usualBph). Dann fragt der Kasten ebenfalls, aber nur, wenn eine andere Uhr passt. */
+    var useBph = !expBph && w ? usualBph(w, m.id) : 0, odd = !!useBph && useBph !== r.bph && useBph !== 2 * r.bph && r.bph !== 2 * useBph;
+    var fits = (mismatch || odd) && !(r.bphHalf || m.bx) && movable(m) ? mechWatches().filter(function (x) { return x.id !== w.id && x.bph === r.bph; }).slice(0, 3) : [];
+    odd = odd && fits.length > 0;
+    $('bphWarn').hidden = !(mismatch || odd); $('bphFix').hidden = odd;
     $('bphMove').innerHTML = ''; $('bphMove').hidden = !fits.length;
     fits.forEach(function (x) {
       var b = document.createElement('button');
@@ -1832,6 +1931,8 @@
       b.addEventListener('click', function () { moveMeasure(m, x); });
       $('bphMove').appendChild(b);
     });
+    if (odd) $('bphWarnText').textContent = T('Falsche Uhr gewählt? Tickwerk hat {a} A/h erkannt, bei «{w}» waren es bisher {b} A/h. Zu {a} A/h passt {x}.',
+      { a: thousands(r.bph), w: w.name, b: thousands(useBph), x: fits.map(function (x) { return '«' + x.name + '»'; }).join(', ') });
     if (mismatch) {
       $('bphWarnText').textContent = fits.length ? T('Falsche Uhr gewählt? Tickwerk hat {a} A/h erkannt, für «{w}» sind {b} A/h hinterlegt. Zu {a} A/h passt {x}.',
         { a: thousands(r.bph), w: w.name, b: thousands(expBph), x: fits.map(function (x) { return '«' + x.name + '»'; }).join(', ') }) : T(r.bphHalf || m.bx ? 'Tickwerk hat {a} A/h erkannt, für «{w}» sind {b} A/h hinterlegt: Wahrscheinlich hat das Mikrofon nur jeden zweiten Schlag gehört. Das Handy anders anlegen und nochmals messen. Schlägt die Uhr wirklich {a} A/h, kannst du das übernehmen.' :
@@ -1921,6 +2022,14 @@
      umgerechnet (sie ist ihm proportional). Messungen aus einem Lagen-Test oder Gangreserve-Test bleiben, wo sie sind:
      Sie gehören zu einer Reihe dieser Uhr. */
   function movable(m) { return !!m && !m.sess && !m.gr && mechWatches().some(function (x) { return x.id !== m.watchId; }); }
+  /* Die Schlagzahl, mit der diese Uhr bisher gemessen wurde: die der Mehrheit ihrer letzten höchstens sieben Messungen (ohne die
+     Messung skipId und ohne solche mit nur jedem zweiten Schlag); 0, wenn es weniger als zwei gibt oder keine Mehrheit. */
+  function usualBph(w, skipId) {
+    var c = {}, n = 0, best = 0;
+    meas.filter(function (x) { return x.watchId === w.id && x.id !== skipId && x.bph && !x.bx; }).slice(-7).forEach(function (x) { c[x.bph] = (c[x.bph] || 0) + 1; n++; });
+    Object.keys(c).forEach(function (k) { if (!best || c[k] > c[best]) best = +k; });
+    return n >= 2 && c[best] >= 2 && c[best] > n / 2 ? best : 0;
+  }
   /* dieselben Felder, die saveMeasurement aus dem Ergebnis der Engine füllt */
   function measFields(m, r) {
     m.rate = +r.rate.toFixed(2); m.sigma = +r.rateSigma.toFixed(2); m.stable = r.rateStable !== false;
@@ -2295,8 +2404,8 @@
   /* ---------- Lagen-Test (Pro) ----------
      Auswahl (scr-lagen): eine Kachel je Lage. Gemessene Lagen sind grau und zeigen ihr Ergebnis, die nächste
      offene ist hervorgehoben. Lage antippen → Messung (scr-lpos): oben, wie die Uhr liegt, unten live das Ticken.
-     Die Messung startet von selbst, sobald das Ticken klar ist. Danach kurz das Ergebnis, dann zurück zur Auswahl. */
-  var RESULT_SECONDS = 3;
+     Die Messung startet von selbst, sobald das Ticken klar ist. Danach steht das Ergebnis da, bis «Weiter» oder
+     «Nochmals messen» getippt wird (bis 0.7.4 ging es nach drei Sekunden von selbst zurück: zu kurz zum Ansehen). */
   function lagenOpen(watchId) {
     if (rec || busy || !requirePro('lagen')) return;
     watchId = watchId || '';
@@ -2512,14 +2621,21 @@
   });
 
   /* ---------- Eine Lage messen ---------- */
-  var lpTimer = 0;
-  function lpStop() { clearInterval(lpTimer); lpTimer = 0; }
+  var lpWait = false;   /* ein frisches Ergebnis steht da und wartet auf «Weiter» oder «Nochmals messen» */
+  function lpStop() { lpWait = false; $('scr-lpos').classList.remove('is-wait'); }
+  /* 0.7.5: Gab die Auswertung keinen Wert, bleiben der letzte vorläufige Wert und sein Papierstreifen blass stehen */
+  function lpKept(k) {
+    if (!k) return;
+    $('pRate').textContent = signed(k.rate, 1); $('pRate').classList.add('live', 'stale');
+    $('pSub').textContent = T('Letzter vorläufiger Wert · zählt nicht');
+    drawTape($('pTape'), k.trace);
+  }
   function setPSignal(level) { $('pSignal').setAttribute('data-level', String(level)); $('pSignalText').textContent = LEVEL_TEXT[level]; }
   function lpReady(p) {
     lpStop();
-    showCount('pCount', null); $('scr-lpos').classList.remove('is-go');
+    showCount('pCount', null); $('scr-lpos').classList.remove('is-go', 'has-result');
     $('pState').textContent = T('Bereit');
-    $('pRate').textContent = '–'; $('pRate').classList.remove('live', 'stale'); $('pSub').textContent = '';
+    $('pRate').textContent = '–'; $('pRate').classList.remove('live', 'stale'); $('pSub').textContent = ''; liveNoteSet('pLiveNote', null);
     $('pMetrics').hidden = true; setPSignal(0); bar($('pLevel'), 0); bar($('pProg'), 0);
     $('pSearch').hidden = true; $('pAlt').hidden = true; $('pFind').hidden = true;
     $('pStart').classList.remove('running'); $('pStart').disabled = false;
@@ -2548,6 +2664,7 @@
     if (busy || opening || !session) return;
     var p = t.p, pos = p.pos, sess = session.id, setN = session.set, w = lagenWatch();
     lpReady(p); p.res = null;
+    var live = null;   /* der letzte vorläufige Wert dieser Messung: bleibt seit 0.7.5 nach der Auswertung sichtbar */
     recStart({
       owner: 'lpos', dur: settings.dur, search: find || settings.autoStart, auto: 'now', findAuto: 'retro', settle: find || settings.autoStart ? 0 : SETTLE, find: find, opts: watchOpts(w),
       onOpening: function () { $('pStart').disabled = true; setStatus('pStatus', T('Mikrofon wird geöffnet …'), 'busy'); },
@@ -2621,12 +2738,17 @@
           if (r.liveOk) {   /* wie beim Messen: der vorläufige Wert erst, wenn er einigermassen steht */
             $('pRate').textContent = signed(res.rate, 1); $('pRate').classList.add('live'); $('pRate').classList.remove('stale');
             $('pSub').textContent = T('vorläufig') + ' · ' + thousands(res.bph) + ' ' + T('A/h');
+            live = { rate: res.rate, bph: res.bph, trace: res.trace };
           } else if (!$('pRate').classList.contains('live')) $('pSub').textContent = T('{bph} A/h erkannt', { bph: thousands(res.bph) });
           else if (r.liveStale >= LIVE_STALE) { $('pRate').classList.add('stale'); $('pSub').textContent = T('ändert sich noch') + ' · ' + thousands(res.bph) + ' ' + T('A/h'); }
-          setPSignal(qLevel(res.quality)); drawTape($('pTape'), res.trace);
+          drawTape($('pTape'), res.trace);
+        }
+        var now = r.liveNow;
+        if (now && now.heard) {
+          setPSignal(r.liveLevel);
           if (!(rec && rec.ext) && (!r.instant || r.lost)) setStatus('pStatus', T('Ticken erkannt. Nichts bewegen, bis die Zeit um ist.'), 'ok');
           r.lost = false;
-        } else if (r.total >= LIVE_WARN * r.fs) {
+        } else if (r.liveMiss >= LIVE_MISS && r.total >= LIVE_WARN * r.fs) {
           setPSignal(0); r.lost = true;
           setStatus('pStatus', T('Noch kein klares Ticken. Handy-Unterkante näher an die Krone, ohne die Uhr zu bewegen.'), 'err');
         }
@@ -2639,6 +2761,8 @@
         setStatus('pStatus', T('Rechne …'), 'busy');
         (pre ? Promise.resolve(pre) : runJob({ samples: samples, fs: fs, opts: watchOpts(w) })).then(function (res) {
           busy = false; $('pStart').disabled = false;
+          /* wie beim Messen (0.7.4): Schwankte der Gang zu stark und störte kein Geräusch, gibt es den Wert mit «zählt nicht» statt gar nichts */
+          if (res && !res.ok && res.code === 'wander' && res.partial && !noiseSpan(samples, fs, 0, NOISE_MIN)) res = res.partial;
           var here = top().s === 'lpos' && top().p === p, fb = extFallback(res, first);
           if (!session || session.id !== sess) { if (here) lpReady(p); return; }
           if (fb) {   /* die Verlängerung liess sich nicht auswerten: Es gilt die zuerst gewählte Dauer (siehe extFallback) */
@@ -2649,25 +2773,27 @@
             var ns = failNoise(res, samples, fs, sure);
             logFail('mess', res, ns);
             if (here) {
-              lpReady(p); $('pStartLabel').textContent = T('Nochmals messen'); setStatus('pStatus', ns ? T('Zwischen Sekunde {a} und {b} hat ein Geräusch oder eine Bewegung die Messung gestört. Darum gibt es keinen Wert. Ruhig sitzen und nochmals messen.', { a: ns[0], b: ns[1] }) : res && (res.code === 'silence' || (res.code === 'wander' && samples.length / fs >= 55)) ? failText(res, samples.length / fs) : T((res && res.reason) || 'Keine Messung möglich.') + ' ' + T('Nochmals messen.'), 'err');
+              lpReady(p); lpKept(live); $('pStartLabel').textContent = T('Nochmals messen'); setStatus('pStatus', ns ? T('Zwischen Sekunde {a} und {b} hat ein Geräusch oder eine Bewegung die Messung gestört. Darum gibt es keinen Wert. Ruhig sitzen und nochmals messen.', { a: ns[0], b: ns[1] }) : res && (res.code === 'silence' || (res.code === 'wander' && samples.length / fs >= 55)) ? failText(res, samples.length / fs) : T((res && res.reason) || 'Keine Messung möglich.') + ' ' + T('Nochmals messen.'), 'err');
               if (!ns && !(res && res.code === 'silence')) findOffer('p', T('Mit «Position finden» sucht Tickwerk mit dir eine Stelle, an der die Uhr gut zu hören ist.'));
             }
             return;
           }
           markNoise(res, fb ? fb.samples : samples, fs);
           var m = saveMeasurement(res, 'Mikrofon', fs, { watch: w, pos: pos, sess: sess, lset: setN });
-          if (here) lpShowResult(p, m, res, true);
+          if (here) lpShowResult(p, m, res, true, live);
         });
       }
     });
   }
-  /* Ergebnis einer Lage. fresh: eben gemessen → nach RESULT_SECONDS von selbst zurück zur Auswahl (wenn es zählt) */
-  function lpShowResult(p, m, res, fresh) {
+  /* Ergebnis einer Lage. fresh: eben gemessen → es wartet auf «Weiter» (wenn es zählt). live: der letzte vorläufige Wert dieser Messung */
+  function lpShowResult(p, m, res, fresh, live) {
     lpStop(); showCount('pCount', null); p.res = res;
+    $('scr-lpos').classList.add('has-result');   /* die Abbildung macht dem Ergebnis Platz (0.7.5): so sind beide Knöpfe ohne Scrollen zu sehen */
     var ok = counted(m), extra = ampBe(m);
     $('pState').textContent = fresh ? T('Ergebnis') : T('Gemessen') + ' · ' + dateStr(m.date);
     $('pRate').textContent = signed(m.rate, 1); $('pRate').classList.remove('live', 'stale');
     $('pSub').textContent = '± ' + fmt(m.sigma, 2) + ' ' + T('s/Tag') + ' · ' + Math.round(m.dur) + ' s · ' + thousands(m.bph) + ' ' + T('A/h');
+    liveNoteSet('pLiveNote', fresh && live ? live.rate : null);
     setPSignal(m.q === 'stark' ? 4 : m.q === 'mittel' ? 3 : 1);
     var pro = showsPro(m);
     $('pMetrics').hidden = false;
@@ -2697,18 +2823,11 @@
       return;
     }
     $('pAlt').textContent = T('Nochmals messen'); $('pAlt').dataset.act = 'again';
-    var left = RESULT_SECONDS;
-    var label = function () { $('pStartLabel').textContent = T('Weiter') + ' · ' + left; };
-    label();
+    $('pStartLabel').textContent = T('Weiter'); lpWait = true;
+    $('scr-lpos').classList.add('is-wait');   /* «Nochmals messen» rückt über «Weiter» (app.css), damit beide ohne Scrollen zu sehen sind */
     if (shaky(m) && m.ns) setStatus('pStatus', T('{p} gemessen. Zwischen Sekunde {a} und {b} hat ein Geräusch oder eine Bewegung die Messung gestört, darum ± {s} s/Tag. Die Lage zählt mit dem Vermerk «Gang könnte schwanken».', { p: POS[p.pos], a: m.ns[0], b: m.ns[1], s: fmt(m.sigma, 2) }), 'warn');
     else if (shaky(m)) setStatus('pStatus', T('{p} gemessen. Die Klicks waren klar, aber der Gang schwankte während der Messung, darum ± {s} s/Tag. Die Lage zählt mit dem Vermerk «Gang könnte schwanken».', { p: POS[p.pos], s: fmt(m.sigma, 2) }) + swing, 'warn');
-    else setStatus('pStatus', T('{p} gemessen. Gleich geht es zurück zur Auswahl.', { p: POS[p.pos] }), 'ok');
-    lpTimer = setInterval(function () {
-      if (top().s !== 'lpos' || top().p !== p) { lpStop(); return; }
-      left--;
-      if (left <= 0) { lpStop(); back(); return; }
-      label();
-    }, 1000);
+    else setStatus('pStatus', T('{p} gemessen. Mit «Weiter» geht es zurück zur Auswahl.', { p: POS[p.pos] }), 'ok');
   }
   /* Gespeicherter (gekürzter) Papierstreifen zurück in die Form für drawTape */
   function traceOf(tr) {
@@ -2718,14 +2837,14 @@
   }
   $('pStart').addEventListener('click', function () {
     var t = top(); if (t.s !== 'lpos') return;
-    if (lpTimer) { lpStop(); back(); return; }             /* «Weiter» */
+    if (lpWait) { lpStop(); back(); return; }              /* «Weiter» */
     if (rec) { recStop(true); return; }                    /* «Abbrechen» */
     if (busy) return;
     lpStart();                                             /* «Messen» / «Nochmals messen» */
   });
   $('pAlt').addEventListener('click', function () {
     var t = top(); if (t.s !== 'lpos' || rec || busy) return;
-    if (lpTimer) { lpStop(); lpStart(); return; }          /* «Nochmals messen» während der Rückkehr */
+    if (lpWait) { lpStop(); lpStart(); return; }           /* «Nochmals messen» statt «Weiter» */
     if ($('pAlt').dataset.act === 'back') { back(); return; }
     lpStart();
   });
@@ -2773,7 +2892,8 @@
           '<span class="wcard-mid"><span class="wcard-rate"><span class="wcard-num"><b>' + (qd ? esc(signed(qd.rate, 2)) : '–') + '</b><span>' + esc(T('s/Tag')) + '</span></span></span></span>' +
           '<span class="wcard-foot">' + esc(qn ? T('Gang im Alltag') + ' · ' + plural(qn, 'Vergleich', 'Vergleiche') : T('Noch kein Vergleich')) + '</span>' +
           (dueText(w) ? '<span class="wcard-due">' + esc(dueText(w)) + '</span>' : '');
-        b.addEventListener('click', function () { go('watch', { id: w.id }); });
+        b.addEventListener('click', function () { if (!wdSkipClick) go('watch', { id: w.id }); });
+        b.addEventListener('pointerdown', function (e) { wdStart(b, e); });
         box.appendChild(b);
         return;
       }
@@ -2783,10 +2903,83 @@
         '<span class="pill ' + st.cls + '">' + PILL_ICON[st.cls] + esc(st.text) + '</span></span>' + sparkline(list, st.cls) + '</span>' +
         '<span class="wcard-foot">' + esc(list.length ? plural(list.length, 'Messung', 'Messungen') + ' · ' + T('zuletzt {d}', { d: ago(list[list.length - 1].date) }) : T('Noch keine Messung')) + '</span>' +
         (dueText(w) ? '<span class="wcard-due">' + esc(dueText(w)) + '</span>' : '');
-      b.addEventListener('click', function () { go('watch', { id: w.id }); });
+      b.addEventListener('click', function () { if (!wdSkipClick) go('watch', { id: w.id }); });
+      b.addEventListener('pointerdown', function (e) { wdStart(b, e); });
       box.appendChild(b);
     });
+    $('wSortHint').hidden = watches.length < 2;
   }
+  /* ---------- Reihenfolge der Uhren (0.7.5): lange drücken, dann ziehen ----------
+     Die Lieblingsuhren nach oben: Die Reihenfolge der Karten ist die der gespeicherten Liste, sie gilt auch in der Auswahl
+     beim Messen. Nach WD_HOLD ms ohne Bewegung hebt sich die Karte ab und folgt dem Finger; die anderen machen Platz.
+     Bewegt sich der Finger vorher, ist es ein gewöhnliches Scrollen. Am Rand rollt die Liste mit. */
+  var WD_HOLD = 450, WD_SLOP = 10, wd = null, wdSkipClick = false;
+  function wdStart(card, e) {
+    if (watches.length < 2 || wd || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    wd = { card: card, id: e.pointerId, x: e.clientX, y: e.clientY, cy: e.clientY, on: false, timer: setTimeout(wdLift, WD_HOLD) };
+  }
+  function wdLift() {
+    if (!wd) return;
+    var cards = Array.prototype.slice.call($('watchCards').children), i = cards.indexOf(wd.card);
+    if (i < 0 || cards.length !== watches.length || topScreen() !== 'watches') { wdEnd(false); return; }
+    wd.on = true; wd.from = i; wd.to = i; wd.cards = cards;
+    wd.tops = cards.map(function (c) { var r = c.getBoundingClientRect(); return { top: r.top + window.scrollY, h: r.height }; });
+    wd.gap = Math.max(0, wd.tops[1].top - wd.tops[0].top - wd.tops[0].h);
+    wd.py = wd.cy + window.scrollY;   /* in Seiten-Koordinaten: stimmt auch, wenn die Liste beim Ziehen rollt */
+    /* Grenzen: Die Karte bleibt im Bereich der Liste, und die Seite rollt nicht weiter, als sie vor dem Ziehen lang war
+       (die verschobene Karte würde sie sonst immer länger machen). */
+    var last = wd.tops[wd.tops.length - 1];
+    wd.minDy = wd.tops[0].top - wd.tops[i].top - 16; wd.maxDy = last.top + last.h - wd.tops[i].top - wd.tops[i].h + 16;
+    wd.maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+    wd.card.classList.add('dragging'); $('watchCards').classList.add('sorting');
+    try { wd.card.setPointerCapture(wd.id); } catch (e) { /* egal */ }
+    try { if (navigator.vibrate) navigator.vibrate(12); } catch (e2) { /* egal */ }
+    wdPlace(); wdLoop();
+  }
+  function wdPlace() {
+    var dy = Math.max(wd.minDy, Math.min(wd.maxDy, wd.cy + window.scrollY - wd.py)), me = wd.tops[wd.from], topE = me.top + dy, botE = topE + me.h, to = wd.from;
+    /* neuer Platz: Eine Karte weiter unten macht Platz, sobald die Unterkante der gezogenen ihre Mitte überschreitet; eine weiter
+       oben, sobald es die Oberkante tut (die Karten sind verschieden hoch, die Mitte der gezogenen allein reicht darum nicht) */
+    wd.tops.forEach(function (t, i) {
+      var m = t.top + t.h / 2;
+      if (i > wd.from && m < botE) to++; else if (i < wd.from && m > topE) to--;
+    });
+    wd.to = to;
+    wd.card.style.transform = 'translateY(' + Math.round(dy) + 'px) scale(1.02)';
+    wd.cards.forEach(function (c, i) {
+      if (i === wd.from) return;
+      var shift = i > wd.from && i <= to ? -(me.h + wd.gap) : i < wd.from && i >= to ? me.h + wd.gap : 0;
+      c.style.transform = shift ? 'translateY(' + shift + 'px)' : '';
+    });
+  }
+  function wdLoop() {
+    if (!wd || !wd.on) return;
+    var top = 90, bot = window.innerHeight - 130, v = wd.cy < top ? -Math.min(14, (top - wd.cy) / 4 + 2) : wd.cy > bot ? Math.min(14, (wd.cy - bot) / 4 + 2) : 0;
+    if (v > 0) v = Math.min(v, wd.maxScroll - window.scrollY);
+    if (Math.abs(v) >= 1) { var was = window.scrollY; window.scrollBy(0, v); if (window.scrollY !== was) wdPlace(); }
+    wd.raf = requestAnimationFrame(wdLoop);
+  }
+  function wdEnd(commit) {
+    if (!wd) return;
+    var d = wd; wd = null;
+    clearTimeout(d.timer); cancelAnimationFrame(d.raf);
+    if (!d.on) return;
+    try { d.card.releasePointerCapture(d.id); } catch (e) { /* egal */ }
+    $('watchCards').classList.remove('sorting');
+    wdSkipClick = true; setTimeout(function () { wdSkipClick = false; }, 400);   /* das Loslassen ist kein Antippen */
+    if (commit && d.to !== d.from) { watches.splice(d.to, 0, watches.splice(d.from, 1)[0]); saveWatches(); }
+    renderWatches();
+  }
+  window.addEventListener('pointermove', function (e) {
+    if (!wd || e.pointerId !== wd.id) return;
+    if (!wd.on) { if (Math.abs(e.clientX - wd.x) > WD_SLOP || Math.abs(e.clientY - wd.y) > WD_SLOP) wdEnd(false); return; }
+    wd.cy = e.clientY; wdPlace();
+  });
+  window.addEventListener('pointerup', function (e) { if (wd && e.pointerId === wd.id) wdEnd(true); });
+  window.addEventListener('pointercancel', function (e) { if (wd && e.pointerId === wd.id) wdEnd(false); });
+  /* hat sich die Karte abgehoben, darf der Finger die Seite nicht mehr rollen; das lange Drücken soll auch kein Menü öffnen */
+  $('watchCards').addEventListener('touchmove', function (e) { if (wd && wd.on && e.cancelable) e.preventDefault(); }, { passive: false });
+  $('watchCards').addEventListener('contextmenu', function (e) { if (wd) e.preventDefault(); });
   /* Gratis: eine Uhr zum Messen. Dazu darf eine Quarzuhr als Referenz kommen (für «Gang im Alltag» und die Eichung). */
   function addWatch() {
     if (!isPro() && mechWatches().length >= 1) { requirePro('watches'); return; }
@@ -2934,12 +3127,18 @@
     var box = $('dDue'), g = isPro() ? grNext(w) : null, z = zeitNext(w), items = [];
     if (g && g.due) items.push({ text: T('Gangreserve-Test: Messung «{s}» fällig', { s: GR_NAMES[g.step] }), btn: T('Jetzt messen: {s}', { s: GR_NAMES[g.step] }), fn: function () { grMeasure(w); } });
     if (z && z.due) items.push({ text: T('Zeitvergleich fällig'), btn: T('Jetzt nochmals vergleichen'), fn: function () { go('zeit', { id: w.id }); } });
+    var lc = lagenFromSingles(w);   /* 0.7.5: alle Lagen einzeln gemessen → als Lagen-Test zusammenfassen */
+    if (lc) items.push({ text: T('Alle {n} Lagen einzeln gemessen, innerhalb von {m} Minuten', { n: lc.n, m: lc.minutes }), btn: T('In Lagen-Test umwandeln'),
+      fn: function () { if (lagenConvert(w)) { var p = top().p; p.folds = false; p.focus = 'lg'; renderDetail(p); } },
+      x: function () { lagenSkip(w); renderDue(w); } });
     box.innerHTML = ''; box.hidden = !items.length;
     items.forEach(function (it) {
       var n = document.createElement('div'), t = document.createElement('p'), b = document.createElement('button');
       n.className = 'notice gr-notice'; t.textContent = it.text;
       b.type = 'button'; b.className = 'btn-primary small'; b.textContent = it.btn; b.addEventListener('click', it.fn);
-      n.appendChild(t); n.appendChild(b); box.appendChild(n);
+      n.appendChild(t); n.appendChild(b);
+      if (it.x) { var xb = document.createElement('button'); xb.type = 'button'; xb.className = 'btn-link'; xb.textContent = T('Nicht jetzt'); xb.addEventListener('click', it.x); n.appendChild(xb); }
+      box.appendChild(n);
     });
   }
   /* Letzter Lagen-Test dieser Uhr: aus den Messungen mit derselben Sitzung */
@@ -5018,8 +5217,16 @@
   /* ---------- Was ist neu ----------
      Einmal nach einem Update zeigen, was dazugekommen ist und wo es zu finden ist; jederzeit unter «Mehr». Bei einer
      neuen Installation nicht (dort erklärt die Anleitung den Einstieg). settings.seenVersion merkt sich die Version. */
-  var NEWS_ORDER = ['0.7.4', '0.7.3', '0.7.2', '0.7.1', '0.7.0', '0.6.8', '0.6.7', '0.6.6', '0.6.5', '0.6.4'];   /* neuste zuerst; die älteren stehen im Blatt darunter, falls ein Update übersprungen wurde */
+  var NEWS_ORDER = ['0.7.5', '0.7.4', '0.7.3', '0.7.2', '0.7.1', '0.7.0', '0.6.8', '0.6.7', '0.6.6', '0.6.5', '0.6.4'];   /* neuste zuerst; die älteren stehen im Blatt darunter, falls ein Update übersprungen wurde */
   var NEWS = {
+    '0.7.5': [
+      { t: T('Lagen-Test: Du bestimmst, wann es weitergeht'), s: T('Das Ergebnis einer Lage bleibt stehen, bis du «Weiter» oder «Nochmals messen» tippst. Vorher ging es nach drei Sekunden von selbst zurück.') },
+      { t: T('Einzelne Messungen als Lagen-Test'), s: T('Hast du alle Lagen einer Uhr einzeln gemessen, innerhalb von 20 Minuten, schlägt Tickwerk vor, daraus einen Lagen-Test zu machen.') },
+      { t: T('Uhren ordnen'), s: T('Unter «Meine Uhren» eine Uhr lange drücken und nach oben oder unten ziehen: So stehen deine liebsten Uhren zuoberst, auch in der Auswahl beim Messen.') },
+      { t: T('Der vorläufige Wert bleibt sichtbar'), s: T('Unter dem Ergebnis steht, was der graue vorläufige Wert zuletzt zeigte. Gibt die Auswertung keinen Wert, bleiben er und der Papierstreifen blass stehen.') },
+      { t: T('Aussetzer des Mikrofons'), s: T('Nach einem kurzen Aussetzer zeigte Tickwerk bis zu 20 Sekunden lang «Signal schwach», obwohl das Ticken gut war: Jetzt bleibt die Anzeige ruhig. Folgten zwei Aussetzer kurz aufeinander, gab es keinen Wert: Jetzt gleicht die Messung auch mehrere aus.') },
+      { t: T('Falsche Uhr gewählt, auch ohne Schlagzahl'), s: T('Ist bei einer Uhr keine Schlagzahl hinterlegt, vergleicht Tickwerk mit ihren bisherigen Messungen und fragt nach, wenn die neue zu einer anderen Uhr passt.') }
+    ],
     '0.7.4': [
       { t: T('Position finden: zehn Sekunden je Stelle'), s: T('Tickwerk hört an jeder Stelle zehn Sekunden zu und urteilt einmal. Jede Stelle beginnt, wenn du «Stelle prüfen» tippst. Stimmt die Stelle, läuft die Messung gleich weiter, und die zehn Sekunden zählen mit.') },
       { t: T('Gute Stelle auch bei unruhigem Ticken'), s: T('Kommen die Schläge einer Uhr etwas unregelmässig, schickte Tickwerk weiter, obwohl die Stelle gut war. Jetzt zählt nur, was von der Stelle abhängt. Stört ein Geräusch die zehn Sekunden, prüfst du dieselbe Stelle nochmals.') },

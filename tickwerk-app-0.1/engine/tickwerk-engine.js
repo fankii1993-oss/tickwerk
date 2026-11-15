@@ -672,6 +672,7 @@
   // liefern die erste Schablone. Kurz genug, dass kaum je ein Aussetzer der Aufnahme hineinfaellt und der Gang darin
   // nicht wandert; lang genug fuer mindestens ein Dutzend Schlaege je Tick und Tack (bei 18'000 A/h: 15).
   var LOCAL_TPL_S = 3;
+  var TRACK_N = 5, TRACK_RHO = 0.5;   // weite Suche des zweiten Versuchs: Median der letzten 5 Schlaege mit Aehnlichkeit ab 0,5
 
   /* Wo ist das Ticken wirklich zu hoeren?
      Die Aehnlichkeit mit der Schablone allein (b.ok) reicht dafuer nicht: Im reinen Rauschen erreichen sie je nach
@@ -914,12 +915,32 @@
         if (!best || Math.abs(st) > Math.abs(best.st)) best = { j: j, st: st };
       }
       if (!best || Math.abs(best.st) < Math.max(0.0005, 6 * sig)) break;
-      var jj = best.j, mx = 0;
-      for (var q = Math.max(1, best.j - W); q < Math.min(res.length, best.j + W); q++) {
-        var dq = res[q] - res[q - 1];
-        if (dq * best.st > 0 && Math.abs(dq) > mx) { mx = Math.abs(dq); jj = q; }
+      var refine = function (c) {   // genaue Stelle: der groesste Einzelschritt in Richtung der Stufe
+        var at = c.j, mx = 0;
+        for (var q = Math.max(1, c.j - W); q < Math.min(res.length, c.j + W); q++) {
+          var dq = res[q] - res[q - 1];
+          if (dq * c.st > 0 && Math.abs(dq) > mx) { mx = Math.abs(dq); at = q; }
+        }
+        return at;
+      };
+      var jj = refine(best);
+      if (ks.indexOf(pts[jj].k) >= 0) {
+        // Seit 0.3.2: Liegt die groesste Stufe an einer schon gefundenen Stelle, ist dort meist der Mittelwert zweier naher
+        // Aussetzer eingesetzt worden (z. B. -40 ms und 5 s spaeter +10 ms: eingesetzt -30 ms, es bleiben -10 ms hier und
+        // +10 ms dort). Bis 0.3.1 hoerte die Suche dann auf, und der zweite Aussetzer blieb unausgeglichen («Signal zu
+        // schwach» oder «Gang schwankte»). Jetzt gilt die groesste Stufe abseits der gefundenen Stellen, wenn sie so gross
+        // ist wie ein Audiopuffer (2 ms); kleinere Stufen an anderer Stelle bleiben wie bisher unbeachtet.
+        var far = function (k) { return ks.every(function (s) { return Math.abs(s - k) >= W / 2; }); };
+        var lim2 = Math.max(0.002, 6 * sig), alt = null;
+        for (j = W; j <= res.length - W; j++) {
+          var st2 = stepAt(j);
+          if (Math.abs(st2) < lim2 || (alt && Math.abs(st2) <= Math.abs(alt.st))) continue;
+          var c2 = { j: j, st: st2 }, at2 = refine(c2);
+          if (far(pts[at2].k)) { c2.at = at2; alt = c2; }
+        }
+        if (!alt) break;
+        jj = alt.at;
       }
-      if (ks.indexOf(pts[jj].k) >= 0) break;
       ks.push(pts[jj].k);
       ks.sort(function (a, b) { return a - b; });
     }
@@ -1199,10 +1220,24 @@
       }
       return false;
     }
-    var tplBeats = beats;
+    var tplBeats = beats, kCenter = 0;
     if (opts.localTpl) {
-      var kSpan = Math.max(8, Math.round(LOCAL_TPL_S / T0)), kCenter = opts.localTpl === 'late' ? Math.round(0.7 * kHi) : 0;
+      var kSpan = Math.max(8, Math.round(LOCAL_TPL_S / T0));
+      kCenter = opts.localTpl === 'late' ? Math.round(0.7 * kHi) : 0;
       tplBeats = beats.filter(function (b) { return Math.abs(b.k - kCenter) <= kSpan; });
+      // Seit 0.3.2: Das Raster haengt am Anker. Liegt ein Aussetzer zwischen dem Anker und dem letzten Drittel, sitzen die
+      // Schlaege dort neben dem Raster, bei 40 ms sogar ausserhalb der Schablone: Sie zeigte dann nur noch den Nachhall, und
+      // der Versuch 'late' blieb «schwach». Darum das Raster zuerst an den Schlaegen dieser Stelle ausrichten (die Lage mit
+      // der groessten Summe der Huellkurve, hoechstens einen halben Schlagabstand weit).
+      if (opts.localTpl === 'late' && tplBeats.length >= 6) {
+        var halfT = Math.floor(0.5 * Tsamp) - 1, stepD = Math.max(1, Math.round(0.0002 * fs)), bestD = 0, bestSum = -1;
+        for (var dd = -halfT; dd <= halfT; dd += stepD) {
+          var sumD = 0;
+          for (var tb = 0; tb < tplBeats.length; tb++) { var ix = Math.round(tplBeats[tb].pos) + dd; if (ix >= 0 && ix < envS.length) sumD += envS[ix]; }
+          if (sumD > bestSum) { bestSum = sumD; bestD = dd; }
+        }
+        if (bestD) beats.forEach(function (b) { b.pos += bestD; });
+      }
     }
     for (var pass = 0; pass < 4; pass++) {
       var maxLag = Math.round((pass === 0 ? (opts.localTpl ? Math.min(0.045, 0.3 * T0) : Math.min(0.022, 0.2 * T0)) : 0.0015) * fs);
@@ -1214,11 +1249,36 @@
         ranges[r].b = Math.min(T.L - 1, ranges[r].b + Math.round(0.001 * fs));
       }
       var wide = pass === 0 && opts.localTpl ? Math.max(1, Math.round(0.0001 * fs)) : 0;   // zweiter Versuch: weites Fenster, grob-dann-fein
-      beats.forEach(function (b) {
-        var lag = wide ? alignBeatWide(env, Math.round(b.pos), T.tpl[b.parity], pre, ranges[b.parity], maxLag, wide)
-          : alignBeat(env, Math.round(b.pos), T.tpl[b.parity], pre, ranges[b.parity], maxLag);
-        if (lag !== null) b.pos = Math.round(b.pos) + lag;
-      });
+      if (wide) {
+        // Seit 0.3.2 folgt die weite Suche dem Sprung: von der Mitte der Schablone aus nach vorn und nach hinten; die Mitte des
+        // Suchfensters ist der Median der Verschiebungen der letzten TRACK_N klar erkannten Schlaege gleicher Art. Bis 0.3.1 lag das Fenster
+        // fest auf dem Raster: Zwei Aussetzer nacheinander, deren Summe groesser war als das Fenster (z. B. zweimal 40 ms),
+        // liessen die Schlaege danach verschwinden («Das Ticken war mehrere Sekunden lang nicht zu hoeren»).
+        var order = beats.slice().sort(function (a, b) { return a.k - b.k; }), iC = 0;
+        for (var oi = 1; oi < order.length; oi++) if (Math.abs(order[oi].k - kCenter) < Math.abs(order[iC].k - kCenter)) iC = oi;
+        // Tick und Tack je fuer sich: Ihre Lage zum Raster unterscheidet sich um einige Millisekunden; gemeinsam gefuehrt,
+        // faellt einer der beiden nach einem Sprung nahe der Fenstergrenze heraus, und die Mitte springt hin und her.
+        var follow = function (from, dir) {
+          var hist = [[], []], off = [0, 0];
+          for (var bi = from; bi >= 0 && bi < order.length; bi += dir) {
+            var b = order[bi], q = b.parity, c0 = Math.round(b.pos) + off[q];
+            var lag = alignBeatWide(env, c0, T.tpl[q], pre, ranges[q], maxLag, wide);
+            if (lag === null) continue;
+            b.pos = c0 + lag;
+            if (beatCorrelation(env, b.pos, T.tpl[q], pre, ranges[q]) >= TRACK_RHO) {
+              hist[q].push(off[q] + lag);
+              if (hist[q].length > TRACK_N) hist[q].shift();
+              if (hist[q].length >= 3) off[q] = Math.round(median(hist[q]));
+            }
+          }
+        };
+        follow(iC, 1); follow(iC - 1, -1);
+      } else {
+        beats.forEach(function (b) {
+          var lag = alignBeat(env, Math.round(b.pos), T.tpl[b.parity], pre, ranges[b.parity], maxLag);
+          if (lag !== null) b.pos = Math.round(b.pos) + lag;
+        });
+      }
       // nach der Ausrichtung: Schlaege mit klarer Aehnlichkeit fuer die naechste Schablone verwenden
       if (pass >= 1) {
         rhoThr = nullThreshold(env, beats, T, pre, ranges, T0 * fs);
@@ -1999,7 +2059,7 @@
   }
 
   var api = {
-    version: '0.3.1',
+    version: '0.3.2',
     analyze: analyze,
     analyzeQuartz: analyzeQuartz,
     probeQuartz: probeQuartz,
