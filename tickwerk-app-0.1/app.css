@@ -164,11 +164,15 @@ h2 { margin: 0; font-family: var(--display); font-size: 20px; font-weight: 600; 
 /* 0.7.6: Platz der Uhr auf «Uhr bearbeiten» */
 .order-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 12px; }
 .sort-hint { margin: 2px 0 0; font-size: 12px; color: var(--faint); text-align: center; }
-.wcard-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+/* 0.7.7: oben zwei Spalten (links Name, Werk, Gang; rechts Pfeil und Foto), unten Einstufung und Fusszeile, daneben der Verlauf */
+.wcard-top { display: flex; justify-content: space-between; align-items: stretch; gap: 12px; }
+.wcard-main { display: flex; flex-direction: column; justify-content: space-between; gap: 12px; flex: 1; min-width: 0; }
+.wcard-name, .wcard-main .mono-sub { overflow-wrap: anywhere; }
+.wcard-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
+.wcard-low { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; }
+.wcard-lowtxt { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .wcard-name { display: block; font-family: var(--display); font-size: 18px; font-weight: 600; }
 .wcard-top svg { width: 20px; height: 20px; color: var(--faint); flex-shrink: 0; }
-.wcard-mid { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; }
-.wcard-rate { display: flex; flex-direction: column; gap: 8px; }
 .wcard-num { display: flex; align-items: baseline; gap: 6px; }
 .wcard-num b { font-family: var(--display); font-size: 30px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
 .wcard-num span { font-size: 14px; color: var(--muted); }
@@ -181,6 +185,68 @@ h2 { margin: 0; font-family: var(--display); font-size: 20px; font-weight: 600; 
 .pill.none { background: rgba(138, 149, 163, 0.12); color: var(--faint); }
 .spark { width: 110px; height: 40px; flex-shrink: 0; }
 .spark polyline { fill: none; stroke-width: 2; }
+/* 0.7.7: Foto der Uhr, gezeichnet in <canvas> (app.js, «Foto der Uhr») */
+.foto { display: block; flex-shrink: 0; border-radius: 50%; background: var(--inset); border: 1px solid var(--line); }
+.foto-card { width: 88px; height: 88px; }
+.foto-head { width: 44px; height: 44px; }
+.foto-big { width: 184px; height: 184px; align-self: center; }
+.foto-edit { width: 72px; height: 72px; }
+.foto-pick { width: 36px; height: 36px; }
+.foto-row { display: flex; align-items: center; gap: 14px; }
+.field-label { font-size: 13px; color: var(--muted); }
+.mhead-txt { flex: 1; }
+.pick-list button.with-foto { display: grid; grid-template-columns: 36px minmax(0, 1fr); column-gap: 12px; align-items: center; }
+.pick-list button.with-foto .foto { grid-row: 1 / 3; }
+.pick-list button.with-foto > span:not(.foto), .pick-list button.with-foto > small { grid-column: 2; }
+@media (max-width: 359px) { .foto-card { width: 72px; height: 72px; } }
+/* Foto zuschneiden */
+.fe-stage { display: block; width: 100%; max-width: min(100%, 52vh); aspect-ratio: 1; align-self: center; border-radius: 14px; border: 1px solid var(--line); background: var(--inset); touch-action: none; }
+.fe-ctl { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px 12px; }
+.fe-ctl label { font-size: 13px; color: var(--muted); }
+.fe-ctl input[type="range"] { width: 100%; min-height: 32px; accent-color: var(--lume); }
+.fe-ctl .btn-ghost { grid-column: 1 / 3; justify-self: start; }
+/* 0.7.8: Per Foto anlegen (Vorschläge aus der Schrift auf dem Zifferblatt) */
+.lies-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.lies { display: flex; flex-direction: column; gap: 8px; }
+.lies > .btn-ghost { align-self: flex-start; }
+.suggest.lies-list { max-height: none; overflow: visible; }
+.lies-list:empty { display: none; }
+.suggest.lies-list li { padding: 0; cursor: default; }
+.lies-item { display: flex; flex-direction: column; gap: 1px; width: 100%; min-width: 0; padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; color: inherit; text-align: left; font: inherit; }
+.lies-item .t { font-size: 14px; font-weight: 600; }
+.lies-item .s { font-size: 12.5px; color: var(--faint); }
+.lies-item[aria-pressed="true"] { background: var(--surface); box-shadow: inset 0 0 0 1px var(--lume); }
+/* 0.7.9: Seite «Mehr»: Zeilen mit Symbol und Pfeil, Gruppen zum Auf- und Zuklappen, zuoberst das, was noch zu tun ist */
+#scr-more { gap: 10px; }
+.menu .mrow { display: grid; grid-template-columns: 24px minmax(0, 1fr) 18px; align-items: center; column-gap: 12px; }
+.mico { width: 22px; height: 22px; fill: none; stroke: var(--muted); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.mch { width: 18px; height: 18px; fill: none; stroke: var(--dim); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.mtxt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.menu:empty { display: none; }
+.more-first { display: flex; flex-direction: column; gap: 10px; }
+.more-first:not(:has(> :not([hidden]))) { display: none; }
+.more-first > .btn-ghost { align-self: flex-start; }
+.mfirst { border: 1px solid rgba(184, 242, 138, 0.55); background: var(--lume-tint); border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.mfirst-h { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; column-gap: 12px; }
+.mfirst-h .mico { width: 40px; height: 40px; padding: 8px; border-radius: 12px; background: var(--lume-soft); stroke: var(--lume); }
+.mfirst-t { font-family: var(--display); font-size: 18px; font-weight: 600; }
+.mfirst p { margin: 0; font-size: 14px; color: var(--muted); }
+.mfirst .actions { align-items: center; gap: 12px; }
+.mchip { font: 500 10.5px var(--mono); letter-spacing: 0.06em; text-transform: uppercase; padding: 3px 8px; border-radius: 8px; border: 1px solid rgba(245, 155, 94, 0.6); color: var(--warn); }
+.macc { display: flex; flex-direction: column; gap: 8px; }
+.macc > summary { list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 50px; padding: 0 12px 0 16px; border-radius: 14px; cursor: pointer;
+  background: var(--lume-soft); border: 1px solid rgba(184, 242, 138, 0.38); color: var(--lume); }
+.macc > summary::-webkit-details-marker { display: none; }
+.macc-t { font-family: var(--display); font-size: 16px; font-weight: 600; }
+.macc-r { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.macc-s { font: 500 11px var(--mono); letter-spacing: 0.04em; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.macc > summary .chev { color: currentColor; }
+.macc[open] > summary .chev { transform: rotate(180deg); }
+.look-full .macc > summary { background: var(--lume); border-color: var(--lume); color: var(--bg); }
+.look-full .macc-s { color: rgba(11, 14, 18, 0.72); }
+.look-card .macc > summary, .look-open .macc > summary { background: var(--surface); border-color: var(--line); color: var(--text); }
+.look-open .macc[open] > summary { background: var(--lume); border-color: var(--lume); color: var(--bg); }
+.look-open .macc[open] .macc-s { color: rgba(11, 14, 18, 0.72); }
 .empty { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 18px; border: 1px dashed var(--line2); border-radius: 18px; color: var(--muted); }
 .empty p { margin: 0; }
 

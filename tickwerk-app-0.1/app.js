@@ -65,7 +65,7 @@
   var UHREN = window.TICKWERK_UHREN || [];
   var CFG = window.TICKWERK_CONFIG || {};
   var FLAVOR = CFG.flavor === 'store' ? 'store' : 'test';
-  var APP_VERSION = '0.7.6';
+  var APP_VERSION = '0.7.9';
   var PREFIX = typeof CFG.storage === 'string' && /^[a-z][a-z0-9.]{2,30}$/.test(CFG.storage) ? CFG.storage : 'tickwerk.v1';
   var KEYS = { watches: PREFIX + '.watches', meas: PREFIX + '.measurements', settings: PREFIX + '.settings', session: PREFIX + '.session', pro: PREFIX + '.pro', log: PREFIX + '.log' };
   var PRO_SKU = typeof CFG.proSku === 'string' && /^[a-z0-9._]{1,40}$/.test(CFG.proSku) ? CFG.proSku : 'tickwerk_pro';
@@ -192,6 +192,8 @@
     }
     /* 0.7.5: «Nicht jetzt» beim Vorschlag, einzelne Messungen zum Lagen-Test zu machen (Nummer der Messung, bei der gefragt wurde) */
     if (finite(w.lsk, 0) > 0) out.lsk = finite(w.lsk, 0);
+    /* 0.7.7: Die Uhr hat ein Foto (Zeitpunkt des Speicherns). Das Bild selbst liegt in IndexedDB, siehe «Foto der Uhr». */
+    if (finite(w.foto, 0) > 0) out.foto = finite(w.foto, 0);
     return out;
   }
   function cleanTrace(tr) {
@@ -250,7 +252,9 @@
   }
 
   /* Klappkarten auf der Seite der Uhr: Kennung -> Element, und ob sie am Anfang offen sind */
-  var FOLDS = { dt: 'dTimeCard', gr: 'dGrCard', lg: 'dLagenCard', ms: 'dListCard' }, FOLD_OPEN = { dt: false, gr: false, lg: false, ms: true };
+  var FOLDS = { dt: 'dTimeCard', gr: 'dGrCard', lg: 'dLagenCard', ms: 'dListCard',
+    mw: 'moreAccTools', mg: 'moreAccGenau', md: 'moreAccDaten', ma: 'moreAccApp', mh: 'moreAccHilfe' },   /* 0.7.9: dazu die Gruppen unter «Mehr» */
+    FOLD_OPEN = { dt: false, gr: false, lg: false, ms: true, mw: true, mg: false, md: false, ma: false, mh: false };
   function cleanFold(f) {
     var out = {};
     Object.keys(FOLDS).forEach(function (k) { out[k] = f && typeof f === 'object' && typeof f[k] === 'boolean' ? f[k] : FOLD_OPEN[k]; });
@@ -288,6 +292,7 @@
     calAt: isoDate(S.calAt), calNag: isoDate(S.calNag),   /* wann geeicht; wann zuletzt an eine alte Eichung erinnert */
     fold: cleanFold(S.fold),   /* welche Karten auf der Seite der Uhr aufgeklappt sind */
     extend: S.extend !== false,   /* unsichere Messung von selbst verlängern (bis 60 s) */
+    accLook: ['full', 'card', 'open'].indexOf(S.accLook) >= 0 ? S.accLook : 'tint',   /* 0.7.9: Farbe der Gruppen unter «Mehr»: getönt, grün, wie die Karten, oder nur die offene Gruppe grün */
     seenVersion: /^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(str(S.seenVersion, 12)) ? S.seenVersion : ''   /* bis zu welcher Version «Was ist neu» gezeigt wurde */
   };
   if (settings.quartzSrc === 'uhr' && settings.quartzSig == null) settings.quartzSrc = '';
@@ -722,8 +727,8 @@
   }
 
   /* ---------- Navigation: Bildschirme als Stapel, Android-Zurück schliesst den obersten ---------- */
-  var SCREENS = ['measure', 'watches', 'watch', 'edit', 'lagen', 'lpos', 'reg', 'zeit', 'detektiv', 'guide', 'more', 'pro', 'history', 'settings', 'eichen', 'eichquarz', 'eichzeit', 'eichdatei', 'eichhand'];
-  var NO_TABS = { edit: true, lagen: true, lpos: true, reg: true, zeit: true, detektiv: true, guide: true, eichen: true, eichquarz: true, eichzeit: true, eichdatei: true, eichhand: true };
+  var SCREENS = ['measure', 'watches', 'watch', 'edit', 'foto', 'lagen', 'lpos', 'reg', 'zeit', 'detektiv', 'guide', 'more', 'pro', 'history', 'settings', 'eichen', 'eichquarz', 'eichzeit', 'eichdatei', 'eichhand'];
+  var NO_TABS = { edit: true, foto: true, lagen: true, lpos: true, reg: true, zeit: true, detektiv: true, guide: true, eichen: true, eichquarz: true, eichzeit: true, eichdatei: true, eichhand: true };
   var stack = [{ s: 'measure', p: {} }];
   var sheetOpen = null, afterPop = null, shownScreen = '';
   var tabs = Array.prototype.slice.call(document.querySelectorAll('.tabbar button'));
@@ -734,6 +739,7 @@
     if (rec && rec.owner !== t.s) recStop(true);
     if (t.s !== 'lpos') lpStop();
     if (t.s !== 'zeit') zStop();
+    if (t.s !== 'foto') feClose();
     SCREENS.forEach(function (s) { $('scr-' + s).hidden = s !== t.s; });
     document.body.classList.toggle('no-tabs', !!NO_TABS[t.s]);
     document.body.classList.toggle('is-pro', isPro());
@@ -1642,6 +1648,7 @@
     renderGrNotice(); renderLagenOffer();
     if (settings.watchId && !w) { settings.watchId = ''; saveSettings(); }
     $('mWatchName').textContent = w ? w.name : UNKNOWN.name;
+    fotoSlot($('mFoto'), w);   /* 0.7.7 */
     $('mWatchSub').textContent = watchSub(w) + (ppmOf(micKey()) ? ' · ' + T('geeicht') : '') + micNote();   /* kurz, damit die Zeile selten umbricht */
     $('mPos').value = settings.pos; $('mDur').value = String(settings.dur);
     if (!rec && !busy && !lastShown && k && k.messbar === false) setStatus('status', T(k.notiz || 'Dieses Werk lässt sich mit dem Mikrofon nicht messen.'), 'err');
@@ -2003,16 +2010,19 @@
   function openWatchSheet() {
     if (rec || busy) return;
     var ul = $('wsList'); ul.innerHTML = '';
+    var anyFoto = mechWatches().some(function (x) { return fotoShown(x); });   /* 0.7.7: dann bekommt jede Zeile den Platz für ein Foto */
     $('wsTitle').textContent = T('Uhr wählen'); $('wsAdd').hidden = false;
     mechWatches().concat([null]).forEach(function (w) {
       var li = document.createElement('li'), b = document.createElement('button');
       b.type = 'button';
-      b.innerHTML = '<span>' + esc(w ? w.name : UNKNOWN.name) + '</span><small>' + esc(watchSub(w)) + '</small>';
+      b.innerHTML = (anyFoto ? (w && fotoShown(w) ? fotoTag(w, 'foto-pick', 36) : '<span class="foto foto-pick" aria-hidden="true"></span>') : '') +
+        '<span>' + esc(w ? w.name : UNKNOWN.name) + '</span><small>' + esc(watchSub(w)) + '</small>';
+      if (anyFoto) b.className = 'with-foto';
       if ((w ? w.id : '') === settings.watchId) b.setAttribute('aria-current', 'true');
       b.addEventListener('click', function () { setWatch(w ? w.id : ''); closeSheet(); renderMeasure(); });
       li.appendChild(b); ul.appendChild(li);
     });
-    openSheet('watchSheet');
+    openSheet('watchSheet'); fotoPaint(ul);
   }
 
   /* ---------- Falsche Uhr gewählt (0.7.4) ----------
@@ -2119,13 +2129,17 @@
     if (tool.id === 'zeit' && w) { var z = zeitNext(w); if (z && z.due) return { text: T('Zeitvergleich fällig'), due: true }; }
     return { text: tool.s, due: false };
   }
-  function renderTools(ul) {
+  /* rows: die Fassung für «Mehr» (0.7.9) mit Symbol und Pfeil; die Eichung steht dort für sich, zuoberst oder unter «Genauigkeit» */
+  function renderTools(ul, rows) {
     ul.innerHTML = '';
     TOOLS.forEach(function (tool) {
+      if (rows && tool.id === 'eichen') return;
       var li = document.createElement('li'), b = document.createElement('button'), sub = toolSub(tool);
       b.type = 'button'; b.setAttribute('data-tool', tool.id);
       if (sub.due) b.setAttribute('data-due', '1');
-      b.innerHTML = '<span class="menu-t">' + esc(tool.t) + (tool.pro ? '<span class="pro-tag">Pro</span>' : '') + '</span><span class="menu-s">' + esc(sub.text) + '</span>';
+      var txt = '<span class="menu-t">' + esc(tool.t) + (tool.pro ? '<span class="pro-tag">Pro</span>' : '') + '</span><span class="menu-s">' + esc(sub.text) + '</span>';
+      if (rows) b.className = 'mrow';
+      b.innerHTML = rows ? mico(tool.id) + '<span class="mtxt">' + txt + '</span>' + MCH : txt;
       b.addEventListener('click', function () { openTool(tool.id); });
       li.appendChild(b); ul.appendChild(li);
     });
@@ -2877,6 +2891,8 @@
       '<polyline points="' + pts.map(function (m, i) { return X(i).toFixed(1) + ',' + Y(m.rate).toFixed(1); }).join(' ') + '" stroke="' + col + '"/>' +
       '<circle cx="' + X(pts.length - 1).toFixed(1) + '" cy="' + Y(pts[pts.length - 1].rate).toFixed(1) + '" r="3" fill="' + col + '" stroke="none"/></svg>';
   }
+  /* 0.7.7: Die Karte hat oben zwei Spalten: links Name, Werk und Gang, rechts der Pfeil und darunter das Foto (wenn es eines
+     gibt). Unten stehen Einstufung und Fusszeile, rechts daneben der Verlauf: Er ist dafür nach unten gerückt. */
   function renderWatches() {
     $('wCount').textContent = plural(watches.length, 'Uhr', 'Uhren');
     var box = $('watchCards'); box.innerHTML = '';
@@ -2887,9 +2903,9 @@
       b.type = 'button'; b.className = 'wcard';
       if (w.quarz) {   /* Quarzuhr: statt Messungen der Gang im Alltag */
         var qd = dailyRate(w.tv || []), qn = (w.tv || []).length;
-        b.innerHTML = '<span class="wcard-top"><span><span class="wcard-name">' + esc(w.name) + '</span><span class="mono-sub">' + esc(T('Quarzuhr')) + '</span></span>' +
-          '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></span>' +
-          '<span class="wcard-mid"><span class="wcard-rate"><span class="wcard-num"><b>' + (qd ? esc(signed(qd.rate, 2)) : '–') + '</b><span>' + esc(T('s/Tag')) + '</span></span></span></span>' +
+        b.innerHTML = '<span class="wcard-top"><span class="wcard-main"><span><span class="wcard-name">' + esc(w.name) + '</span><span class="mono-sub">' + esc(T('Quarzuhr')) + '</span></span>' +
+          '<span class="wcard-num"><b>' + (qd ? esc(signed(qd.rate, 2)) : '–') + '</b><span>' + esc(T('s/Tag')) + '</span></span></span>' +
+          '<span class="wcard-side"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>' + fotoTag(w, 'foto-card', 88) + '</span></span>' +
           '<span class="wcard-foot">' + esc(qn ? T('Gang im Alltag') + ' · ' + plural(qn, 'Vergleich', 'Vergleiche') : T('Noch kein Vergleich')) + '</span>' +
           (dueText(w) ? '<span class="wcard-due">' + esc(dueText(w)) + '</span>' : '');
         b.addEventListener('click', function () { if (!wdSkipClick) go('watch', { id: w.id }); });
@@ -2897,17 +2913,18 @@
         box.appendChild(b);
         return;
       }
-      b.innerHTML = '<span class="wcard-top"><span><span class="wcard-name">' + esc(w.name) + '</span><span class="mono-sub">' + esc(calName(w.kaliberId) || T('Werk unbekannt')) + '</span></span>' +
-        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></span>' +
-        '<span class="wcard-mid"><span class="wcard-rate"><span class="wcard-num"><b>' + (show ? esc(signed(show.rate, 1)) : '–') + '</b><span>' + esc(T('s/Tag')) + '</span></span>' +
-        '<span class="pill ' + st.cls + '">' + PILL_ICON[st.cls] + esc(st.text) + '</span></span>' + sparkline(list, st.cls) + '</span>' +
-        '<span class="wcard-foot">' + esc(list.length ? plural(list.length, 'Messung', 'Messungen') + ' · ' + T('zuletzt {d}', { d: ago(list[list.length - 1].date) }) : T('Noch keine Messung')) + '</span>' +
+      b.innerHTML = '<span class="wcard-top"><span class="wcard-main"><span><span class="wcard-name">' + esc(w.name) + '</span><span class="mono-sub">' + esc(calName(w.kaliberId) || T('Werk unbekannt')) + '</span></span>' +
+        '<span class="wcard-num"><b>' + (show ? esc(signed(show.rate, 1)) : '–') + '</b><span>' + esc(T('s/Tag')) + '</span></span></span>' +
+        '<span class="wcard-side"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>' + fotoTag(w, 'foto-card', 88) + '</span></span>' +
+        '<span class="wcard-low"><span class="wcard-lowtxt"><span class="pill ' + st.cls + '">' + PILL_ICON[st.cls] + esc(st.text) + '</span>' +
+        '<span class="wcard-foot">' + esc(list.length ? plural(list.length, 'Messung', 'Messungen') + ' · ' + T('zuletzt {d}', { d: ago(list[list.length - 1].date) }) : T('Noch keine Messung')) + '</span></span>' + sparkline(list, st.cls) + '</span>' +
         (dueText(w) ? '<span class="wcard-due">' + esc(dueText(w)) + '</span>' : '');
       b.addEventListener('click', function () { if (!wdSkipClick) go('watch', { id: w.id }); });
       b.addEventListener('pointerdown', function (e) { wdStart(b, e); });
       box.appendChild(b);
     });
     $('wSortHint').hidden = watches.length < 2;
+    fotoPaint(box);   /* 0.7.7 */
   }
   /* ---------- Reihenfolge der Uhren (0.7.5): lange drücken, dann ziehen ----------
      Die Lieblingsuhren nach oben: Die Reihenfolge der Karten ist die der gespeicherten Liste, sie gilt auch in der Auswahl
@@ -3058,6 +3075,7 @@
     if (!w) { setTimeout(function () { popTo('watches'); }, 0); return; }
     var k = kalById(w.kaliberId), list = measOf(w), st = liftState(w);
     $('dName').textContent = w.name;
+    fotoSlot($('dFoto'), w);   /* 0.7.7 */
     $('scr-watch').classList.toggle('quartz', !!w.quarz);   /* Quarzuhr: nur «Gang im Alltag», der Rest der Seite gilt mechanischen Uhren */
     $('dCal').textContent = w.quarz ? T('Quarzuhr') : (k ? kName(k) : T('Werk unbekannt')) + (k && k.messbar === false ? ' · ' + T('nicht messbar') : '');
     $('dDetective').hidden = !!k || !!w.quarz;
@@ -4249,7 +4267,7 @@
   $('wCalClear').addEventListener('click', function () { pickCal(null); });
 
   function renderEdit(p) {
-    if (p.init) return;
+    if (p.init) { fotoRow(p); return; }   /* 0.7.7: zurück vom Zuschneiden */
     p.init = true;
     var w = p.id ? findWatch(p.id) : null;
     nameAuto = false; $('watchForm').reset(); $('wFind').value = ''; hideSuggest(); hideCalList(); setCal(null); defaultFindNote();
@@ -4264,6 +4282,8 @@
       $('wLift').value = 52; applyCal(null);
       $('watchFormTitle').textContent = T('Uhr hinzufügen'); $('wSave').textContent = T('Speichern'); $('wDelete').hidden = true;
     }
+    setStatus('wFotoNote', '', ''); fotoRow(p);
+    liesReset(w);   /* 0.7.8 */
   }
   /* 0.7.6: Platz der Uhr in «Meine Uhren», ohne Ziehen: für Tastatur und Bildschirmleser, wo langes Drücken und Ziehen (0.7.5)
      nicht geht. Wirkt sofort, unabhängig von «Änderungen speichern». */
@@ -4293,7 +4313,8 @@
     var lift = parseFloat(String($('wLift').value).replace(',', '.'));
     var editing = t.p.id && findWatch(t.p.id), isQ = $('wQuartz').checked;
     var w = cleanWatch({ id: editing ? editing.id : 'w' + Date.now().toString(36), name: name, kaliberId: isQ ? '' : $('wCal').value, quarz: isQ,
-      liftAngle: isFinite(lift) && !isQ ? lift : 52, bph: $('wBph').value && !isQ ? parseInt($('wBph').value, 10) : null, tv: editing ? editing.tv : undefined, gr: editing && !isQ ? editing.gr : undefined });
+      liftAngle: isFinite(lift) && !isQ ? lift : 52, bph: $('wBph').value && !isQ ? parseInt($('wBph').value, 10) : null, tv: editing ? editing.tv : undefined, gr: editing && !isQ ? editing.gr : undefined,
+      lsk: editing ? editing.lsk : undefined, foto: editing ? editing.foto : undefined });   /* 0.7.7: «Nicht jetzt» und das Foto bleiben beim Bearbeiten */
     /* Gratis: eine Uhr zum Messen und eine Quarzuhr als Referenz. Geprüft wird beim Anlegen und wenn eine Uhr die Art wechselt. */
     if (!isPro() && (!editing || !!editing.quarz !== isQ) && watches.filter(function (x) { return !!x.quarz === isQ && x !== editing; }).length >= 1) { requirePro('watches'); return; }
     if (editing) watches = watches.map(function (x) { return x.id === editing.id ? w : x; });
@@ -4304,6 +4325,8 @@
     saveWatches();
     if (isQ && settings.watchId === w.id) setWatch('');   /* eine Quarzuhr ist nie die Uhr unter «Messen» */
     if (!editing && !isQ) setWatch(w.id);
+    /* 0.7.7: Bei einer neuen Uhr hat das Foto bis hier gewartet */
+    if (!editing && t.p.fotoNew) fotoSave(w.id, t.p.fotoNew).then(fotoRefresh, function () { toast(T('Das Foto konnte nicht gespeichert werden.')); });
     toast(editing ? T('Gespeichert.') : T('«{w}» hinzugefügt.', { w: w.name }));
     back();
   });
@@ -4311,9 +4334,619 @@
     var t = top(), w = t.p.id ? findWatch(t.p.id) : null;
     if (!w || !window.confirm(T('«{w}» löschen? Die Messungen bleiben unter «Alle Messungen».', { w: w.name }))) return;
     watches = watches.filter(function (x) { return x.id !== w.id; }); saveWatches();
+    fotoDrop(w.id);
     if (settings.watchId === w.id) setWatch('');
     if (session && session.watchId === w.id) { session = null; saveSession(); }
     popTo('watches');
+  });
+
+  /* ---------- Foto der Uhr (0.7.7) ----------
+     Zu jeder Uhr kann ein Foto des Zifferblatts gehören: rund ausgeschnitten, 512 mal 512 Punkte, als JPEG. Die Bilder liegen
+     in IndexedDB (für den übrigen Speicher der App wären sie zu gross); die Uhr trägt nur das Kennzeichen «foto». Im
+     Arbeitsspeicher steht je Foto die data:-Adresse (für die Sicherung) und ein ImageBitmap (zum Zeichnen).
+     Angezeigt wird über <canvas>: So bleibt die strenge Regel der Seite (img-src 'self', kein data:) unverändert, und langes
+     Drücken auf eine Karte öffnet kein Bild-Menü. Vom gewählten Foto bleibt nur der Ausschnitt; Angaben aus der Datei wie Ort
+     und Aufnahmezeit gehen dabei verloren. */
+  var FOTO_PX = 512, FOTO_MAX = 400000, FOTO_WORK = 2400, FOTO_FILE_MAX = 60 * 1024 * 1024, FOTO_BG = '#0B0E12';
+  var fotos = Object.create(null), fotoDb = null, fotoLoaded = false;
+  var fotoOk = !!(window.indexedDB && window.createImageBitmap && window.Promise);
+  /* Vor dem Laden gilt das Kennzeichen der Uhr (der Platz ist dann schon frei), danach zählt, was wirklich da ist. */
+  function fotoShown(w) { return !!w && fotoOk && (fotoLoaded ? !!fotos[w.id] : !!w.foto); }
+  function fotoTag(w, cls, px) {
+    return fotoShown(w) ? '<canvas class="foto ' + cls + '" data-foto="' + esc(w.id) + '" data-px="' + px + '" width="1" height="1" aria-hidden="true"></canvas>' : '';
+  }
+  function fotoDraw(c, bmp) {
+    var px = parseInt(c.getAttribute('data-px'), 10) || c.clientWidth || 88, n = Math.round(px * Math.min(3, window.devicePixelRatio || 1));
+    if (c.width !== n || c.height !== n) { c.width = n; c.height = n; }
+    var g = c.getContext('2d');
+    g.clearRect(0, 0, n, n);
+    if (!bmp) { c.classList.remove('on'); return; }
+    g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+    g.drawImage(bmp, 0, 0, n, n); c.classList.add('on');
+  }
+  function fotoPaint(root) {
+    var all = root.querySelectorAll('canvas[data-foto]');
+    for (var i = 0; i < all.length; i++) { var f = fotos[all[i].getAttribute('data-foto')]; fotoDraw(all[i], f ? f.bmp : null); }
+  }
+  /* ein fester Platz für das Foto (Kopf von «Messen», Seite der Uhr): zeigen oder verstecken */
+  function fotoSlot(c, w) {
+    var on = fotoShown(w);
+    c.hidden = !on;
+    if (on) { c.setAttribute('data-foto', w.id); fotoDraw(c, fotos[w.id] ? fotos[w.id].bmp : null); } else c.removeAttribute('data-foto');
+  }
+  /* data:-Adresse zu ImageBitmap, ohne fetch: Die Regeln der Seite erlauben data: weder für Bilder noch für Abfragen.
+     Angenommen wird nur, was Tickwerk selbst schreibt: ein quadratisches JPEG. */
+  function fotoDecode(url) {
+    return new Promise(function (res, rej) {
+      var m = typeof url === 'string' && url.length <= FOTO_MAX ? /^data:image\/jpeg;base64,([A-Za-z0-9+\/]+=*)$/.exec(url) : null;
+      if (!m) { rej(new Error('format')); return; }
+      var bin;
+      try { bin = atob(m[1]); } catch (e) { rej(e); return; }
+      var u8 = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+      createImageBitmap(new Blob([u8], { type: 'image/jpeg' })).then(function (b) {
+        if (b.width !== b.height || b.width < 64 || b.width > 1024) { if (b.close) b.close(); rej(new Error('size')); } else res(b);
+      }, rej);
+    });
+  }
+  function fotoOpenDb() {
+    return new Promise(function (res, rej) {
+      if (fotoDb) { res(fotoDb); return; }
+      var rq;
+      try { rq = indexedDB.open(PREFIX + '.fotos', 1); } catch (e) { rej(e); return; }
+      rq.onupgradeneeded = function () { if (!rq.result.objectStoreNames.contains('fotos')) rq.result.createObjectStore('fotos'); };
+      rq.onsuccess = function () { fotoDb = rq.result; fotoDb.onversionchange = function () { if (fotoDb) fotoDb.close(); fotoDb = null; }; res(fotoDb); };
+      rq.onerror = function () { rej(rq.error || new Error('idb')); };
+      rq.onblocked = function () { rej(new Error('blocked')); };
+    });
+  }
+  /* eine Transaktion: fn(store) stellt die Aufträge; fertig, wenn die Transaktion abgeschlossen ist */
+  function fotoDbDo(mode, fn) {
+    return fotoOpenDb().then(function (db) {
+      return new Promise(function (res, rej) {
+        var tx = db.transaction('fotos', mode);
+        tx.oncomplete = function () { res(); };
+        tx.onerror = tx.onabort = function () { rej(tx.error || new Error('idb')); };
+        fn(tx.objectStore('fotos'));
+      });
+    });
+  }
+  function fotoLoad() {
+    if (!fotoOk) { fotoLoaded = true; return; }
+    var rows = [];
+    fotoDbDo('readonly', function (st) {
+      st.openCursor().onsuccess = function (e) { var c = e.target.result; if (c) { rows.push([String(c.key), c.value]); c.continue(); } };
+    }).then(function () {
+      return Promise.all(rows.map(function (r) {
+        return fotoDecode(r[1]).then(function (bmp) { fotos[r[0]] = { url: r[1], bmp: bmp }; }, function () { /* unlesbar: wie kein Foto */ });
+      }));
+    }).then(function () {
+      fotoLoaded = true;
+      /* aufräumen: Kennzeichen ohne Bild, Bild ohne Kennzeichen, Bilder ohne Uhr */
+      var ch = false;
+      watches.forEach(function (w) {
+        if (w.foto && !fotos[w.id]) { delete w.foto; ch = true; } else if (!w.foto && fotos[w.id]) { w.foto = Date.now(); ch = true; }
+      });
+      if (ch) saveWatches();
+      rows.forEach(function (r) {
+        if (findWatch(r[0])) return;
+        if (fotos[r[0]]) { if (fotos[r[0]].bmp.close) fotos[r[0]].bmp.close(); delete fotos[r[0]]; }
+        fotoDbDo('readwrite', function (st) { st.delete(r[0]); }).catch(function () { /* egal */ });
+      });
+      fotoRefresh();
+    }, function () {
+      /* Der Speicher für Fotos geht nicht auf: ohne Fotos weiter. Die Kennzeichen bleiben, vielleicht geht es beim nächsten Start. */
+      fotoOk = false; fotoLoaded = true; fotoRefresh();
+    });
+  }
+  /* nach dem Laden oder einer Änderung: alle sichtbaren Plätze neu füllen */
+  function fotoRefresh() {
+    var s = topScreen();
+    fotoSlot($('mFoto'), currentWatch());
+    if (s === 'watches' && !wd) renderWatches();
+    if (s === 'watch') fotoSlot($('dFoto'), detailWatch());
+    if (s === 'edit') fotoRow(top().p);
+    fotoPaint(document.body);
+  }
+  /* Foto einer Uhr speichern: erst prüfen (lässt es sich lesen?), dann in den Speicher, dann das Kennzeichen an der Uhr */
+  function fotoSave(id, url) {
+    if (!fotoOk) return Promise.reject(new Error('idb'));
+    return fotoDecode(url).then(function (bmp) {
+      return fotoDbDo('readwrite', function (st) { st.put(url, id); }).then(function () {
+        if (fotos[id] && fotos[id].bmp.close) fotos[id].bmp.close();
+        fotos[id] = { url: url, bmp: bmp };
+        var w = findWatch(id);
+        if (w) { w.foto = Date.now(); saveWatches(); }
+      }, function (e) { if (bmp.close) bmp.close(); throw e; });
+    });
+  }
+  function fotoDrop(id) {
+    if (fotos[id]) { if (fotos[id].bmp.close) fotos[id].bmp.close(); delete fotos[id]; }
+    var w = findWatch(id);
+    if (w && w.foto) { delete w.foto; saveWatches(); }
+    if (fotoOk) fotoDbDo('readwrite', function (st) { st.delete(id); }).catch(function () { /* egal */ });
+  }
+  function fotoWipe() {
+    Object.keys(fotos).forEach(function (id) { if (fotos[id].bmp.close) fotos[id].bmp.close(); delete fotos[id]; });
+    if (fotoOk) fotoDbDo('readwrite', function (st) { st.clear(); }).catch(function () { /* egal */ });
+  }
+  function fotoExport() {
+    var o = {};
+    watches.forEach(function (w) { if (fotos[w.id]) o[w.id] = fotos[w.id].url; });
+    return o;
+  }
+  /* «Uhr bearbeiten»: die Zeile mit dem Foto. Bei einer neuen Uhr wartet das Foto in den Angaben der Seite, bis gespeichert wird. */
+  function fotoRow(p) {
+    var w = p.id ? findWatch(p.id) : null, bmp = w ? (fotos[w.id] ? fotos[w.id].bmp : null) : (p.fotoBmp || null), c = $('wFotoPrev');
+    $('wFotoBox').hidden = !fotoOk;
+    c.hidden = !bmp; $('wFotoDel').hidden = !bmp;
+    if (bmp) fotoDraw(c, bmp);
+  }
+  $('wFotoCamBtn').addEventListener('click', function () { $('wFotoCam').click(); });
+  $('wFotoPickBtn').addEventListener('click', function () { $('wFotoIn').click(); });
+  ['wFotoCam', 'wFotoIn'].forEach(function (id) {
+    $(id).addEventListener('change', function (e) { var f = e.target.files[0]; e.target.value = ''; if (f) fotoPick(f); });
+  });
+  $('wFotoDel').addEventListener('click', function () {
+    var t = top(); if (t.s !== 'edit') return;
+    var w = t.p.id ? findWatch(t.p.id) : null;
+    if (w) {
+      if (!window.confirm(T('Foto von «{w}» entfernen?', { w: w.name }))) return;
+      fotoDrop(w.id); toast(T('Foto entfernt.'));
+    } else { t.p.fotoNew = ''; t.p.fotoBmp = null; }
+    setStatus('wFotoNote', '', ''); fotoRow(t.p);
+  });
+  function fotoPick(file, lies) {
+    var t = top(); if (t.s !== 'edit' || fe) return;
+    var note = lies ? 'wLiesStatus' : 'wFotoNote';   /* 0.7.8: Bei «Per Foto anlegen» steht die Meldung oben bei der Suche */
+    if (lies) { liesReset(t.p.id ? findWatch(t.p.id) : null); $('wLies').hidden = false; }
+    if (file.size > FOTO_FILE_MAX) { setStatus(note, T('Das Foto ist zu gross (höchstens 60 MB).'), 'err'); return; }
+    setStatus(note, T('Lese das Foto …'), 'busy');
+    fotoRead(file).then(function (cv) {
+      if (top() !== t) return;   /* inzwischen woanders */
+      setStatus(note, '', '');
+      feOpen(cv, lies);
+    }, function () {
+      if (top() === t) setStatus(note, T('Das Foto konnte nicht gelesen werden. Tickwerk liest JPEG, PNG und WebP.'), 'err');
+    });
+  }
+  /* die gewählte Datei lesen und auf Arbeitsgrösse bringen (längere Seite höchstens FOTO_WORK Punkte) */
+  function fotoRead(file) {
+    var toCanvas = function (bmp) {
+      var k = Math.min(1, FOTO_WORK / Math.max(bmp.width, bmp.height)), cv = document.createElement('canvas');
+      cv.width = Math.max(1, Math.round(bmp.width * k)); cv.height = Math.max(1, Math.round(bmp.height * k));
+      var g = cv.getContext('2d');
+      g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+      g.drawImage(bmp, 0, 0, cv.width, cv.height);
+      if (bmp.close) bmp.close();
+      if (cv.width < 64 || cv.height < 64) throw new Error('klein');
+      return cv;
+    };
+    return createImageBitmap(file, { imageOrientation: 'from-image' }).catch(function () {
+      /* sehr grosse Fotos: gleich verkleinert lesen */
+      return createImageBitmap(file, { imageOrientation: 'from-image', resizeWidth: FOTO_WORK, resizeQuality: 'medium' });
+    }).then(toCanvas);
+  }
+
+  /* ---- Foto zuschneiden: Das Foto liegt unter einem festen Kreis; schieben, Grösse ändern, drehen ----
+     fe: das Foto in Arbeitsgrösse (cv, W mal H) und der Kreis darin (Mitte x, y und Radius r in Bildpunkten des Fotos),
+     dazu die Drehung (q Vierteldrehungen im Uhrzeigersinn, tilt Grad fein). */
+  var fe = null, feRaf = 0, FE_FILL = 0.84;
+  /* Vorschlag für den Kreis um das Zifferblatt: reines Rechnen auf einem kleinen Graubild (längere Seite etwa 160 Punkte).
+     Jeder Kantenpunkt stimmt entlang seiner Helligkeitsrichtung für mögliche Mittelpunkte, alle Radien zusammen. Bei einer Uhr
+     liegen Zifferblatt, Lünette und Gehäuse um dieselbe Mitte, dort häufen sich die Stimmen. Der Radius ist der Ring um diese
+     Mitte, auf dem am meisten Kanten liegen, die zur Mitte zeigen. Liefert { x, y, r, s, alt } oder null. */
+  function dialGuess(g, w, h) {
+    var n = w * h, S = Math.min(w, h), i, x, y, r, k;
+    if (!(w >= 24 && h >= 24) || g.length < n) return null;
+    /* leicht glätten (zweimal 3 mal 3), damit Körnung und feine Zifferblatt-Muster nicht als Kanten zählen */
+    var a = new Float32Array(n), b = new Float32Array(n);
+    for (i = 0; i < n; i++) a[i] = g[i];
+    for (k = 0; k < 2; k++) {
+      for (y = 0; y < h; y++) for (x = 0; x < w; x++) {
+        var s = 0, c = 0;
+        for (var dy = -1; dy <= 1; dy++) { var yy = y + dy; if (yy < 0 || yy >= h) continue; for (var dx = -1; dx <= 1; dx++) { var xx = x + dx; if (xx < 0 || xx >= w) continue; s += a[yy * w + xx]; c++; } }
+        b[y * w + x] = s / c;
+      }
+      var t = a; a = b; b = t;
+    }
+    /* Kanten (Sobel) */
+    var gx = new Float32Array(n), gy = new Float32Array(n), mag = new Float32Array(n), mx = 0;
+    for (y = 1; y < h - 1; y++) for (x = 1; x < w - 1; x++) {
+      i = y * w + x;
+      var sx = (a[i - w + 1] + 2 * a[i + 1] + a[i + w + 1]) - (a[i - w - 1] + 2 * a[i - 1] + a[i + w - 1]);
+      var sy = (a[i + w - 1] + 2 * a[i + w] + a[i + w + 1]) - (a[i - w - 1] + 2 * a[i - w] + a[i - w + 1]);
+      var m = Math.sqrt(sx * sx + sy * sy);
+      gx[i] = sx; gy[i] = sy; mag[i] = m; if (m > mx) mx = m;
+    }
+    if (mx < 12) return null;   /* einfarbiges Bild */
+    /* Schwelle: das stärkste Sechstel der Punkte, mindestens ein Zehntel der stärksten Kante */
+    var hist = new Uint32Array(64), cnt = 0, thr = mx;
+    for (i = 0; i < n; i++) hist[Math.min(63, Math.floor(mag[i] / mx * 64))]++;
+    for (k = 63; k >= 0; k--) { cnt += hist[k]; if (cnt >= n / 6) { thr = k / 64 * mx; break; } }
+    thr = Math.max(thr, mx * 0.1);
+    var ex = [], ey = [], ux = [], uy = [];
+    for (y = 1; y < h - 1; y++) for (x = 1; x < w - 1; x++) { i = y * w + x; if (mag[i] >= thr) { ex.push(x); ey.push(y); ux.push(gx[i] / mag[i]); uy.push(gy[i] / mag[i]); } }
+    if (ex.length < 40) return null;
+    /* Stimmen für die Mitte: je Radius gleich viel Gewicht für einen ganzen Kreis (1/r) */
+    var r0 = Math.max(6, Math.round(S * 0.12)), r1 = Math.round(S * 0.62), acc = new Float32Array(n);
+    for (k = 0; k < ex.length; k++) for (r = r0; r <= r1; r++) for (var sg = -1; sg <= 1; sg += 2) {
+      var px = Math.round(ex[k] + sg * r * ux[k]), py = Math.round(ey[k] + sg * r * uy[k]);
+      if (px >= 0 && px < w && py >= 0 && py < h) acc[py * w + px] += 1 / r;
+    }
+    /* die Mitte: der höchste Punkt der geglätteten Stimmen (5 mal 5) */
+    var best = -1, cx = 0, cy = 0;
+    for (y = 2; y < h - 2; y++) for (x = 2; x < w - 2; x++) {
+      var v = 0;
+      for (var jy = -2; jy <= 2; jy++) for (var jx = -2; jx <= 2; jx++) v += acc[(y + jy) * w + x + jx];
+      /* leichter Vorzug für die Bildmitte: Die Uhr liegt selten am Rand, Spiegelungen und Finger schon */
+      v *= 1 - 0.4 * ((x - w / 2) * (x - w / 2) + (y - h / 2) * (y - h / 2)) / (w * w / 4 + h * h / 4);
+      if (v > best) { best = v; cx = x; cy = y; }
+    }
+    /* der Radius: Kanten, die zur Mitte zeigen, je Abstand; gemessen am Umfang, der im Bild liegt */
+    var rmax = Math.ceil(Math.sqrt(w * w + h * h)), ring = new Float32Array(rmax + 2);
+    for (k = 0; k < ex.length; k++) {
+      var qx = ex[k] - cx, qy = ey[k] - cy, d = Math.sqrt(qx * qx + qy * qy);
+      if (d < 3) continue;
+      if (Math.abs(ux[k] * qx + uy[k] * qy) / d >= 0.9) ring[Math.round(d)] += 1;
+    }
+    var cov = new Float32Array(rmax + 2), top = 0, rb = 0;
+    for (r = r0; r <= r1; r++) {
+      var inside = 0, steps = Math.max(24, Math.round(6.283 * r));
+      for (k = 0; k < steps; k++) { var ax = cx + r * Math.cos(k / steps * 6.283), ay = cy + r * Math.sin(k / steps * 6.283); if (ax >= 1 && ax < w - 1 && ay >= 1 && ay < h - 1) inside++; }
+      if (inside < steps * 0.6) continue;   /* der Kreis läge zu weit ausserhalb des Bildes */
+      cov[r] = (ring[r - 1] + ring[r] + ring[r + 1]) / inside;
+      if (cov[r] > top) { top = cov[r]; rb = r; }
+    }
+    if (!rb || top < 0.5) return null;
+    /* weitere deutliche Ringe um dieselbe Mitte (Lünette, Gehäuse, Skalen): für «enger» und «weiter» */
+    var alt = [];
+    for (r = r0 + 1; r < r1; r++) if (cov[r] >= top * 0.55 && cov[r] >= cov[r - 1] && cov[r] > cov[r + 1]) alt.push(r);
+    /* Ist ein grösserer Ring fast so deutlich wie der deutlichste, gilt der grössere: Lieber zeigt der Vorschlag etwas zu viel
+       von der Uhr als ein angeschnittenes Zifferblatt. */
+    for (k = 0; k < alt.length; k++) if (alt[k] > rb && cov[alt[k]] >= top * 0.85) rb = alt[k];
+    return { x: cx, y: cy, r: rb, s: top, alt: alt };
+  }
+  function feGuess(cv) {
+    try {
+      var k = 160 / Math.max(cv.width, cv.height), w = Math.max(24, Math.round(cv.width * k)), h = Math.max(24, Math.round(cv.height * k));
+      var c = document.createElement('canvas'); c.width = w; c.height = h;
+      var g = c.getContext('2d', { willReadFrequently: true }), src = cv, sw = cv.width, sh = cv.height;
+      while (sw > 2 * w) {   /* in Schritten halbieren: Ein einziger grosser Schritt liesse feine Muster als Rauschen durch */
+        var c2 = document.createElement('canvas'); c2.width = sw = Math.round(sw / 2); c2.height = sh = Math.round(sh / 2);
+        var g2 = c2.getContext('2d'); g2.imageSmoothingEnabled = true; g2.imageSmoothingQuality = 'high';
+        g2.drawImage(src, 0, 0, sw, sh); src = c2;
+      }
+      g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+      g.drawImage(src, 0, 0, w, h);
+      var d = g.getImageData(0, 0, w, h).data, gray = new Uint8Array(w * h);
+      for (var i = 0; i < gray.length; i++) gray[i] = (d[4 * i] * 77 + d[4 * i + 1] * 150 + d[4 * i + 2] * 29) >> 8;
+      var res = dialGuess(gray, w, h);
+      /* 4 % Zugabe: Der gefundene Ring ist die Kante; mit etwas Rand bleibt sie im Kreis, statt angeschnitten zu werden. */
+      return res ? { x: (res.x + 0.5) * cv.width / w, y: (res.y + 0.5) * cv.height / h, r: res.r * cv.width / w * 1.04 } : null;
+    } catch (e) { return null; }
+  }
+  function feOpen(cv, lies) {
+    var W = cv.width, H = cv.height, S = Math.min(W, H), g0 = feGuess(cv);
+    fe = { cv: cv, W: W, H: H, x: g0 ? g0.x : W / 2, y: g0 ? g0.y : H / 2, r: g0 ? g0.r : S * 0.42, q: 0, tilt: 0,
+      rMin: Math.max(16, S * 0.04), rMax: Math.max(W, H) * 0.75, auto: !!g0, ptr: {}, lies: !!lies };
+    fe.r = Math.min(fe.rMax, Math.max(fe.rMin, fe.r));
+    go('foto', {});
+  }
+  function feClose() {
+    if (!fe) return;
+    fe = null;
+    if (feRaf) { cancelAnimationFrame(feRaf); feRaf = 0; }
+    var c = $('feStage'); c.width = 1; c.height = 1;
+  }
+  function renderFoto() {
+    if (!fe) { setTimeout(function () { if (topScreen() === 'foto') back(); }, 0); return; }
+    $('feHint').textContent = fe.auto ? T('Tickwerk hat das Zifferblatt gesucht und einen Kreis vorgeschlagen. Schieb das Foto, bis es passt. Die 12 gehört nach oben.')
+      : T('Schieb das Foto, bis das Zifferblatt den Kreis füllt. Die 12 gehört nach oben.');
+    $('feOk').disabled = false;
+    feSync(); feDrawSoon();
+  }
+  function feZoomOf(r) { return Math.round(100 * Math.log(fe.rMax / r) / Math.log(fe.rMax / fe.rMin)); }
+  function feSync() { $('feZoom').value = String(feZoomOf(fe.r)); $('feTilt').value = String(fe.tilt); }
+  function feAngle() { return (fe.q * 90 + fe.tilt) * Math.PI / 180; }
+  /* das Foto so legen, dass sein Kreis auf dem Kreis mit Radius R um die Mitte der Fläche (N mal N) liegt */
+  function fePlace(g, N, R) {
+    g.translate(N / 2, N / 2); g.rotate(feAngle()); g.scale(R / fe.r, R / fe.r); g.translate(-fe.x, -fe.y);
+    g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+    g.drawImage(fe.cv, 0, 0);
+  }
+  function feDrawSoon() { if (!feRaf) feRaf = requestAnimationFrame(feDraw); }
+  function feDraw() {
+    feRaf = 0;
+    if (!fe || topScreen() !== 'foto') return;
+    var c = $('feStage'), css = c.clientWidth || 320, N = Math.round(css * Math.min(2, window.devicePixelRatio || 1));
+    if (c.width !== N || c.height !== N) { c.width = N; c.height = N; }
+    c.setAttribute('data-crop', [Math.round(fe.x), Math.round(fe.y), Math.round(fe.r), fe.q, fe.tilt, fe.W, fe.H].join(' '));   /* der Ausschnitt, für die Tests */
+    var g = c.getContext('2d'), R = N * FE_FILL / 2, u = N / 40;
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.fillStyle = FOTO_BG; g.fillRect(0, 0, N, N);
+    g.save(); fePlace(g, N, R); g.restore();
+    /* ausserhalb des Kreises abdunkeln */
+    g.fillStyle = 'rgba(11, 14, 18, 0.72)';
+    g.beginPath(); g.rect(0, 0, N, N); g.arc(N / 2, N / 2, R, 0, 2 * Math.PI, true); g.fill('evenodd');
+    g.strokeStyle = C.text; g.lineWidth = Math.max(1.5, N / 260);
+    g.beginPath(); g.arc(N / 2, N / 2, R, 0, 2 * Math.PI); g.stroke();
+    /* Marke bei 12 Uhr: Dorthin gehört die 12 des Zifferblatts */
+    g.fillStyle = C.lume;
+    g.beginPath(); g.moveTo(N / 2, N / 2 - R - u * 0.25); g.lineTo(N / 2 - u * 0.55, N / 2 - R - u * 1.15); g.lineTo(N / 2 + u * 0.55, N / 2 - R - u * 1.15); g.closePath(); g.fill();
+    g.font = '600 ' + Math.round(u * 1.05) + 'px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+    g.fillText('12', N / 2, N / 2 - R - u * 1.45);
+  }
+  /* Der Finger schiebt das Foto: eine Verschiebung auf dem Bildschirm (CSS-Pixel) in Bildpunkte des Fotos umrechnen */
+  function feMove(dx, dy) {
+    var css = $('feStage').clientWidth || 320, s = (css * FE_FILL / 2) / fe.r, a = feAngle();
+    fe.x = Math.min(fe.W, Math.max(0, fe.x - (dx * Math.cos(a) + dy * Math.sin(a)) / s));
+    fe.y = Math.min(fe.H, Math.max(0, fe.y - (-dx * Math.sin(a) + dy * Math.cos(a)) / s));
+  }
+  /* k > 1: das Foto erscheint grösser, der Kreis erfasst also weniger davon */
+  function feScale(k) { fe.r = Math.min(fe.rMax, Math.max(fe.rMin, fe.r / k)); }
+  (function () {
+    var st = $('feStage');
+    var drop = function (e) { if (fe) delete fe.ptr[e.pointerId]; };
+    st.addEventListener('pointerdown', function (e) {
+      if (!fe) return;
+      try { st.setPointerCapture(e.pointerId); } catch (x) { /* egal */ }
+      fe.ptr[e.pointerId] = { x: e.clientX, y: e.clientY };
+    });
+    st.addEventListener('pointermove', function (e) {
+      var p = fe && fe.ptr[e.pointerId];
+      if (!p) return;
+      var ids = Object.keys(fe.ptr);
+      if (ids.length === 1) feMove(e.clientX - p.x, e.clientY - p.y);
+      else if (ids.length === 2) {   /* zwei Finger: der Abstand ändert die Grösse, die gemeinsame Bewegung schiebt */
+        var o = fe.ptr[ids[0] === String(e.pointerId) ? ids[1] : ids[0]];
+        var d0 = Math.sqrt((p.x - o.x) * (p.x - o.x) + (p.y - o.y) * (p.y - o.y)), d1 = Math.sqrt((e.clientX - o.x) * (e.clientX - o.x) + (e.clientY - o.y) * (e.clientY - o.y));
+        if (d0 > 8 && d1 > 8) feScale(d1 / d0);
+        feMove((e.clientX - p.x) / 2, (e.clientY - p.y) / 2);
+      }
+      p.x = e.clientX; p.y = e.clientY;
+      feSync(); feDrawSoon();
+    });
+    st.addEventListener('pointerup', drop); st.addEventListener('pointercancel', drop); st.addEventListener('lostpointercapture', drop);
+    st.addEventListener('wheel', function (e) { if (!fe) return; e.preventDefault(); feScale(Math.exp(-e.deltaY / 400)); feSync(); feDrawSoon(); }, { passive: false });
+    st.addEventListener('keydown', function (e) {
+      if (!fe) return;
+      var k = e.key, step = e.shiftKey ? 40 : 10;
+      if (k === 'ArrowLeft') feMove(-step, 0); else if (k === 'ArrowRight') feMove(step, 0);
+      else if (k === 'ArrowUp') feMove(0, -step); else if (k === 'ArrowDown') feMove(0, step);
+      else if (k === '+' || k === '=') feScale(1.08); else if (k === '-') feScale(1 / 1.08);
+      else return;
+      e.preventDefault(); feSync(); feDrawSoon();
+    });
+  })();
+  $('feZoom').addEventListener('input', function () {
+    if (!fe) return;
+    fe.r = fe.rMax * Math.pow(fe.rMin / fe.rMax, Math.max(0, Math.min(100, +this.value || 0)) / 100); feDrawSoon();
+  });
+  $('feTilt').addEventListener('input', function () { if (!fe) return; fe.tilt = Math.max(-20, Math.min(20, +this.value || 0)); feDrawSoon(); });
+  $('feTurn').addEventListener('click', function () { if (!fe) return; fe.q = (fe.q + 1) % 4; feDrawSoon(); });
+  $('feCancel').addEventListener('click', function () { if (topScreen() === 'foto') back(); });
+  $('feOk').addEventListener('click', function () {
+    var t = top(), ed = stack[stack.length - 2];   /* darunter liegt «Uhr bearbeiten» */
+    if (t.s !== 'foto' || !fe) return;
+    var c = document.createElement('canvas'), url = '';
+    c.width = FOTO_PX; c.height = FOTO_PX;
+    try {
+      var g = c.getContext('2d');
+      g.fillStyle = FOTO_BG; g.fillRect(0, 0, FOTO_PX, FOTO_PX);
+      fePlace(g, FOTO_PX, FOTO_PX / 2);
+      url = c.toDataURL('image/jpeg', 0.85);
+      if (url.length > FOTO_MAX) url = c.toDataURL('image/jpeg', 0.7);
+    } catch (e) { url = ''; }
+    /* 0.7.8, «Per Foto anlegen»: dazu das aufgerichtete Zifferblatt in voller Auflösung, für die Texterkennung */
+    var lies = null;
+    if (fe.lies) {
+      try {
+        lies = document.createElement('canvas'); lies.width = LIES_PX; lies.height = LIES_PX;
+        var g2 = lies.getContext('2d'); g2.fillStyle = FOTO_BG; g2.fillRect(0, 0, LIES_PX, LIES_PX);
+        fePlace(g2, LIES_PX, LIES_PX / 2);
+      } catch (e2) { lies = null; }
+    }
+    var fail = function () { toast(T('Das Foto konnte nicht gespeichert werden.')); };
+    var done = function () {
+      $('feOk').disabled = false;
+      if (top() !== t) return;
+      back();
+      if (lies && topScreen() === 'edit') liesStart(top().p, lies);
+    };
+    if (!url || !ed || ed.s !== 'edit') { fail(); return; }
+    var w = ed.p.id ? findWatch(ed.p.id) : null;
+    $('feOk').disabled = true;
+    if (w) fotoSave(w.id, url).then(function () { toast(T('Foto gespeichert.')); }, fail).then(done);
+    else fotoDecode(url).then(function (bmp) { ed.p.fotoNew = url; ed.p.fotoBmp = bmp; }, fail).then(done);   /* neue Uhr: Das Foto wird mit der Uhr gespeichert */
+  });
+
+  /* ---------- Per Foto anlegen (0.7.8) ----------
+     Tickwerk liest die Schrift auf dem zugeschnittenen, aufgerichteten Zifferblatt (Marke, Modellwörter) und vergleicht sie
+     unscharf mit dem Katalog. Gelesen wird auf dem Handy: mit der Texterkennung Tesseract als WebAssembly (Ordner ocr/), in
+     einem eigenen Worker. Sie wird erst beim ersten Gebrauch geladen (rund 3 MB) und vom Service Worker behalten.
+     Das Ergebnis ist immer nur ein Vorschlag: Übernommen wird, was angetippt wird. Die Durchgänge und Schwellen sind an wenigen
+     echten Fotos abgestimmt; verdecken die Zeiger die Schrift oder spiegelt das Glas, findet Tickwerk nichts oder das Falsche. */
+  var LIES_PX = 1200, LIES_TIMEOUT = 90000, LIES_SHOW = 6, LIES_CONF = 40, liesJob = null, liesIdx = null;
+  /* Durchgänge: Kantenlänge, Seitenmodus von Tesseract (11 und 12: verstreuter Text, 3: automatisch), geschärft, Vergrösserung
+     (1,4: nur die Mitte des Kreises, dort steht die Schrift; hilft, wenn der Kreis die Lünette mit erfasst) */
+  var LIES_PASSES = [[1200, 11, 1, 1], [900, 12, 0, 1], [900, 3, 0, 1], [900, 3, 1, 1.4], [1200, 12, 1, 1.4]];
+  /* Wörter, die auf vielen Zifferblättern stehen: Sie zählen nur zusammen mit einem Wort, das ein Modell auszeichnet */
+  var LIES_GENERIC = { automatic: 1, automatik: 1, date: 1, chrono: 1, chronograph: 1, chronometer: 1, auto: 1, swiss: 1, made: 1, collection: 1,
+    quartz: 1, professional: 1, datum: 1, ohne: 1, aktuell: 1, watch: 1, mechanical: 1, limited: 1, edition: 1, classic: 1,
+    official: 1, officially: 1, certified: 1, superlative: 1, water: 1, resistant: 1, japan: 1, movement: 1 };
+  var liesHas = !!(window.Worker && window.WebAssembly && window.DecompressionStream);
+  /* das Zifferblatt als Graubild: auf Kantenlänge gebracht, um turn Vierteldrehungen gedreht, Kontrast gestreckt, auf Wunsch geschärft */
+  function liesGray(cv, size, sharp, turn, zoom) {
+    var c = document.createElement('canvas'); c.width = size; c.height = size;
+    var g = c.getContext('2d', { willReadFrequently: true });
+    g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+    var z = size * (zoom || 1);
+    g.translate(size / 2, size / 2); g.rotate((turn || 0) * Math.PI / 2); g.drawImage(cv, -z / 2, -z / 2, z, z);
+    var d = g.getImageData(0, 0, size, size), p = d.data, N = size * size, v = new Float32Array(N), h = new Uint32Array(256), i, s;
+    for (i = 0; i < N; i++) { v[i] = (p[4 * i] * 77 + p[4 * i + 1] * 150 + p[4 * i + 2] * 29) / 256; h[v[i] | 0]++; }
+    var lo = 0, hi = 255;
+    for (i = 0, s = 0; i < 256; i++) { s += h[i]; if (s > N * 0.01) { lo = i; break; } }
+    for (i = 255, s = 0; i >= 0; i--) { s += h[i]; if (s > N * 0.01) { hi = i; break; } }
+    var k = 255 / Math.max(1, hi - lo);
+    for (i = 0; i < N; i++) v[i] = Math.max(0, Math.min(255, (v[i] - lo) * k));
+    if (sharp) {   /* unscharf maskieren: Wert + 1,8 mal (Wert minus Mittel über 7 mal 7 Punkte) */
+      var b = new Float32Array(N), t = new Float32Array(N), r = 3, x, y, a;
+      for (y = 0; y < size; y++) {
+        for (a = 0, x = -r; x <= r; x++) a += v[y * size + Math.min(size - 1, Math.max(0, x))];
+        for (x = 0; x < size; x++) { t[y * size + x] = a / 7; a += v[y * size + Math.min(size - 1, x + r + 1)] - v[y * size + Math.max(0, x - r)]; }
+      }
+      for (x = 0; x < size; x++) {
+        for (a = 0, y = -r; y <= r; y++) a += t[Math.min(size - 1, Math.max(0, y)) * size + x];
+        for (y = 0; y < size; y++) { b[y * size + x] = a / 7; a += t[Math.min(size - 1, y + r + 1) * size + x] - t[Math.max(0, y - r) * size + x]; }
+      }
+      for (i = 0; i < N; i++) v[i] = Math.max(0, Math.min(255, v[i] + 1.8 * (v[i] - b[i])));
+    }
+    for (i = 0; i < N; i++) { p[4 * i] = p[4 * i + 1] = p[4 * i + 2] = v[i]; p[4 * i + 3] = 255; }
+    return d;
+  }
+  /* ein Auftrag an die Texterkennung; der Worker lebt nur für diesen Auftrag (er hält sonst viel Speicher) */
+  function liesOcr(passes, onPhase) {
+    return new Promise(function (res, rej) {
+      var w, done = false, timer = 0;
+      var end = function (fn, v) { if (done) return; done = true; clearTimeout(timer); try { w.terminate(); } catch (e) { /* egal */ } fn(v); };
+      try { w = new Worker('ocr/worker.js', { type: 'module' }); } catch (e) { rej(new Error('worker')); return; }
+      timer = setTimeout(function () { end(rej, new Error('timeout')); }, LIES_TIMEOUT);
+      w.onerror = function () { end(rej, new Error('worker')); };
+      w.onmessage = function (e) {
+        var m = e.data || {};
+        if (m.phase) { if (onPhase) onPhase(m.phase); return; }
+        if (m.ok) end(res, m.words || []); else end(rej, new Error(m.err || 'ocr'));
+      };
+      w.postMessage({ passes: passes });
+    });
+  }
+  /* gelesene Wörter zu Suchwörtern: klein, ohne Zeichen, ab drei Zeichen, keine reinen Zahlen */
+  function liesTokens(words) {
+    var seen = {};
+    words.forEach(function (w) {
+      if (!(w.c >= LIES_CONF)) return;
+      norm(w.t).split(' ').forEach(function (k) { k = k.replace(/[^a-z0-9]/g, ''); if (k.length >= 3 && !/^\d+$/.test(k)) seen[k] = 1; });
+    });
+    return Object.keys(seen);
+  }
+  function liesLev(a, b) {
+    if (Math.abs(a.length - b.length) > 2) return 9;
+    var p = [], q, i, j;
+    for (j = 0; j <= b.length; j++) p[j] = j;
+    for (i = 1; i <= a.length; i++) {
+      q = [i];
+      for (j = 1; j <= b.length; j++) q[j] = Math.min(p[j] + 1, q[j - 1] + 1, p[j - 1] + (a.charAt(i - 1) === b.charAt(j - 1) ? 0 : 1));
+      p = q;
+    }
+    return p[b.length];
+  }
+  /* passt ein gelesenes Wort zu einem Wort aus dem Katalog? Gleich; ab fünf Zeichen auch als Teil («chrono» in «chronograph»);
+     ab sechs Zeichen mit einem oder zwei falschen Zeichen («amilton») */
+  function liesLike(tok, word) {
+    if (tok === word) return true;
+    if (tok.length >= 5 && word.length >= 5 && (tok.indexOf(word) >= 0 || word.indexOf(tok) >= 0)) return true;
+    return tok.length >= 6 && word.length >= 6 && liesLev(tok, word) <= (word.length < 8 ? 1 : 2);
+  }
+  function liesIndex() {
+    if (!liesIdx) {
+      var split = function (s, min) { return norm(s).split(' ').filter(function (w) { return w.length >= min && !/^\d+$/.test(w); }); };
+      liesIdx = INDEX.filter(function (e) { return e.kind === 'uhr'; }).map(function (e) {
+        return { e: e, bw: split(e.u.marke, 3), mw: split(e.u.modell.replace(/\([^)]*\)/g, ' '), 4) };
+      });
+    }
+    return liesIdx;
+  }
+  /* Vorschläge aus den gelesenen Wörtern: Marke gelesen 3 Punkte, je Modellwort 2, häufige Wörter einen halben (nur neben einem
+     Modellwort). Ab 2 Punkten gilt ein Modell als Vorschlag. Gereiht nach der besten Marke, dann nach Punkten, dann wie im Katalog. */
+  function liesSuggest(toks) {
+    var memo = {}, hits = [], best = {};
+    var has = function (w) {
+      if (!(w in memo)) { memo[w] = false; for (var i = 0; i < toks.length; i++) if (liesLike(toks[i], w)) { memo[w] = true; break; } }
+      return memo[w];
+    };
+    liesIndex().forEach(function (x, order) {
+      var bw = x.bw.filter(function (w) { return !LIES_GENERIC[w] && has(w); }), ms = [], gs = 0;
+      x.mw.forEach(function (w) { if (has(w)) { if (LIES_GENERIC[w]) gs++; else if (ms.indexOf(w) < 0) ms.push(w); } });
+      var s = (bw.length ? 3 : 0) + 2 * ms.length + (ms.length ? 0.5 * gs : 0);
+      if (s < 2) return;
+      hits.push({ e: x.e, s: s, order: order, words: bw.concat(ms) });
+      best[x.e.u.marke] = Math.max(best[x.e.u.marke] || 0, s);
+    });
+    hits.sort(function (p, q) {
+      var a = p.e.u.marke, b = q.e.u.marke;
+      return best[b] - best[a] || (a === b ? 0 : a < b ? -1 : 1) || q.s - p.s || p.order - q.order;
+    });
+    /* Stammen alle Vorschläge von einer Marke, kommen ihre übrigen Modelle hinten dazu («Mehr zeigen»): Oft steht der
+       Modellname nicht auf dem Zifferblatt, oder ein Zeiger verdeckt ihn. */
+    if (hits.length && hits.every(function (x) { return x.e.u.marke === hits[0].e.u.marke; })) {
+      var marke = hits[0].e.u.marke, have = {};
+      hits.forEach(function (x) { have[x.order] = 1; });
+      liesIndex().forEach(function (x, order) { if (x.e.u.marke === marke && !have[order]) hits.push({ e: x.e, s: 0, order: order, words: [] }); });
+    }
+    return hits;
+  }
+  function liesReset(w) {
+    liesJob = null;
+    $('wLiesRow').hidden = !(fotoOk && liesHas); $('wLiesHint').hidden = !(fotoOk && liesHas);
+    $('wLiesCamBtn').textContent = T(w ? 'Modell per Foto finden' : 'Per Foto anlegen');
+    $('wLies').hidden = true; $('wLiesList').innerHTML = ''; $('wLiesMore').hidden = true; $('wLiesAgain').hidden = true;
+    setStatus('wLiesStatus', '', '');
+  }
+  /* das aufgerichtete Zifferblatt lesen und Vorschläge zeigen; cv ist quadratisch (LIES_PX) */
+  function liesStart(p, cv) {
+    var my = liesJob = { p: p, cv: cv };
+    $('wLies').hidden = false; $('wLiesList').innerHTML = ''; $('wLiesMore').hidden = true; $('wLiesAgain').hidden = true;
+    setStatus('wLiesStatus', T('Tickwerk lädt die Texterkennung …'), 'busy');
+    var read = function (passes) {
+      return liesOcr(passes, function (ph) { if (liesJob === my && ph === 'lesen') setStatus('wLiesStatus', T('Tickwerk liest das Zifferblatt …'), 'busy'); }).then(liesTokens);
+    };
+    read(LIES_PASSES.map(function (q) { return { psm: q[1], image: liesGray(cv, q[0], !!q[2], 0, q[3]) }; })).then(function (toks) {
+      var hits = liesSuggest(toks);
+      $('wLies').setAttribute('data-read', toks.join(' '));   /* das Gelesene, für die Tests und die Fehlersuche */
+      if (hits.length || liesJob !== my) return hits;
+      /* nichts gefunden: Vielleicht steht die 12 nicht oben. Die drei anderen Lagen je einmal versuchen. */
+      var q = LIES_PASSES[0];
+      return read([1, 2, 3].map(function (turn) { return { psm: q[1], image: liesGray(cv, q[0], !!q[2], turn, q[3]) }; })).then(liesSuggest);
+    }).then(function (hits) { if (liesJob === my) liesShow(hits); }, function (err) {
+      if (liesJob !== my) return;
+      setStatus('wLiesStatus', err && err.message === 'timeout' ? T('Das Lesen hat zu lange gedauert.') : T('Die Texterkennung konnte nicht geladen werden. Mit Internet nochmals versuchen.'), 'err');
+      $('wLiesAgain').hidden = false;
+    });
+  }
+  function liesShow(hits) {
+    var ul = $('wLiesList'); ul.innerHTML = '';
+    if (!hits.length) {
+      setStatus('wLiesStatus', T('Auf dem Foto war keine Schrift zu lesen, die zu einem Modell im Katalog passt. Such das Modell von Hand. Oft hilft ein Foto von näher, ohne Spiegelung, mit der 12 oben.'), '');
+      return;
+    }
+    var words = [];
+    hits.slice(0, LIES_SHOW).forEach(function (h) { h.words.forEach(function (w) { if (words.indexOf(w) < 0) words.push(w); }); });
+    setStatus('wLiesStatus', T('Vorschläge aus dem Foto (erkannt: {w}). Tippe die passende Uhr an.', { w: words.slice(0, 5).map(function (w) { return w.charAt(0).toUpperCase() + w.slice(1); }).join(', ') }), 'ok');
+    hits.forEach(function (h, i) {
+      var li = document.createElement('li'), b = document.createElement('button'), e = h.e;
+      b.type = 'button'; b.className = 'lies-item'; b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="t">' + esc(enName(fullName(e.u))) + '</span><span class="s">' + esc((e.k ? kName(e.k) : '') + ' · ' + calShort(e.k)) + '</span>';
+      b.addEventListener('click', function () {
+        Array.prototype.forEach.call(ul.querySelectorAll('.lies-item'), function (x) { x.setAttribute('aria-pressed', String(x === b)); });
+        pick(e);
+      });
+      li.hidden = i >= LIES_SHOW;
+      li.appendChild(b); ul.appendChild(li);
+    });
+    var more = $('wLiesMore');
+    more.hidden = hits.length <= LIES_SHOW;
+    more.textContent = T('Mehr zeigen ({n})', { n: hits.length - LIES_SHOW });
+  }
+  $('wLiesMore').addEventListener('click', function () {
+    Array.prototype.forEach.call($('wLiesList').children, function (li) { li.hidden = false; });
+    this.hidden = true;
+  });
+  $('wLiesAgain').addEventListener('click', function () { var t = top(); if (t.s === 'edit' && liesJob && liesJob.p === t.p) liesStart(t.p, liesJob.cv); });
+  $('wLiesCamBtn').addEventListener('click', function () { $('wLiesCam').click(); });
+  $('wLiesPickBtn').addEventListener('click', function () { $('wLiesIn').click(); });
+  ['wLiesCam', 'wLiesIn'].forEach(function (id) {
+    $(id).addEventListener('change', function (e) { var f = e.target.files[0]; e.target.value = ''; if (f) fotoPick(f, true); });
   });
 
   /* ---------- Alle Messungen ---------- */
@@ -4375,7 +5008,10 @@
       return { samples: out, sampleRate: ab.sampleRate };
     });
   }
-  function renderSettings() {
+  function renderSettings(p) {
+    $('accLook').value = settings.accLook;
+    /* 0.7.9: von «Mehr», «Daten sichern»: gleich zur Karte rollen */
+    if (p && p.focus === 'backup' && !p.shown) { p.shown = true; setTimeout(function () { if (topScreen() === 'settings') $('setBackup').scrollIntoView({ block: 'start' }); }, 0); }
     $('langSel').value = settings.lang; $('autoStart').checked = settings.autoStart; $('extendOn').checked = settings.extend;
     $('netOn').checked = netOn();
     $('netPickBox').hidden = !(FLAVOR === 'test' && NET_SVC); $('netPick').value = settings.netPick;
@@ -4751,7 +5387,7 @@
   });
   $('exportBtn').addEventListener('click', function () {
     var now = new Date(), pad = function (x) { return (x < 10 ? '0' : '') + x; };
-    var data = { app: 'Tickwerk', format: 1, version: APP_VERSION, exported: now.toISOString(), watches: watches, measurements: meas, settings: { ppm: settings.ppm, calAt: settings.calAt } };
+    var data = { app: 'Tickwerk', format: 1, version: APP_VERSION, exported: now.toISOString(), watches: watches, measurements: meas, settings: { ppm: settings.ppm, calAt: settings.calAt }, fotos: fotoExport() };
     var blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
     shareOrDownload(blob, ({ de: 'tickwerk-sicherung-', en: 'tickwerk-backup-', fr: 'tickwerk-sauvegarde-', it: 'tickwerk-backup-' }[LANG]) + now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate()) + '.json', T('Tickwerk Sicherung'));
     $('backupOut').textContent = T('{w} und {m} gesichert. Die Datei liegt bei den Downloads.', { w: plural(watches.length, 'Uhr', 'Uhren'), m: plural(meas.length, 'Messung', 'Messungen') });
@@ -4769,6 +5405,13 @@
       /* doppelte Einträge auch innerhalb der Datei nur einmal übernehmen, höchstens MAX_WATCHES Uhren */
       var addW = ws.filter(function (w) { if (haveW[w.id]) return false; haveW[w.id] = true; return true; }).slice(0, Math.max(0, MAX_WATCHES - watches.length));
       var addM = ms.filter(function (m) { if (haveM[m.id]) return false; haveM[m.id] = true; return true; });
+      /* 0.7.7: Fotos der neu übernommenen Uhren. Das Kennzeichen gilt erst, wenn das Bild gespeichert ist. */
+      var fsrc = d.fotos && typeof d.fotos === 'object' ? d.fotos : {};
+      var fjobs = addW.map(function (w) {
+        delete w.foto;
+        return own(fsrc, w.id) && typeof fsrc[w.id] === 'string' ? fotoSave(w.id, fsrc[w.id]).catch(function () { /* unlesbar: ohne Foto */ }) : null;
+      }).filter(Boolean);
+      if (fjobs.length) Promise.all(fjobs).then(fotoRefresh);
       watches = watches.concat(addW);
       meas = meas.concat(addM).sort(function (a, b) { return new Date(a.date) - new Date(b.date); }).slice(-MAX_MEAS);
       lastId = meas.reduce(function (a, m) { return Math.max(a, m.id); }, lastId);
@@ -4788,21 +5431,65 @@
     if (!window.confirm(T('Alle Uhren und Messungen auf diesem Handy löschen? Das lässt sich nicht rückgängig machen. Tipp: vorher eine Sicherung speichern.'))) return;
     watches = []; meas = []; session = null; settings.watchId = '';
     saveWatches(); saveMeas(); saveSession(); saveSettings();
+    fotoWipe();
     errLog = []; unstore(KEYS.log);   /* auch das Fehlerprotokoll (Diagnose): «alles» heisst alles, was die App über die Benutzung weiss */
     clearReadout();
     $('backupOut').textContent = T('Alle Uhren und Messungen sind gelöscht.');
   });
 
   /* ---------- Mehr, Pro, Anleitung ---------- */
+  /* 0.7.9: «Mehr» neu geordnet. Was noch zu tun ist, steht zuoberst (Eichung, solange sie fehlt oder über sechs Monate alt ist;
+     Fälliges; Tickwerk Pro, solange gratis). Der Rest steht in Gruppen zum Auf- und Zuklappen (gemerkt wie die Karten der Uhr). */
+  var MCH = '<svg class="mch" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
+  var MICO = {
+    lagen: '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/>',
+    reg: '<path d="M4 7h9M19 7h1M4 17h1M11 17h9"/><circle cx="16" cy="7" r="2.5"/><circle cx="8" cy="17" r="2.5"/>',
+    gr: '<rect x="3" y="8" width="16" height="8" rx="2"/><path d="M21.5 11v2M7 11v2M10 11v2"/>',
+    zeit: '<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>',
+    det: '<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/>',
+    eichen: '<circle cx="12" cy="12" r="7"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>'
+  };
+  function mico(id) { return '<svg class="mico" viewBox="0 0 24 24" aria-hidden="true">' + (MICO[id] || '') + '</svg>'; }
   function renderMore() {
     $('moreVersion').textContent = T('Version') + ' ' + APP_VERSION + (FLAVOR === 'test' ? ' · ' + T('Testversion') : '');
-    $('moreProState').textContent = isPro() ? T('Freigeschaltet') : T('Gratis · noch {n} von {m} Messungen mit allen Werten diese Woche', { n: freeLeft(), m: FREE_PER_WEEK });
+    var pro = isPro(), c = calOf(micKey()), cal = isCal(c), old = calOld(c), scr = $('scr-more');
+    ['full', 'card', 'open'].forEach(function (k) { scr.classList.toggle('look-' + k, settings.accLook === k); });
+    ['mw', 'mg', 'md', 'ma', 'mh'].forEach(function (k) { setFold(k, settings.fold[k]); });
+    $('moreCal').hidden = cal && !old;
+    $('moreCalT').textContent = T(old ? 'Eichung erneuern' : 'Handy-Uhr eichen');
+    $('moreCalChip').textContent = T(old ? 'alt' : 'noch offen');
+    $('moreCalP').textContent = old ? T('Die Eichung ist über sechs Monate alt. Die Uhr im Handy verändert sich mit der Zeit ein wenig: am besten neu eichen.')
+      : T('Die Uhr im Handy gibt bei jeder Messung den Takt an, und sie geht selbst nicht ganz genau. Ohne Eichung kann die Gangabweichung je nach Handy um ein bis zwei Sekunden pro Tag danebenliegen, manchmal mehr.');
+    $('moreCalGo').textContent = T(old ? 'Neu eichen' : 'Jetzt eichen');
+    $('moreCalLi').hidden = !cal || old;
+    $('moreCalSub').textContent = clockShort();
+    var due = $('moreDue'); due.innerHTML = '';
+    watches.forEach(function (w) {
+      var x = dueText(w); if (!x) return;
+      var li = document.createElement('li'), b = document.createElement('button'), g = isPro() ? grNext(w) : null;
+      b.type = 'button'; b.className = 'mrow'; b.setAttribute('data-due', '1');
+      b.innerHTML = mico('zeit') + '<span class="mtxt"><span class="menu-t">' + esc(w.name) + '</span><span class="menu-s">' + esc(x) + '</span></span>' + MCH;
+      b.addEventListener('click', function () { openWatch(w.id, g && g.due ? 'gr' : 'dt'); });
+      li.appendChild(b); due.appendChild(li);
+    });
+    due.hidden = !due.children.length;
+    var li = $('moreProLi'), slot = $('moreProSlot'), app = $('moreAppList');
+    if (pro) { if (li.parentNode !== app) app.insertBefore(li, app.firstChild); } else if (li.parentNode !== slot) slot.appendChild(li);
+    slot.hidden = pro;
+    $('moreProState').textContent = pro ? T('Freigeschaltet') : T('Gratis · noch {n} von {m} Messungen mit allen Werten diese Woche', { n: freeLeft(), m: FREE_PER_WEEK });
     $('moreHistory').textContent = plural(meas.length, 'Messung', 'Messungen');
-    renderTools($('moreTools'));
+    renderTools($('moreTools'), true);
+    $('moreAccToolsS').textContent = String($('moreTools').children.length);
+    $('moreAccGenauS').textContent = T(!cal ? 'nicht geeicht' : old ? 'Eichung alt' : 'geeicht');
+    $('moreAccDatenS').textContent = plural(meas.length, 'Messung', 'Messungen');
+    $('moreAccAppS').textContent = (pro ? 'Pro' : T('Gratis')) + ' · ' + APP_VERSION;
     $('newsSub').textContent = T('Die Neuerungen von Version {v}', { v: APP_VERSION });
     renderUpd();
     $('versionInfo').textContent = 'Tickwerk ' + APP_VERSION + (FLAVOR === 'test' ? ' (' + T('Testversion') + ')' : '') + ' · ' + T('Mess-Engine') + ' ' + (engineVersion || '?');
   }
+  $('moreCalGo').addEventListener('click', function () { openTool('eichen'); });
+  $('moreCalRow').addEventListener('click', function () { openTool('eichen'); });
+  $('moreBackup').addEventListener('click', function () { go('settings', { focus: 'backup' }); });
   function renderPro() {
     var pro = isPro(), card = $('proState'), store = FLAVOR === 'store';
     $('proFree').textContent = T('Gratis bleiben Gangabweichung, Schlagzahl und Papierstreifen für eine Uhr, dazu {n} Messungen pro Woche mit allen Werten.', { n: FREE_PER_WEEK });
@@ -5173,7 +5860,7 @@
   function setUpd(text, kind) { $('updState').textContent = text; $('updState').setAttribute('data-kind', kind || ''); }
   function renderUpd() {
     if (updBusy) return;
-    if (updReady) setUpd(T('Die neue Version ist bereit. Unten «Neue Version: neu laden» tippen.'), 'ok');
+    if (updReady) setUpd(T('Die neue Version ist bereit. Oben «Neue Version: neu laden» tippen.'), 'ok');
     else if (updMsg) setUpd(updMsg.text, updMsg.kind);
     else setUpd(T('Installiert ist Version {v}', { v: APP_VERSION }), '');
   }
@@ -5209,6 +5896,7 @@
     }).catch(function () { end(T('Keine Verbindung zum Server. Später nochmals suchen.'), 'warn'); });
   }
   $('updCheck').addEventListener('click', updCheck);
+  $('accLook').addEventListener('change', function () { settings.accLook = ['full', 'card', 'open'].indexOf(this.value) >= 0 ? this.value : 'tint'; saveSettings(); });
   $('updateBtn').addEventListener('click', function () { if (!rec && !busy) location.reload(); });
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
     var hadController = !!navigator.serviceWorker.controller;
@@ -5248,8 +5936,18 @@
   /* ---------- Was ist neu ----------
      Einmal nach einem Update zeigen, was dazugekommen ist und wo es zu finden ist; jederzeit unter «Mehr». Bei einer
      neuen Installation nicht (dort erklärt die Anleitung den Einstieg). settings.seenVersion merkt sich die Version. */
-  var NEWS_ORDER = ['0.7.6', '0.7.5', '0.7.4', '0.7.3', '0.7.2', '0.7.1', '0.7.0', '0.6.8', '0.6.7', '0.6.6', '0.6.5', '0.6.4'];   /* neuste zuerst; die älteren stehen im Blatt darunter, falls ein Update übersprungen wurde */
+  var NEWS_ORDER = ['0.7.9', '0.7.8', '0.7.7', '0.7.6', '0.7.5', '0.7.4', '0.7.3', '0.7.2', '0.7.1', '0.7.0', '0.6.8', '0.6.7', '0.6.6', '0.6.5', '0.6.4'];   /* neuste zuerst; die älteren stehen im Blatt darunter, falls ein Update übersprungen wurde */
   var NEWS = {
+    '0.7.9': [
+      { t: T('«Mehr» neu geordnet'), s: T('Die Eichung steht zuoberst, solange das Handy nicht geeicht ist; danach findest du sie unter «Genauigkeit». Die übrigen Punkte stehen in Gruppen zum Auf- und Zuklappen. Ihre Farbe wählst du in den Einstellungen.') }
+    ],
+    '0.7.8': [
+      { t: T('Uhr per Foto anlegen'), s: T('Unter «Uhr hinzufügen»: «Per Foto anlegen». Tickwerk liest die Schrift auf dem Zifferblatt und schlägt passende Uhren aus dem Katalog vor; du tippst eine an. Gelesen wird auf dem Handy. Stimmt kein Vorschlag, bleibt die Suche.') }
+    ],
+    '0.7.7': [
+      { t: T('Foto der Uhr'), s: T('Unter «Uhr bearbeiten» ein Foto aufnehmen oder wählen: Tickwerk schneidet das Zifferblatt rund aus und zeigt es bei der Uhr, in «Meine Uhren» und beim Messen. Das Foto bleibt auf dem Handy.') },
+      { t: T('Karten in «Meine Uhren»'), s: T('Der Verlauf steht neu unten rechts. Oben rechts ist Platz für das Foto.') }
+    ],
     '0.7.6': [
       { t: T('Lagen-Test auflösen'), s: T('Auf der Karte «Letzter Lagen-Test» einer Uhr: Die Messungen bleiben und gelten wieder als einzelne Messungen. So lässt sich auch ein umgewandelter Lagen-Test zurücknehmen.') },
       { t: T('Uhren ordnen ohne Ziehen'), s: T('Unter «Uhr bearbeiten» verschieben «Nach oben» und «Nach unten» die Uhr in der Liste, auch mit Tastatur und Bildschirmleser.') }
@@ -5464,7 +6162,7 @@
   });
 
   /* ---------- Start ---------- */
-  var RENDER = { measure: renderMeasure, watches: renderWatches, watch: renderDetail, edit: renderEdit, lagen: renderLagen, lpos: renderLpos, reg: renderReg, zeit: renderZeit, detektiv: renderDetektiv, guide: function () {},
+  var RENDER = { measure: renderMeasure, watches: renderWatches, watch: renderDetail, edit: renderEdit, foto: renderFoto, lagen: renderLagen, lpos: renderLpos, reg: renderReg, zeit: renderZeit, detektiv: renderDetektiv, guide: function () {},
     more: renderMore, pro: renderPro, history: renderHistory, settings: renderSettings, eichen: renderEichen, eichquarz: renderEichen, eichzeit: renderEichen, eichdatei: renderEichen, eichhand: renderEichen };
   if (FLAVOR === 'test') {
     var row = document.createElement('span'), badge = document.createElement('span');
@@ -5476,6 +6174,7 @@
   setStatus('status', idleHint(), '');
   if (location.hash === '#mehr') { stack = [{ s: 'more', p: {} }]; history.replaceState({ tw: 0 }, '', location.pathname + location.search); }
   render();
+  fotoLoad();   /* 0.7.7: Fotos der Uhren nachladen */
   if (!settings.guideSeen) { newsOnStart(); go('guide'); }   /* neu installiert: nichts zu zeigen, nur die Version merken */
   else setTimeout(function () {
     if (newsOnStart()) return;   /* nach einem Update zuerst «Was ist neu»; die übrigen Hinweise kommen beim nächsten Start */
