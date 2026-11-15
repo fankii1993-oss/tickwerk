@@ -12,6 +12,11 @@ Seit dem 10.11.2026 legt Claude neue Versionen als Pull Request in den Ordner; �
 2. **Add file → Upload files**, den ganzen Inhalt dieses Pakets hineinziehen (Dateien und die Ordner `engine`, `fonts`, `icons`), **Commit changes**. Gleichnamige Dateien werden ersetzt; deine Uhren und Messungen bleiben auf dem Handy erhalten.
 3. App auf dem Handy öffnen. Nach ein paar Sekunden erscheint «Neue Version ist bereit»; unter Mehr auf **Neue Version: neu laden** tippen. Ab 0.6.3 lässt sich die Suche unter Mehr → **Nach Update suchen** auch von Hand anstossen.
 
+## Neu in 0.7.6
+
+- **Lagen-Test auflösen.** Auf der Seite der Uhr, Karte «Letzter Lagen-Test»: «Lagen-Test auflösen» nimmt den Messungen die gemeinsame Sitzung, nach einer Rückfrage. Die Messungen bleiben und gelten wieder als einzelne Messungen. Das ist die Umkehrung von «In Lagen-Test umwandeln» (0.7.5) und geht auch für einen gewöhnlichen oder einen angefangenen Lagen-Test (dieser ist damit beendet). Liegen die Messungen höchstens 20 Minuten auseinander, steht danach wieder der Vorschlag zum Umwandeln da.
+- **Uhren ordnen ohne Ziehen.** «Uhr bearbeiten» zeigt den Platz der Uhr («Platz 3 von 4 in «Meine Uhren»») und die Knöpfe «Nach oben» und «Nach unten». Sie wirken sofort, unabhängig von «Änderungen speichern», und lassen sich mit Tastatur und Bildschirmleser bedienen; der neue Platz wird angesagt. Langes Drücken und Ziehen (0.7.5) bleibt.
+
 ## Neu in 0.7.5
 
 - **Lagen-Test: Das Ergebnis bleibt stehen.** Nach einer Lage ging es bisher nach drei Sekunden von selbst zurück zur Auswahl. Jetzt wartet das Ergebnis, bis «Weiter» oder «Nochmals messen» getippt wird. Solange es dasteht, macht die Abbildung der Lage Platz, damit beide Knöpfe ohne Scrollen zu sehen sind.
