@@ -1,6 +1,6 @@
 /* Tickwerk Service Worker: App funktioniert auch offline. */
 var PREFIX = 'tickwerk-test-';
-var CACHE = PREFIX + 'ce433a2cc2';
+var CACHE = PREFIX + '9b0a1a2ff0';
 /* Texterkennung (Ordner ocr/, ab 0.7.8): gross und selten geändert. Sie wird erst beim ersten Gebrauch geholt und liegt in einem
    eigenen Speicher, der ein Update der App überlebt, solange sich die Dateien in ocr/ nicht ändern. */
 var OCR_CACHE = PREFIX + 'ocr-193e124af5';
@@ -23,18 +23,18 @@ var SUMS = {
   "privacy-fr.html": "01cee38d722f49f0f10915db0d14a5604a933710a8b841add2758b199b15ac1c",
   "privacy-it.html": "dfbd1b5e1e73e0c560f7b1cc29153d41966d3a5d19c5af5fecdb0d1537eb3d07",
   "app.css": "53e48d7b6223632a014dcbb55f985f9c1b89c076f817d68ff9a71edcf1bdab38",
-  "app.js": "4f3eb711a681d5c980c686728f5592ad5beecaa97375004d3538661e006cc59f",
+  "app.js": "127301cba19d8229bf4e68ac8fb90cfb3ba7fef7ffae1e1bd2682b73d54429f3",
   "config.js": "47d49259691e07ca8478c1dc025ea712694517c75dcb458e4e97bd1d232ee507",
-  "kaliber.js": "b6ad7cc4d6f5c38e3efb2be15685f1deb54d67f711cfee4966c6b5b0b1970454",
+  "kaliber.js": "650709399578af8281d6e8ccb622d9ae21cd1a5af2fcdb183b6dc8d1f265230b",
   "logo.js": "6224144ef46502115c223ab7c787c978965b25eb709b59ba253724b972ca489b",
-  "en.js": "d67ea8489254f943a4000a7d68dd0d828238754be2528bf6d6d8d650befe6ca0",
-  "fr.js": "bd39f8122b973db8b89b990a5354e62d8f2d4e73d02a5b67a04f69c8e734a261",
-  "it.js": "1c325f4eecc0027595b148158cd0a99ee8ae87646f503455b4398c265119da2f",
+  "en.js": "cbdfd18fa4673bb7b95fd1f92ad8bf1ed1fb0b433cfd412f2c8b19d6d3cd09ce",
+  "fr.js": "0775f411db87815f48c5995226029e5f0ffcfc77126b14484762f0914c3d5f8d",
+  "it.js": "5f4e1c16314ba66a2ecc213679085a41e7c0c574b9d5b346c9c73e7bc9f1f19b",
   "report.js": "e5affcd55fa91b1b29a8eb8ba628aa8f57dd535552dae407fd5262012e275cc1",
   "eichzeit.js": "7fc1b4f33b755b793ebdc379801a7a414e102fea5dc994a382c3858527893b54",
   "worker.js": "80211495a3210159d5f68aa3fc304f402184dc0f712d32c6b043f071f566b0bf",
   "recorder-worklet.js": "8429a12b3c20f3251056e94ad41155b430352bd120e6d06e8722abbe3dbbd6f4",
-  "engine/tickwerk-engine.js": "1bf3c309e85f13c0282f706b833f6c5d9c7e40a1f984f2434ae1636e4a0b5fa0",
+  "engine/tickwerk-engine.js": "9e7170ba3619999c21bf865b7b58a9cc3f13ef78352546b8b0d9b1495e61adc3",
   "manifest.webmanifest": "8ad754488e7abfb0d939594355726ef08412ff5bc6dbced35269ac36f4bd8fca",
   "icons/icon-192.png": "1fb720f27dcdd39c7b3ff54c58027f88c9d515d6b5b022feb3948d1cd89e1775",
   "icons/icon-512.png": "4c38103a47d6d5e1edd8c6fc81323d9c8856666a46ce547f1b30a33d96647c9c",
@@ -54,7 +54,7 @@ function hex(buf) { var b = new Uint8Array(buf), s = ''; for (var i = 0; i < b.l
    Dann prüfen, ob ihr Inhalt zu dieser Version gehört. Passt er nicht, einmal mit neuer Adresse nachfragen; passt er wieder nicht,
    scheitert das Installieren, und die bisherige Version bleibt ganz, wie sie ist. */
 function fresh(f, again) {
-  return fetch(new Request(f + '?v=ce433a2cc2' + (again ? '&r=' + Date.now() : ''), { cache: 'reload' })).then(function (res) {
+  return fetch(new Request(f + '?v=9b0a1a2ff0' + (again ? '&r=' + Date.now() : ''), { cache: 'reload' })).then(function (res) {
     if (!res.ok) throw new Error(f + ': ' + res.status);
     var want = SUMS[f === './' ? 'index.html' : f];
     if (!want || !self.crypto || !self.crypto.subtle) return res;

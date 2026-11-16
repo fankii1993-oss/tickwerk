@@ -672,6 +672,13 @@
   // liefern die erste Schablone. Kurz genug, dass kaum je ein Aussetzer der Aufnahme hineinfaellt und der Gang darin
   // nicht wandert; lang genug fuer mindestens ein Dutzend Schlaege je Tick und Tack (bei 18'000 A/h: 15).
   var LOCAL_TPL_S = 3;
+  /* Suchfenster der weiten Suche (zweiter Versuch) und der Sprung-Probe, in Sekunden. Seit 0.3.3: bis knapp zum halben
+     Schlagabstand (0,45 x T0, hoechstens 62 ms). Bis 0.3.2: 0,3 x T0, hoechstens 45 ms. Bei 28'800 A/h waren das 37,5 ms:
+     Ein Aussetzer von 40 ms (ein ganzer Audiopuffer vieler Handys, 1920 Abtastwerte bei 48 kHz) lag knapp ausserhalb.
+     Die Schlaege danach passten nicht mehr zur Schablone, und die Messung endete mit «Das Ticken war mehrere Sekunden
+     lang nicht zu hoeren», obwohl es durchgehend da war (Aufnahme vom 16.11.2026: drei solche Aussetzer in 60 s).
+     Weiter als der halbe Schlagabstand geht nicht: Dort liegt der Schlag der anderen Art (Tack statt Tick) gleich nah. */
+  function wideLagS(T0) { return Math.min(0.062, 0.45 * T0); }
   var TRACK_N = 5, TRACK_RHO = 0.5;   // weite Suche des zweiten Versuchs: Median der letzten 5 Schlaege mit Aehnlichkeit ab 0,5
 
   /* Wo ist das Ticken wirklich zu hoeren?
@@ -1028,6 +1035,21 @@
     return result;
   }
 
+  /* Meldet ein Band eine Luecke im Ticken, kann das auch ein Aussetzer der Aufnahme sein (ein fehlender oder doppelter
+     Audiopuffer), dem dieses Band nicht folgen konnte: Die Schlaege danach passen dort nicht mehr zur Schablone. Hat ein
+     anderes Band die Aufnahme durchgehend klar gehoert und am Rand der gemeldeten Luecke einen Sprung ausgeglichen, war es
+     keine Luecke. Bedingungen: Ergebnis r brauchbar und nicht schwach, ohne Verdacht auf einen versteckten Sprung; ein
+     ausgeglichener Sprung hoechstens 2,5 s neben Anfang oder Ende der Luecke; und im Band von r sind mehr Schlaege da, als
+     es mit einer echten Luecke sein koennten (mehr als die Haelfte der Schlaege des gemeldeten Abschnitts). */
+  function jumpExplainsSilence(sil, r) {
+    var s = sil && sil.silence;
+    if (!s || !r || !r.ok || !r.quality || r.quality.label === 'schwach' || r.jumpSuspect || !r.gaps || !r.gaps.length || !r.bph) return false;
+    var len = s.toS - s.fromS, dur = s.totalS || r.duration;
+    if (!(len > 0) || !(dur > 0) || !(r.quality.detectedFraction > 1 - 0.5 * len / dur)) return false;
+    var T0 = 3600 / r.bph;
+    return r.gaps.some(function (g) { var t = g.k * T0; return Math.abs(t - s.fromS) <= 2.5 || Math.abs(t - s.toS) <= 2.5; });
+  }
+
   /* ---------- Hauptfunktion ---------- */
 
   /**
@@ -1048,7 +1070,8 @@
     if (!cands.length) cands = [{ lo: 2000, hi: 10000 }];
     var best = null, firstFail = null, oks = [], silent = null;
     cands.forEach(function (c) {
-      if (silent) return;   // eine Luecke gilt fuer die ganze Aufnahme (siehe unten): Weitere Baender aendern nichts mehr
+      // Bis 0.3.2 endete die Auswertung beim ersten Band mit Luecke. Seit 0.3.3 werden die uebrigen Baender noch ausgewertet:
+      // Eines von ihnen kann zeigen, dass die «Luecke» ein Aussetzer der Aufnahme war (siehe jumpExplainsSilence).
       var r = analyzeBandTop(x, fs, opts, { lo: c.lo, hi: c.hi });
       c.result = r.ok ? 'ok' : r.code === 'silence' ? 'Lücke' : 'abgelehnt';
       if (r.code === 'silence' && !silent) silent = r;
@@ -1092,6 +1115,8 @@
     // Eine Luecke im Ticken ist eine Eigenschaft der Aufnahme, nicht des Frequenzbands: Meldet sie ein Band (und das tut
     // es nur, wenn das Ticken dort sonst klar ist), gilt sie, auch wenn ein anderes Band noch eine Zahl liefern wuerde.
     // Diese Zahl waere genau der grobe Wert aus Scheinschlaegen, den die Pruefung verhindern soll.
+    // Seit 0.3.3 die eine Ausnahme: Die «Luecke» war ein Aussetzer der Aufnahme, dem dieses Band nicht folgen konnte.
+    if (silent && best && jumpExplainsSilence(silent, best)) silent = null;
     var out = silent || best || firstFail;
     out.bandsTried = cb.tried;
     return out;
@@ -1193,7 +1218,7 @@
     function jumpProbe() {
       var okB = beats.filter(function (b) { return b.ok; });
       if (okB.length < 40) return false;
-      var lagW = Math.round(Math.min(0.045, 0.3 * T0) * fs), strideW = Math.max(1, Math.round(0.0001 * fs));
+      var lagW = Math.round(wideLagS(T0) * fs), strideW = Math.max(1, Math.round(0.0001 * fs));
       var spanP = Math.max(8, Math.round(LOCAL_TPL_S / T0)), centers = [0, Math.round(0.7 * kHi)];
       for (var ci = 0; ci < centers.length; ci++) {
         var TL = buildTemplates(env, okB.filter(function (b) { return Math.abs(b.k - centers[ci]) <= spanP; }), pre, post);
@@ -1240,7 +1265,7 @@
       }
     }
     for (var pass = 0; pass < 4; pass++) {
-      var maxLag = Math.round((pass === 0 ? (opts.localTpl ? Math.min(0.045, 0.3 * T0) : Math.min(0.022, 0.2 * T0)) : 0.0015) * fs);
+      var maxLag = Math.round((pass === 0 ? (opts.localTpl ? wideLagS(T0) : Math.min(0.022, 0.2 * T0)) : 0.0015) * fs);
       T = buildTemplates(env, pass === 0 ? tplBeats : beats, pre, post);
       if (T.cnt[0] < 3 || T.cnt[1] < 3) break;
       ranges = [activeRange(T.tpl[0]), activeRange(T.tpl[1])];
@@ -2059,7 +2084,7 @@
   }
 
   var api = {
-    version: '0.3.2',
+    version: '0.3.3',
     analyze: analyze,
     analyzeQuartz: analyzeQuartz,
     probeQuartz: probeQuartz,
