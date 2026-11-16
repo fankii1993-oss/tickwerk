@@ -1,6 +1,6 @@
 /* Tickwerk Service Worker: App funktioniert auch offline. */
 var PREFIX = 'tickwerk-test-';
-var CACHE = PREFIX + 'ce433a2cc2';
+var CACHE = PREFIX + 'a1abf3b382';
 /* Texterkennung (Ordner ocr/, ab 0.7.8): gross und selten geändert. Sie wird erst beim ersten Gebrauch geholt und liegt in einem
    eigenen Speicher, der ein Update der App überlebt, solange sich die Dateien in ocr/ nicht ändern. */
 var OCR_CACHE = PREFIX + 'ocr-193e124af5';
@@ -23,13 +23,13 @@ var SUMS = {
   "privacy-fr.html": "01cee38d722f49f0f10915db0d14a5604a933710a8b841add2758b199b15ac1c",
   "privacy-it.html": "dfbd1b5e1e73e0c560f7b1cc29153d41966d3a5d19c5af5fecdb0d1537eb3d07",
   "app.css": "53e48d7b6223632a014dcbb55f985f9c1b89c076f817d68ff9a71edcf1bdab38",
-  "app.js": "4f3eb711a681d5c980c686728f5592ad5beecaa97375004d3538661e006cc59f",
+  "app.js": "5ab4ad50e99148f8112b8b239249ba2223434136b9a3fb3623f0579a4494d64b",
   "config.js": "47d49259691e07ca8478c1dc025ea712694517c75dcb458e4e97bd1d232ee507",
-  "kaliber.js": "b6ad7cc4d6f5c38e3efb2be15685f1deb54d67f711cfee4966c6b5b0b1970454",
+  "kaliber.js": "650709399578af8281d6e8ccb622d9ae21cd1a5af2fcdb183b6dc8d1f265230b",
   "logo.js": "6224144ef46502115c223ab7c787c978965b25eb709b59ba253724b972ca489b",
-  "en.js": "d67ea8489254f943a4000a7d68dd0d828238754be2528bf6d6d8d650befe6ca0",
-  "fr.js": "bd39f8122b973db8b89b990a5354e62d8f2d4e73d02a5b67a04f69c8e734a261",
-  "it.js": "1c325f4eecc0027595b148158cd0a99ee8ae87646f503455b4398c265119da2f",
+  "en.js": "e4fa3f99ffaf1b17e2cad2de7a2cc9c2a7c6d65614593f382df766ae52c7f11d",
+  "fr.js": "2f5e6ced568ae000441d52c7d190390fdf7e7251e6f717c47a1e48eac54a82db",
+  "it.js": "cb704bb3ff9d3db040eca48d0915df26df139a3ab859d4dd5e16b5d4185c7d08",
   "report.js": "e5affcd55fa91b1b29a8eb8ba628aa8f57dd535552dae407fd5262012e275cc1",
   "eichzeit.js": "7fc1b4f33b755b793ebdc379801a7a414e102fea5dc994a382c3858527893b54",
   "worker.js": "80211495a3210159d5f68aa3fc304f402184dc0f712d32c6b043f071f566b0bf",
@@ -54,7 +54,7 @@ function hex(buf) { var b = new Uint8Array(buf), s = ''; for (var i = 0; i < b.l
    Dann prüfen, ob ihr Inhalt zu dieser Version gehört. Passt er nicht, einmal mit neuer Adresse nachfragen; passt er wieder nicht,
    scheitert das Installieren, und die bisherige Version bleibt ganz, wie sie ist. */
 function fresh(f, again) {
-  return fetch(new Request(f + '?v=ce433a2cc2' + (again ? '&r=' + Date.now() : ''), { cache: 'reload' })).then(function (res) {
+  return fetch(new Request(f + '?v=a1abf3b382' + (again ? '&r=' + Date.now() : ''), { cache: 'reload' })).then(function (res) {
     if (!res.ok) throw new Error(f + ': ' + res.status);
     var want = SUMS[f === './' ? 'index.html' : f];
     if (!want || !self.crypto || !self.crypto.subtle) return res;

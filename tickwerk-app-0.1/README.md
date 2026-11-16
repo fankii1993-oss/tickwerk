@@ -12,6 +12,11 @@ Seit dem 10.11.2026 legt Claude neue Versionen als Pull Request in den Ordner; �
 2. **Add file → Upload files**, den ganzen Inhalt dieses Pakets hineinziehen (Dateien und die Ordner `engine`, `fonts`, `icons`), **Commit changes**. Gleichnamige Dateien werden ersetzt; deine Uhren und Messungen bleiben auf dem Handy erhalten.
 3. App auf dem Handy öffnen. Nach ein paar Sekunden erscheint «Neue Version ist bereit»; unter Mehr auf **Neue Version: neu laden** tippen. Ab 0.6.3 lässt sich die Suche unter Mehr → **Nach Update suchen** auch von Hand anstossen.
 
+## Neu in 0.7.11
+
+- **Katalog erweitert.** 655 Modelle von 136 Marken und 222 Werke (vorher 501, 123 und 184). Jedes neue Modell hat eine Quelle, die sein Werk nennt; die Liste liegt im Quellcode-Paket (`katalog/modelle-quellen-0711.md`), samt den Modellen, die bewusst weggelassen sind. Ein Hebewinkel steht nur, wo die Seite des Werks ihn nennt: bestätigt bei 128 Werken, als unbestätigt vermerkt bei 40, leer bei 54 (dort rechnet Tickwerk mit 52°).
+- **Sonst nichts geändert:** Mess-Engine, Abläufe und Service Worker sind wie in 0.7.10.
+
 ## Neu in 0.7.10
 
 - **Update ohne Mischzustand.** Bis 0.7.9 holte der Service Worker jede Datei im Hintergrund nochmals und legte sie in den Speicher. Diese Abfrage lief durch den Zwischenspeicher des Browsers; hielt der noch Dateien der Version davor (der Server lässt sie 10 Minuten gelten), lagen nach einem Update alte Dateien neben neuen. Die App lief dann einmal richtig und beim nächsten Öffnen gemischt: neue Seite, altes Programm, altes Aussehen. Nach einigen Minuten und zwei weiteren Starts stimmte es wieder.
