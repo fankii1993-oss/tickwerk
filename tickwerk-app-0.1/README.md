@@ -12,6 +12,15 @@ Seit dem 10.11.2026 legt Claude neue Versionen als Pull Request in den Ordner; �
 2. **Add file → Upload files**, den ganzen Inhalt dieses Pakets hineinziehen (Dateien und die Ordner `engine`, `fonts`, `icons`), **Commit changes**. Gleichnamige Dateien werden ersetzt; deine Uhren und Messungen bleiben auf dem Handy erhalten.
 3. App auf dem Handy öffnen. Nach ein paar Sekunden erscheint «Neue Version ist bereit»; unter Mehr auf **Neue Version: neu laden** tippen. Ab 0.6.3 lässt sich die Suche unter Mehr → **Nach Update suchen** auch von Hand anstossen.
 
+## Neu in 0.7.13
+
+Drei Korrekturen aus der Sicherheitsprüfung von 0.7.12. Am Messen ändert sich nichts.
+
+- **Texterkennung mit Prüfsummen.** Die Dateien im Ordner `ocr/` holt der Service Worker beim ersten Gebrauch. Bisher behielt er sie ungeprüft, jetzt vergleicht er jede mit der Prüfsumme, die der Bau in `sw.js` einträgt (`OCR_SUMS`). Passt eine Datei nicht, fragt er einmal am Zwischenspeicher vorbei nach; passt sie wieder nicht, bekommt die Seite einen Fehler, und in den Speicher kommt nichts. Der Speicher heisst neu `…-ocrp-…`; der bisherige (`…-ocr-…`) fällt beim Aktivieren weg, die Texterkennung wird also einmal neu geladen (rund 2,8 MB).
+- **Ohne `config.js` keine Testversion.** `app.js` nahm bisher die Testversion an, sobald in der Konfiguration nicht ausdrücklich «store» stand. Fehlte die Datei, lief auch die Store-Version als Testversion, mit Pro per Schalter. Jetzt gilt die Testversion nur, wenn «test» dasteht; sonst die Store-Version mit ihrem Speicher.
+- **Der Bau hält bei Platzhaltern an.** `tools/build-app.py` baut die Store-Version nicht mehr, solange in den Angaben zum Betreiber ein Platzhalter in eckigen Klammern steht. Zum Testen geht es mit `--entwurf`; das Paket heisst dann «ENTWURF».
+- **Datenschutzerklärung:** Unter «Wer verantwortlich ist» steht bis zur Veröffentlichung nur noch der Platzhalter.
+
 ## Neu in 0.7.12
 
 - **Mess-Engine 0.3.3: Aussetzer von 40 ms bei schnell tickenden Uhren.** Verliert das Handy während der Messung einen Audiopuffer (bei vielen Geräten 40 ms), verschieben sich alle folgenden Schläge. Die Engine sucht sie dann in einem weiteren Fenster wieder. Dieses Fenster reichte bisher bis 30 % des Schlagabstands, bei 28’800 A/h also ±37,5 ms: Ein Aussetzer von 40 ms lag knapp ausserhalb, und die Messung endete mit «Das Ticken war mehrere Sekunden lang nicht zu hören», obwohl die Uhr durchgehend tickte. Jetzt reicht das Fenster bis 45 % des Schlagabstands (höchstens 62 ms). Aufgefallen an einer Aufnahme vom Testhandy mit drei solchen Aussetzern in 60 Sekunden.

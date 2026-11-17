@@ -9,7 +9,7 @@
   var LANGS = ['de', 'en', 'fr', 'it'];
   var LANG = (function () {
     var cfg = window.TICKWERK_CONFIG || {}, v = 'auto';
-    var pre = typeof cfg.storage === 'string' && /^[a-z][a-z0-9.]{2,30}$/.test(cfg.storage) ? cfg.storage : 'tickwerk.v1';
+    var pre = typeof cfg.storage === 'string' && /^[a-z][a-z0-9.]{2,30}$/.test(cfg.storage) ? cfg.storage : 'tickwerk.app';
     try { var s0 = JSON.parse(localStorage.getItem(pre + '.settings') || '{}'); if (s0 && LANGS.indexOf(s0.lang) >= 0) v = s0.lang; } catch (e) { /* egal */ }
     if (v === 'auto') { var nl = String(navigator.language || '').toLowerCase().slice(0, 2); v = LANGS.indexOf(nl) >= 0 ? nl : 'en'; }
     return v;
@@ -64,9 +64,11 @@
   var KAL = window.TICKWERK_KALIBER || [];
   var UHREN = window.TICKWERK_UHREN || [];
   var CFG = window.TICKWERK_CONFIG || {};
-  var FLAVOR = CFG.flavor === 'store' ? 'store' : 'test';
-  var APP_VERSION = '0.7.12';
-  var PREFIX = typeof CFG.storage === 'string' && /^[a-z][a-z0-9.]{2,30}$/.test(CFG.storage) ? CFG.storage : 'tickwerk.v1';
+  /* 0.7.13: Testversion nur, wenn die Konfiguration es ausdrücklich sagt. Fehlt config.js oder ist sie leer, gilt die Store-Version
+     mit ihrem Speicher: Sonst liefe die Store-Version ohne diese eine Datei als Testversion, mit Pro per Schalter. */
+  var FLAVOR = CFG.flavor === 'test' ? 'test' : 'store';
+  var APP_VERSION = '0.7.13';
+  var PREFIX = typeof CFG.storage === 'string' && /^[a-z][a-z0-9.]{2,30}$/.test(CFG.storage) ? CFG.storage : 'tickwerk.app';
   var KEYS = { watches: PREFIX + '.watches', meas: PREFIX + '.measurements', settings: PREFIX + '.settings', session: PREFIX + '.session', pro: PREFIX + '.pro', log: PREFIX + '.log' };
   var PRO_SKU = typeof CFG.proSku === 'string' && /^[a-z0-9._]{1,40}$/.test(CFG.proSku) ? CFG.proSku : 'tickwerk_pro';
   var BACKEND = typeof CFG.billingBackend === 'string' && /^https:\/\/[A-Za-z0-9.\-]+(:\d+)?(\/[A-Za-z0-9._\-\/]*)?$/.test(CFG.billingBackend) ? CFG.billingBackend : '';
@@ -5936,8 +5938,11 @@
   /* ---------- Was ist neu ----------
      Einmal nach einem Update zeigen, was dazugekommen ist und wo es zu finden ist; jederzeit unter «Mehr». Bei einer
      neuen Installation nicht (dort erklärt die Anleitung den Einstieg). settings.seenVersion merkt sich die Version. */
-  var NEWS_ORDER = ['0.7.12', '0.7.11', '0.7.10', '0.7.9', '0.7.8', '0.7.7', '0.7.6', '0.7.5', '0.7.4', '0.7.3', '0.7.2', '0.7.1', '0.7.0', '0.6.8', '0.6.7', '0.6.6', '0.6.5', '0.6.4'];   /* neuste zuerst; die älteren stehen im Blatt darunter, falls ein Update übersprungen wurde */
+  var NEWS_ORDER = ['0.7.13', '0.7.12', '0.7.11', '0.7.10', '0.7.9', '0.7.8', '0.7.7', '0.7.6', '0.7.5', '0.7.4', '0.7.3', '0.7.2', '0.7.1', '0.7.0', '0.6.8', '0.6.7', '0.6.6', '0.6.5', '0.6.4'];   /* neuste zuerst; die älteren stehen im Blatt darunter, falls ein Update übersprungen wurde */
   var NEWS = {
+    '0.7.13': [
+      { t: T('Texterkennung wird beim Laden geprüft'), s: T('Die Dateien der Texterkennung («Per Foto anlegen») prüft Tickwerk jetzt gleich wie den Rest der App: Sie werden nur verwendet, wenn ihr Inhalt zu dieser Version gehört. Wer die Texterkennung schon benutzt hat, lädt sie beim nächsten Mal einmal neu (rund 2,8 MB).') }
+    ],
     '0.7.12': [
       { t: T('Kurze Aussetzer der Aufnahme besser ausgeglichen'), s: T('Verliert das Handy während der Messung kurz den Ton, fand Tickwerk die Schläge bei schnell tickenden Uhren (ab 28’800 A/h) danach manchmal nicht wieder und meldete, das Ticken sei nicht zu hören. Jetzt gleicht Tickwerk auch solche Aussetzer aus.') }
     ],
